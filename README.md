@@ -83,6 +83,31 @@ node scripts/init-project-trigger-layer.mjs \
   --cursor-globs 'docs/**,README.md'
 ```
 
+Copy-paste prompt for asking an agent to set up a new project:
+
+```text
+Install `CCC0509/agent-trigger-kit` if it is not already available. Use
+`agent-trigger-kit:cross-agent-trigger-layer` to create a project-local trigger
+layer for this repo.
+
+Canonical playbook: `docs/agent-playbooks/<project>-ops.md`
+Plugin name: `<project>-ops`
+Tasks: `<comma-separated-task-names>`
+Cursor globs: `<path globs, for example docs/**,README.md>`
+
+Generate Codex marketplace files, Claude marketplace files, Claude slash-command
+shims, Cursor rules, and short AGENTS / CLAUDE / GEMINI pointer snippets when
+appropriate. Keep every generated skill, command, Cursor rule, and pointer doc
+as a thin delegate to the canonical playbook. Do not copy long SOP text into
+trigger layers.
+
+After scaffolding, run:
+
+`node <path-to-agent-trigger-kit>/scripts/validate-trigger-layer.mjs --root .`
+
+Report the generated files, validation result, and any follow-up needed.
+```
+
 Validate a project trigger layer:
 
 ```bash
