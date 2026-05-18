@@ -102,7 +102,13 @@ node scripts/bump-plugin-version.mjs \
 ## Troubleshooting
 
 - Missing Claude slash commands: run `claude plugin validate <repo-root>` and `claude plugin validate <repo-root>/plugins/<plugin-name>`, confirm `commands/*.md` exists and `.claude-plugin/plugin.json` declares `"commands": ["./commands/"]`, bump the Claude plugin version, update or reinstall, then restart Claude Code.
-- Missing Codex skills: add the marketplace root, not the plugin subdirectory, then run `codex debug prompt-input "test"` and check for the expected `plugin-name:*` skills.
+- Missing Codex skills: add the marketplace root, not the plugin subdirectory, then run `codex debug prompt-input "test"` and check for the expected `plugin-name:*` skills. If the marketplace is present but skills are absent, confirm `~/.codex/config.toml` enables the plugin:
+
+  ```toml
+  [plugins."agent-trigger-kit@agent-trigger-kit"]
+  enabled = true
+  ```
+
 - Validator reports a missing canonical playbook: create the referenced playbook or rerun the init script. Do not move the long rules into skills, commands, or Cursor rules.
 - Cursor drift: regenerate or edit `.cursor/rules/*.mdc` with YAML-list `globs`; Cursor does not install from this marketplace.
 
