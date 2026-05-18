@@ -13,6 +13,6 @@ This is a trigger layer only; canonical rules remain in repo playbooks.
 
 ## Checklist
 
-- State matched playbook sections before acting.
-- Keep this skill short; do not copy long SOP bodies here.
+- State the matched playbook before acting.
+- Keep this wrapper short; do not copy long SOP bodies here.
 - Run the project trigger-layer validator when editing trigger surfaces.

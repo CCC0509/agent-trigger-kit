@@ -63,6 +63,17 @@ function writeJson(path, value) {
   write(path, JSON.stringify(value, null, 2));
 }
 
+function writeIfMissing(path, content) {
+  const full = pathOf(path);
+  if (existsSync(full)) {
+    console.log(`kept ${path}`);
+    return;
+  }
+  mkdirSync(join(full, '..'), { recursive: true });
+  writeFileSync(full, `${content.trimEnd()}\n`);
+  console.log(`wrote ${path}`);
+}
+
 function upsertCodexMarketplace() {
   const path = '.agents/plugins/marketplace.json';
   const marketplace = readJsonIfExists(path, {
@@ -105,6 +116,20 @@ function upsertClaudeMarketplace() {
   marketplace.plugins = marketplace.plugins.filter((item) => item.name !== pluginName);
   marketplace.plugins.push(entry);
   writeJson(path, marketplace);
+}
+
+function writePlaybookPlaceholder() {
+  const taskList = tasks.map((task) => `- ${task}`).join('\n');
+  writeIfMissing(playbook, `# ${titleize(pluginName)} Playbook
+
+This is the canonical playbook for the ${pluginName} trigger layer.
+
+## Tasks
+
+${taskList}
+
+Keep project operating rules here. Codex skills, Claude commands, Cursor rules, and pointer docs should stay thin references to this file.
+`);
 }
 
 function writePluginManifests() {
@@ -197,6 +222,7 @@ This file is a trigger wrapper only. Do not duplicate long SOP content here.
 
 upsertCodexMarketplace();
 upsertClaudeMarketplace();
+writePlaybookPlaceholder();
 writePluginManifests();
 writeTaskWrappers();
 

@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Cross-agent trigger layer toolkit for Codex, Claude Code, and Cursor.",
   "scripts": {
+    "test": "node --test",
     "validate": "node scripts/validate-trigger-layer.mjs --root ."
   },
   "engines": {

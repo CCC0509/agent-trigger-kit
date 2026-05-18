@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, normalize } from 'node:path';
+import { dirname, join, normalize } from 'node:path';
 
 const args = parseArgs(process.argv.slice(2));
 const root = normalize(args.root || process.cwd());
@@ -66,6 +66,41 @@ function hasFrontmatter(path, keys) {
   return true;
 }
 
+function localBacktickRefs(text) {
+  return [...text.matchAll(/`([^`]+)`/g)]
+    .map((match) => match[1])
+    .filter((ref) => {
+      if (ref.startsWith('/') || ref.startsWith('#')) return false;
+      if (/^[a-z][a-z0-9+.-]*:/i.test(ref)) return false;
+      return ref.endsWith('.md');
+    });
+}
+
+function sectionBody(text, heading) {
+  const lines = text.split('\n');
+  const start = lines.findIndex((line) => line.trim() === `## ${heading}`);
+  if (start === -1) return '';
+  const body = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.startsWith('#')) break;
+    body.push(line);
+  }
+  return body.join('\n');
+}
+
+function validateCanonicalRefs(path, baseDir, text = read(path)) {
+  for (const ref of localBacktickRefs(text)) {
+    const candidate = normalize(join(baseDir, ref));
+    if (!existsSync(pathOf(candidate))) {
+      fail(`${path}: missing canonical playbook ${candidate}`);
+    }
+  }
+}
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function parsePluginEntries() {
   const entries = new Map();
 
@@ -120,8 +155,9 @@ function validatePlugin(plugin) {
   }
 
   const claudeManifestPath = `${plugin.pluginDir}/.claude-plugin/plugin.json`;
+  let claude = null;
   if (existsSync(pathOf(claudeManifestPath))) {
-    const claude = parseJson(claudeManifestPath);
+    claude = parseJson(claudeManifestPath);
     if (claude?.name !== plugin.name) fail(`${claudeManifestPath}: name must be ${plugin.name}`);
     if (plugin.claudeVersion && claude?.version !== plugin.claudeVersion) {
       fail(`${claudeManifestPath}: version must match Claude marketplace ${plugin.claudeVersion}`);
@@ -145,16 +181,28 @@ function validatePlugin(plugin) {
       continue;
     }
     hasFrontmatter(skillPath, ['name', 'description']);
+    validateCanonicalRefs(skillPath, dirname(skillPath), sectionBody(read(skillPath), 'Must Read'));
   }
 
   const commandDir = `${plugin.pluginDir}/commands`;
   if (existsSync(pathOf(commandDir))) {
-    for (const file of readdirSync(pathOf(commandDir)).filter((name) => name.endsWith('.md'))) {
+    const commandFiles = readdirSync(pathOf(commandDir)).filter((name) => name.endsWith('.md'));
+    if (commandFiles.length > 0 && (!Array.isArray(claude?.commands) || claude.commands.length === 0)) {
+      fail(`${claudeManifestPath}: commands exist but are not declared`);
+    }
+    const delegationPattern = new RegExp(`${escapeRegExp(plugin.name)}:([A-Za-z0-9_-]+)`, 'g');
+    for (const file of commandFiles) {
       const commandPath = `${commandDir}/${file}`;
       hasFrontmatter(commandPath, ['description']);
       const commandText = read(commandPath);
-      if (!commandText.includes(`${plugin.name}:`)) {
+      const delegations = [...commandText.matchAll(delegationPattern)].map((match) => match[1]);
+      if (delegations.length === 0) {
         fail(`${commandPath}: missing delegation to ${plugin.name}:<skill>`);
+      }
+      for (const skillName of delegations) {
+        if (!existsSync(pathOf(`${plugin.pluginDir}/skills/${skillName}/SKILL.md`))) {
+          fail(`${commandPath}: delegates to missing skill ${plugin.name}:${skillName}`);
+        }
       }
     }
   }
@@ -166,6 +214,7 @@ function validateCursorRules() {
   for (const file of readdirSync(pathOf(rulesDir)).filter((name) => name.endsWith('.mdc'))) {
     const rulePath = `${rulesDir}/${file}`;
     hasFrontmatter(rulePath, ['description', 'globs']);
+    validateCanonicalRefs(rulePath, '.');
   }
 }
 
