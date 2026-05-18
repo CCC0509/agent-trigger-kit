@@ -1,0 +1,11 @@
+---
+description: {{description}}
+globs:
+{{globs}}
+---
+
+Read the canonical playbook before acting:
+
+- `{{canonicalPlaybook}}`
+
+This file is a trigger wrapper only. Do not duplicate long SOP content here.

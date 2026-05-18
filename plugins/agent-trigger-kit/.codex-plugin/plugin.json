@@ -1,0 +1,16 @@
+{
+  "name": "agent-trigger-kit",
+  "version": "0.1.0",
+  "description": "Cross-agent trigger layer toolkit for Codex, Claude Code, and Cursor",
+  "author": {
+    "name": "Agent Trigger Kit"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agent Trigger Kit",
+    "shortDescription": "Build cross-agent trigger layers",
+    "longDescription": "Reusable skills and scripts for creating project-local trigger layers across Codex, Claude Code, and Cursor while keeping project playbooks canonical.",
+    "developerName": "Agent Trigger Kit",
+    "category": "Development"
+  }
+}

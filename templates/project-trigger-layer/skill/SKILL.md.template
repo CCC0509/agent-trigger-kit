@@ -1,0 +1,18 @@
+---
+name: {{taskName}}
+description: {{description}}
+---
+
+# {{taskTitle}}
+
+This is a trigger layer only; canonical rules remain in repo playbooks.
+
+## Must Read
+
+- `{{canonicalPlaybook}}`
+
+## Checklist
+
+- State matched playbook sections before acting.
+- Keep this skill short; do not copy long SOP bodies here.
+- Run the project trigger-layer validator when editing trigger surfaces.

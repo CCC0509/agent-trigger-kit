@@ -1,0 +1,22 @@
+{
+  "name": "agent-trigger-kit",
+  "owner": {
+    "name": "Agent Trigger Kit"
+  },
+  "metadata": {
+    "description": "Cross-agent trigger layer toolkit for Claude Code and companion agents"
+  },
+  "plugins": [
+    {
+      "name": "agent-trigger-kit",
+      "source": "./plugins/agent-trigger-kit",
+      "description": "Cross-agent trigger layer toolkit for Codex, Claude Code, and Cursor",
+      "version": "0.1.0",
+      "author": {
+        "name": "Agent Trigger Kit"
+      },
+      "category": "workflow",
+      "strict": false
+    }
+  ]
+}

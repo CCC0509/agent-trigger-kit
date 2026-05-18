@@ -1,0 +1,18 @@
+---
+description: {{description}}
+---
+
+# {{taskTitle}} Command
+
+Use this when invoking `/{{taskName}}`. The maintained workflow lives in `skills/{{taskName}}/SKILL.md`.
+
+## Arguments
+
+`$ARGUMENTS`
+
+## Delegation
+
+Apply the `{{pluginName}}:{{taskName}}` skill before answering or acting.
+- Follow the canonical playbook references from the skill.
+- Keep this command as a thin Claude Code slash entry point.
+- Do not duplicate or replace canonical playbook content here.
