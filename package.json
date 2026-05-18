@@ -1,12 +1,13 @@
 {
   "name": "agent-trigger-kit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Cross-agent trigger layer toolkit for Codex, Claude Code, and Cursor.",
   "scripts": {
     "test": "node --test",
     "ops:plugin-cache-sync": "node scripts/sync-codex-plugin-cache.mjs",
+    "ops:plugin-version-check": "node scripts/check-plugin-version.mjs",
     "validate": "node scripts/validate-trigger-layer.mjs --root ."
   },
   "engines": {

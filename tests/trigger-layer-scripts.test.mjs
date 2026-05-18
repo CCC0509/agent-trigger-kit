@@ -19,10 +19,11 @@ function makeRoot() {
   return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-test-'));
 }
 
-function runScript(scriptName, args) {
+function runScript(scriptName, args, options = {}) {
   return spawnSync(process.execPath, [join(repoRoot, 'scripts', scriptName), ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
+    ...options,
   });
 }
 
@@ -86,6 +87,15 @@ function createMinimalPlugin(root, overrides = {}) {
     ...(overrides.commands === false ? {} : { commands: ['./commands/'] }),
   });
   return { pluginDir, pluginName };
+}
+
+function createPackage(root, version = '0.1.0') {
+  writeJson(root, 'package.json', {
+    name: 'demo-trigger-kit',
+    version,
+    private: true,
+    type: 'module',
+  });
 }
 
 function writeValidSkillAndCommand(root, pluginDir) {
@@ -280,4 +290,95 @@ test('Codex plugin cache sync snapshots the marketplace plugin version and backs
   assert.equal(existsSync(join(backupParent, backups[0], 'old.txt')), true);
   assert.match(result.stdout, /sync-codex-plugin-cache: copied demo-ops 0\.1\.2/);
   assert.match(result.stdout, /diff -qr passed/);
+});
+
+test('version check reports matching source versions and Codex cache versions', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+
+  const result = runScript('check-plugin-version.mjs', [
+    '--root',
+    root,
+    '--codex-home',
+    codexHome,
+    pluginName,
+  ], {
+    env: { ...process.env, PATH: '' },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /expected source version: 0\.1\.2/);
+  assert.match(result.stdout, /package\.json: 0\.1\.2/);
+  assert.match(result.stdout, /codex marketplace: 0\.1\.2/);
+  assert.match(result.stdout, /claude plugin: 0\.1\.2/);
+  assert.match(result.stdout, /codex cache versions: 0\.1\.1, 0\.1\.2/);
+  assert.match(result.stdout, /codex cache expected version: present/);
+  assert.match(result.stdout, /claude: CLI unavailable/);
+});
+
+test('version check fails when source versions differ', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.1' });
+
+  const result = runScript('check-plugin-version.mjs', [
+    '--root',
+    root,
+    pluginName,
+  ], {
+    env: { ...process.env, PATH: '' },
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /source versions differ/);
+  assert.match(result.stderr, /package\.json=0\.1\.2/);
+  assert.match(result.stderr, /codex marketplace=0\.1\.1/);
+});
+
+test('bump plugin version updates package and all plugin manifests by default', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginName } = createMinimalPlugin(root);
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--version',
+    '0.1.2',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, '0.1.2');
+  assert.equal(JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0].version, '0.1.2');
+  assert.equal(JSON.parse(readFileSync(join(root, '.claude-plugin/marketplace.json'), 'utf8')).plugins[0].version, '0.1.2');
+  assert.equal(JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.codex-plugin/plugin.json`), 'utf8')).version, '0.1.2');
+  assert.equal(JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.claude-plugin/plugin.json`), 'utf8')).version, '0.1.2');
+});
+
+test('bump plugin version validates surface before writing files', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginName } = createMinimalPlugin(root);
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--version',
+    '0.1.2',
+    '--surface',
+    'bad',
+  ]);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /--surface must be all, codex, or claude/);
+  assert.equal(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, '0.1.0');
+  assert.equal(JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0].version, '0.1.0');
 });

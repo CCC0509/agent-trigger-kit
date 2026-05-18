@@ -8,6 +8,11 @@ const pluginName = required('plugin');
 const version = required('version');
 const surface = args.surface || 'all';
 
+if (!['all', 'codex', 'claude'].includes(surface)) {
+  console.error('--surface must be all, codex, or claude');
+  process.exit(2);
+}
+
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i += 1) {
@@ -47,6 +52,11 @@ function updateJson(path, mutate) {
 }
 
 if (surface === 'all' || surface === 'codex') {
+  if (surface === 'all') {
+    updateJson('package.json', (pkg) => {
+      pkg.version = version;
+    });
+  }
   updateJson('.agents/plugins/marketplace.json', (marketplace) => {
     const plugin = marketplace.plugins?.find((entry) => entry.name === pluginName);
     if (plugin) plugin.version = version;
@@ -64,9 +74,4 @@ if (surface === 'all' || surface === 'claude') {
   updateJson(`plugins/${pluginName}/.claude-plugin/plugin.json`, (plugin) => {
     plugin.version = version;
   });
-}
-
-if (!['all', 'codex', 'claude'].includes(surface)) {
-  console.error('--surface must be all, codex, or claude');
-  process.exit(2);
 }
