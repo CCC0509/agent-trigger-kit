@@ -2,6 +2,22 @@
 
 Cross-agent trigger layer toolkit for projects that want the same operating rules to be discoverable in Codex, Claude Code, and Cursor without copying long SOP text into every surface.
 
+## What's New
+
+- Added a Codex local plugin cache sync utility that reads the marketplace
+  manifest, verifies the plugin manifest version, backs up stale snapshots,
+  copies the fresh plugin snapshot, and confirms it with `diff -qr`.
+- Added validator coverage for Codex and Claude marketplace/plugin manifest
+  version drift.
+- Generalized project-local examples so reusable workflows use placeholders
+  instead of one project's plugin name.
+
+## Working Rules
+
+- After completing any change, run the relevant verification commands, commit
+  the finished work, and push it unless the user explicitly asks to keep the
+  changes local.
+
 ## What This Provides
 
 - Codex marketplace manifest and skills.
@@ -28,11 +44,20 @@ Confirm the Codex prompt input includes `agent-trigger-kit:*` skills. Restart Cl
 From a local checkout during development:
 
 ```bash
-codex plugin marketplace add /Users/rd/projects/agent-trigger-kit
+codex plugin marketplace add /path/to/agent-trigger-kit
 codex debug prompt-input "test"
 
-claude plugin marketplace add /Users/rd/projects/agent-trigger-kit --scope user
+claude plugin marketplace add /path/to/agent-trigger-kit --scope user
 claude plugin install agent-trigger-kit@agent-trigger-kit --scope user
+```
+
+If a local Codex marketplace already points at this checkout but the prompt
+input still shows an old cached snapshot, sync the local cache from the
+marketplace manifest:
+
+```bash
+npm run ops:plugin-cache-sync -- agent-trigger-kit
+codex debug prompt-input "test"
 ```
 
 ## Update
@@ -65,9 +90,9 @@ Create a conservative project-local trigger layer from a checkout of this repo:
 ```bash
 node scripts/init-project-trigger-layer.mjs \
   --root /path/to/project \
-  --plugin stock-scanner-ops \
+  --plugin <project>-ops \
   --tasks docs-review,deploy-ops,data-debugging \
-  --playbook docs/agent-playbooks/stock-scanner-ops.md
+  --playbook docs/agent-playbooks/<project>-ops.md
 ```
 
 If the playbook file is missing, the generator creates a short canonical placeholder at that path. Edit that playbook with the real project rules; generated skills, commands, Cursor rules, and pointer docs should remain thin.
@@ -77,9 +102,9 @@ Cursor has no plugin marketplace in this toolkit. Generate repo-local rules with
 ```bash
 node scripts/init-project-trigger-layer.mjs \
   --root /path/to/project \
-  --plugin stock-scanner-ops \
+  --plugin <project>-ops \
   --tasks docs-review,deploy-ops,data-debugging \
-  --playbook docs/agent-playbooks/stock-scanner-ops.md \
+  --playbook docs/agent-playbooks/<project>-ops.md \
   --cursor-globs 'docs/**,README.md'
 ```
 
@@ -119,9 +144,18 @@ Bump a plugin version after changing Claude commands or lifecycle-sensitive mani
 ```bash
 node scripts/bump-plugin-version.mjs \
   --root /path/to/project \
-  --plugin stock-scanner-ops \
+  --plugin <plugin-name> \
   --version 0.1.1 \
   --surface claude
+```
+
+Sync a project-local Codex plugin cache snapshot after bumping or editing a local
+plugin:
+
+```bash
+node scripts/sync-codex-plugin-cache.mjs \
+  --root /path/to/project \
+  <plugin-name>
 ```
 
 ## Troubleshooting

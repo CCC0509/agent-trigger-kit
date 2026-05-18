@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from 'node:fs';
@@ -37,6 +38,7 @@ function write(root, path, text) {
 
 function createMinimalPlugin(root, overrides = {}) {
   const pluginName = overrides.pluginName || 'demo-ops';
+  const version = overrides.version || '0.1.0';
   const pluginDir = `plugins/${pluginName}`;
   writeJson(root, '.agents/plugins/marketplace.json', {
     name: pluginName,
@@ -44,7 +46,7 @@ function createMinimalPlugin(root, overrides = {}) {
     plugins: [
       {
         name: pluginName,
-        version: '0.1.0',
+        version,
         source: { source: 'local', path: `./${pluginDir}` },
         policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
         category: 'Productivity',
@@ -61,7 +63,7 @@ function createMinimalPlugin(root, overrides = {}) {
         name: pluginName,
         source: `./${pluginDir}`,
         description: 'Demo Ops trigger skills',
-        version: '0.1.0',
+        version,
         author: { name: 'Demo Ops' },
         category: 'workflow',
         strict: false,
@@ -70,20 +72,41 @@ function createMinimalPlugin(root, overrides = {}) {
   });
   writeJson(root, `${pluginDir}/.codex-plugin/plugin.json`, {
     name: pluginName,
-    version: '0.1.0',
+    version,
     description: 'Demo Ops trigger skills',
     author: { name: 'Demo Ops' },
     skills: './skills/',
   });
   writeJson(root, `${pluginDir}/.claude-plugin/plugin.json`, {
     name: pluginName,
-    version: '0.1.0',
+    version,
     description: 'Demo Ops trigger skills',
     author: { name: 'Demo Ops' },
     skills: ['./skills/'],
     ...(overrides.commands === false ? {} : { commands: ['./commands/'] }),
   });
   return { pluginDir, pluginName };
+}
+
+function writeValidSkillAndCommand(root, pluginDir) {
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  write(root, `${pluginDir}/skills/docs-review/SKILL.md`, `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`);
+  write(root, `${pluginDir}/commands/docs-review.md`, `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs-review\` skill before acting.
+`);
 }
 
 test('init creates a canonical playbook placeholder when it is missing', () => {
@@ -189,4 +212,72 @@ Apply the \`demo-ops:docs-review\` skill before acting.
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /commands exist but are not declared/);
+});
+
+test('validator fails when Codex marketplace and plugin manifest versions differ', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  writeJson(root, `${pluginDir}/.codex-plugin/plugin.json`, {
+    name: 'demo-ops',
+    version: '0.1.1',
+    description: 'Demo Ops trigger skills',
+    author: { name: 'Demo Ops' },
+    skills: './skills/',
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /version must match Codex marketplace 0\.1\.0/);
+});
+
+test('validator fails when Claude marketplace and plugin manifest versions differ', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  writeJson(root, `${pluginDir}/.claude-plugin/plugin.json`, {
+    name: 'demo-ops',
+    version: '0.1.1',
+    description: 'Demo Ops trigger skills',
+    author: { name: 'Demo Ops' },
+    skills: ['./skills/'],
+    commands: ['./commands/'],
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /version must match Claude marketplace 0\.1\.0/);
+});
+
+test('Codex plugin cache sync snapshots the marketplace plugin version and backs up stale cache', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeValidSkillAndCommand(root, pluginDir);
+  write(root, `${pluginDir}/extra.txt`, 'fresh snapshot');
+  write(root, `plugins/${pluginName}/nested/data.txt`, 'nested file');
+
+  const staleCache = join(codexHome, 'plugins/cache', pluginName, pluginName, '0.1.2');
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/old.txt', 'stale cache');
+
+  const result = runScript('sync-codex-plugin-cache.mjs', [
+    '--root',
+    root,
+    '--codex-home',
+    codexHome,
+    pluginName,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(readFileSync(join(staleCache, 'extra.txt'), 'utf8').trim(), 'fresh snapshot');
+  assert.equal(readFileSync(join(staleCache, 'nested/data.txt'), 'utf8').trim(), 'nested file');
+  assert.equal(existsSync(join(staleCache, 'old.txt')), false);
+  const backupParent = join(codexHome, 'plugins/cache', pluginName, pluginName);
+  const backups = readdirSync(backupParent).filter((name) => name.startsWith('0.1.2.backup-'));
+  assert.equal(backups.length, 1);
+  assert.equal(existsSync(join(backupParent, backups[0], 'old.txt')), true);
+  assert.match(result.stdout, /sync-codex-plugin-cache: copied demo-ops 0\.1\.2/);
+  assert.match(result.stdout, /diff -qr passed/);
 });
