@@ -19,10 +19,15 @@ if (!pluginName) {
 
 function parseArgs(argv) {
   const out = { _: [] };
+  const booleanKeys = new Set(['strict-installed']);
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg.startsWith('--')) {
       const key = arg.slice(2);
+      if (booleanKeys.has(key)) {
+        out[key] = true;
+        continue;
+      }
       const next = argv[i + 1];
       if (!next || next.startsWith('--')) {
         out[key] = true;

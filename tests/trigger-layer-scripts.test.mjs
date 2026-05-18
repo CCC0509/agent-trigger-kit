@@ -305,6 +305,7 @@ test('version check reports matching source versions and Codex cache versions', 
     root,
     '--codex-home',
     codexHome,
+    '--strict-installed',
     pluginName,
   ], {
     env: { ...process.env, PATH: '' },
