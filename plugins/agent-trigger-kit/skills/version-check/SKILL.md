@@ -13,31 +13,52 @@ latest, stale, needs an update, or whether the kit version is correct.
 - Source version means the versions in the Agent Trigger Kit checkout.
 - Installed version means the Codex or Claude plugin cache currently visible to
   the agent runtime.
+- Project package versions are checked only when `package.json.name` equals the
+  plugin name or ends with `/<plugin-name>`, unless `--include-package` or
+  `--no-include-package` is passed.
+- Version checks are read-only by default. Do not run sync, update, install, or
+  cache repair commands unless the user asks to repair or update.
 - Old installed versions cannot know about newly added skills. If this skill is
   unavailable, users must run the manual update commands from README first.
 
+## Scope First
+
+Choose the narrowest scope before running commands:
+
+- If the user says Codex, Claude, source, or all/both, use that scope.
+- If no scope is named, use the current runtime: Codex agent means `codex`;
+  Claude Code means `claude`.
+- If neither wording nor runtime makes the scope clear, ask one short question
+  before inspecting installed state.
+
 ## Checklist
 
-1. If the current working directory is an Agent Trigger Kit checkout, run:
+1. If the current working directory is an Agent Trigger Kit checkout, run the
+   pure read-only version check:
 
    ```bash
-   npm run ops:local-agent-sync -- agent-trigger-kit
+   npm run ops:plugin-version-check -- --surface <codex|claude|source|all> agent-trigger-kit
    ```
 
-   Use `--no-codex-debug` when prompt-input output would be too noisy for the
-   current task.
+   This always checks source manifest consistency. `codex` adds Codex cache
+   state, `claude` adds Claude installed state, `source` checks manifests only,
+   and `all` checks both installed surfaces.
 
-2. If not in a checkout, inspect installed state when possible:
+2. If not in a checkout, inspect only the requested installed surface when
+   possible:
 
    ```bash
-   claude plugin list --json
+   ls ~/.codex/plugins/cache/agent-trigger-kit/agent-trigger-kit
    codex debug prompt-input "test"
+
+   claude plugin list --json
    ```
 
    Explain that full source version checking requires an Agent Trigger Kit
    checkout because the source manifests and scripts live there.
 
-3. If Codex or Claude cache is stale, tell the user to update:
+3. If Codex or Claude installed state is stale, tell the user the update command
+   for the scoped surface:
 
    ```bash
    codex plugin marketplace upgrade agent-trigger-kit
@@ -49,8 +70,8 @@ latest, stale, needs an update, or whether the kit version is correct.
 
 4. Tell Claude Code users to restart Claude Code after install or update.
 
-5. If only a local Codex cache repair is needed, run or suggest the narrower
-   cache sync command:
+5. If the user explicitly asks to repair a local Codex cache from a checkout,
+   run or suggest the narrower cache sync command:
 
    ```bash
    npm run ops:plugin-cache-sync -- agent-trigger-kit

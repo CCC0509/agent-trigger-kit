@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const [command, ...commandArgs] = process.argv.slice(2);
 const commands = {
+  clean: 'clean-generated-trigger-layer.mjs',
   init: 'init-project-trigger-layer.mjs',
   validate: 'validate-trigger-layer.mjs',
   'version-check': 'check-plugin-version.mjs',
@@ -17,6 +18,7 @@ function printUsage() {
       'Usage: agent-trigger-kit <command> [args]',
       '',
       'Commands:',
+      '  clean          Dry-run cleanup checks for generated trigger layer files',
       '  init           Create or update a project trigger layer',
       '  validate       Validate a project trigger layer',
       '  version-check  Check source and installed plugin versions',

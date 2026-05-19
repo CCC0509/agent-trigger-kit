@@ -25,8 +25,11 @@ test('ci runs the quality gate on Ubuntu and macOS with a pinned Claude CLI', ()
 
 test('package exposes lint and format tooling with locked dev dependencies', () => {
   const pkg = JSON.parse(read('package.json'));
+  const lock = JSON.parse(read('package-lock.json'));
 
   assert.equal(existsSync(join(repoRoot, 'package-lock.json')), true);
+  assert.equal(lock.version, pkg.version);
+  assert.equal(lock.packages?.['']?.version, pkg.version);
   assert.equal(pkg.scripts.lint, 'eslint .');
   assert.equal(pkg.scripts.format, 'prettier --write .');
   assert.equal(pkg.scripts['format:check'], 'prettier --check .');
@@ -47,4 +50,19 @@ test('open-source polish files document editor, badge, and SemVer expectations',
   assert.match(contributing, /major/i);
   assert.match(contributing, /minor/i);
   assert.match(contributing, /patch/i);
+});
+
+test('completion workflow documents plugin-visible version bump gate', () => {
+  const agents = read('AGENTS.md');
+  const readme = read('README.md');
+
+  assert.match(agents, /plugin-visible/i);
+  assert.match(agents, /package\.json/);
+  assert.match(agents, /\.agents\/plugins\/marketplace\.json/);
+  assert.match(agents, /\.claude-plugin\/marketplace\.json/);
+  assert.match(agents, /before commit/i);
+  assert.match(agents, /before push/i);
+
+  assert.match(readme, /plugin-visible/i);
+  assert.match(readme, /bump.*aligned version/i);
 });

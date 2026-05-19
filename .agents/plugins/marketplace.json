@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "agent-trigger-kit",
-      "version": "0.1.2",
+      "version": "0.1.5",
       "source": {
         "source": "local",
         "path": "./plugins/agent-trigger-kit"

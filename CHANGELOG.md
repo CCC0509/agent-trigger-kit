@@ -6,8 +6,37 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
-## Unreleased
+## 0.1.5 - Generated Trigger Layer Cleanup
 
+- Added schema v2 generated manifests that can track multiple project-local
+  plugins in one `.agent-trigger-kit/generated.json`.
+- Added `agent-trigger-kit clean` dry-run and `--apply` cleanup for orphan
+  generated trigger-layer skill wrappers.
+- Added `/trigger-layer-clean` so external project agents can route cleanup
+  through the same plugin command surface as init and validate.
+
+## 0.1.4 - Project Trigger Layer Maintainability
+
+- Generated project trigger layers now preserve existing plugin versions on
+  re-init and use `--initial-version` only for brand-new layers.
+- Added `.agent-trigger-kit/generated.json` and
+  `.agent-trigger-kit/MAINTENANCE.md` generation for managed-file tracking and
+  centralized maintenance policy.
+- Decoupled external project `package.json` versions from plugin version checks
+  and bumps unless the package name matches the plugin name or is explicitly
+  included.
+- Added `--include-package` and `--no-include-package` overrides for version
+  checks and plugin version bumps.
+
+## 0.1.3 - Version Checks And Toolkit Hardening
+
+- Added scoped version checks with `--surface codex|claude|source|all`, keeping
+  source manifest consistency checks always on while limiting installed-state
+  checks to the requested surface.
+- Updated the `agent-trigger-kit:version-check` workflow to be read-only by
+  default instead of running local sync/update commands for version questions.
+- Documented the completion gate requiring aligned version bumps before commit
+  and push when plugin-visible files change.
 - Added `check-plugin-version --json` for automation.
 - Updated the local agent refresh flow to read structured version-check output
   instead of matching human-readable stdout.

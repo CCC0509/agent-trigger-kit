@@ -139,6 +139,18 @@ npx --yes github:CCC0509/agent-trigger-kit init \
 If the playbook file is missing, the generator creates a short canonical
 placeholder at that path. Edit that playbook with the real project rules;
 generated skills, commands, Cursor rules, and pointer docs should remain thin.
+Playbook refs with anchors use simplified heading slugs: lowercase, trimmed,
+whitespace runs as hyphens, and only `a-z`, `0-9`, and hyphen kept.
+The generator also writes `.agent-trigger-kit/MAINTENANCE.md` and
+`.agent-trigger-kit/generated.json`; keep both in git so future validation,
+safe regeneration, and migration flows can tell which files are managed.
+Generated file checksums are SHA-256 hashes of the file bytes written to disk;
+playbooks, marketplace manifests, and `generated.json` itself are not listed as
+managed files.
+
+Existing plugin versions are preserved on re-init, including partial recovery
+when only one plugin surface exists. Use `--initial-version <version>` only for
+a brand-new trigger layer with no existing plugin version.
 
 Cursor has no plugin marketplace in this toolkit. Generate repo-local rules
 with path globs:
@@ -258,34 +270,58 @@ Claude Code users can also run:
 /agent-trigger-kit-version
 ```
 
-From an Agent Trigger Kit checkout, check source versions and Codex cache
-snapshots:
+From an Agent Trigger Kit checkout, use the narrowest read-only check for the
+question:
 
 ```bash
-npm run ops:plugin-version-check -- agent-trigger-kit
-npm run ops:plugin-version-check -- --json agent-trigger-kit
+npm run ops:plugin-version-check -- --surface source agent-trigger-kit
+npm run ops:plugin-version-check -- --surface codex agent-trigger-kit
+npm run ops:plugin-version-check -- --surface claude agent-trigger-kit
+npm run ops:plugin-version-check -- --surface all agent-trigger-kit
 ```
 
-Use strict installed-state checking when you want stale local Codex or Claude
-caches to fail the command:
+Use `--surface source` for source manifests only, `codex` for Codex cache state,
+`claude` for Claude installed state, and `all` only when the question is
+cross-agent. Add `--json` for automation:
 
 ```bash
-npm run ops:plugin-version-check -- --strict-installed agent-trigger-kit
+npm run ops:plugin-version-check -- --surface codex --json agent-trigger-kit
 ```
 
-Expected source versions must match across `package.json`, both marketplace
-manifests, and both plugin manifests.
+Use strict installed-state checking when you want stale checked surfaces to fail
+the command:
+
+```bash
+npm run ops:plugin-version-check -- --surface all --strict-installed agent-trigger-kit
+```
+
+Expected source versions must match across both marketplace manifests and both
+plugin manifests. `package.json` is included only when its `name` is the plugin
+name or a scoped package ending in `/<plugin-name>`, such as `@acme/demo-ops`
+for `demo-ops`. Use `--include-package` or `--no-include-package` to override
+that detection.
 
 ## Maintainer Workflows
 
-Bump a plugin version for a release:
+Bump the aligned version before commit and before push whenever plugin-visible
+files change, including plugin skills, commands, marketplace manifests, or
+plugin manifests. This gives installed caches a fresh snapshot instead of
+reusing a same-version cache.
+
+Bump a plugin version:
 
 ```bash
 node scripts/bump-plugin-version.mjs \
-  --root <agent-trigger-kit-checkout> \
-  --plugin agent-trigger-kit \
+  --root /path/to/project \
+  --plugin <plugin-name> \
   --version 0.1.1
 ```
+
+The bump command uses the same package detection as `version-check`: external
+project package versions are left alone unless `package.json.name` matches the
+plugin name, ends in `/<plugin-name>`, or `--include-package` is passed. Use
+`--no-include-package` for monorepos or unusual package naming where package
+and trigger-layer versions should stay decoupled.
 
 Use `--surface codex` or `--surface claude` only as an advanced cache-repair
 escape hatch. Partial surface bumps emit a warning and do not keep release
@@ -311,11 +347,7 @@ claude plugin validate plugins/agent-trigger-kit
 ```
 
 Run the `/private/tmp` smoke flow from this README's project examples when
-generator behavior changes. If Claude-visible plugin files change, especially
-commands or `.claude-plugin/plugin.json`, bump the plugin version in both
-`.claude-plugin/marketplace.json` and
-`plugins/agent-trigger-kit/.claude-plugin/plugin.json` so marketplace caches
-take a fresh snapshot.
+generator behavior changes.
 
 ## Troubleshooting
 
