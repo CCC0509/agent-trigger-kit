@@ -457,6 +457,289 @@ test('cli routes version-check to the existing script', () => {
   assert.match(result.stdout, /claude: CLI unavailable/);
 });
 
+test('cli routes clean command to the generated trigger layer cleaner', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runCli(['clean', '--root', root, '--plugin', 'demo-ops']);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /clean dry-run: no orphan generated skills for demo-ops/);
+});
+
+test('clean dry-run lists generated skill files missing from a v2 plugin manifest entry', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  write(
+    root,
+    'plugins/demo-ops/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Maintenance contract: \`some/contract.md\`
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(
+    result.stdout.trim(),
+    [
+      'clean dry-run: orphan generated skills for demo-ops',
+      '  orphan plugins/demo-ops/skills/deploy-ops/SKILL.md',
+    ].join('\n'),
+  );
+});
+
+test('clean dry-run skips hand-rolled skills without a maintenance contract marker', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  write(
+    root,
+    'plugins/demo-ops/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Hand rolled deploy notes.
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), 'clean dry-run: no orphan generated skills for demo-ops');
+});
+
+test('clean dry-run skips currently managed generated skills', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
+  write(
+    root,
+    skillPath,
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Maintenance contract: \`some/contract.md\`
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [{ kind: 'skill', path: skillPath }],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), 'clean dry-run: no orphan generated skills for demo-ops');
+});
+
+test('clean dry-run supports a v1 generated manifest for the selected plugin', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  write(
+    root,
+    'plugins/demo-ops/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Maintenance contract: \`some/contract.md\`
+`,
+  );
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 1,
+    pluginName: 'demo-ops',
+    pluginVersion: '0.1.0',
+    files: [],
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(
+    result.stdout.trim(),
+    [
+      'clean dry-run: orphan generated skills for demo-ops',
+      '  orphan plugins/demo-ops/skills/deploy-ops/SKILL.md',
+    ].join('\n'),
+  );
+});
+
+test('clean dry-run checks only the selected v2 plugin entry', () => {
+  const root = makeRoot();
+  createMinimalPlugins(root, ['demo-ops', 'other-ops']);
+  write(
+    root,
+    'plugins/other-ops/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Maintenance contract: \`some/contract.md\`
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+    'other-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), 'clean dry-run: no orphan generated skills for demo-ops');
+  assert.doesNotMatch(result.stdout, /other-ops/);
+});
+
+test('clean dry-run fails clearly when the selected plugin is absent from the generated manifest', () => {
+  const root = makeRoot();
+  createMinimalPlugins(root, ['demo-ops', 'other-ops']);
+  writeGeneratedManifestV2(root, {
+    'other-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /generated manifest/i);
+  assert.match(result.stderr, /plugin/i);
+  assert.match(result.stderr, /demo-ops/);
+});
+
+test('clean dry-run rejects bare --root value', () => {
+  const result = runScript('clean-generated-trigger-layer.mjs', ['--root', '--plugin', 'demo-ops']);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /--root/);
+  assert.doesNotMatch(result.stderr, /TypeError|stack|at file:/i);
+});
+
+test('clean dry-run rejects bare --plugin value', () => {
+  const root = makeRoot();
+
+  const result = runScript('clean-generated-trigger-layer.mjs', ['--root', root, '--plugin']);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /--plugin/);
+  assert.doesNotMatch(result.stderr, /generated manifest|clean dry-run|TypeError|stack|at file:/i);
+});
+
+test('clean dry-run rejects unsafe plugin names before scanning paths', () => {
+  const root = makeRoot();
+  writeGeneratedManifestV2(root, {
+    '../..': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    '../..',
+  ]);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /plugin name/i);
+  assert.equal(result.stdout, '');
+});
+
+test('clean dry-run reports invalid generated manifest JSON clearly', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  write(root, '.agent-trigger-kit/generated.json', '{ malformed json');
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /\.agent-trigger-kit\/generated\.json/);
+  assert.match(result.stderr, /invalid JSON|JSON/i);
+});
+
 test('init creates a canonical playbook placeholder when it is missing', () => {
   const root = makeRoot();
   const playbook = 'docs/agent-playbooks/demo-ops.md';
