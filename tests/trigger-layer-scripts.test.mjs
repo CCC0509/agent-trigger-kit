@@ -439,6 +439,36 @@ test('version check reports matching source versions and Codex cache versions', 
   assert.match(result.stdout, /claude: CLI unavailable/);
 });
 
+test('version check emits structured JSON when requested', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
+
+  const result = runScript('check-plugin-version.mjs', [
+    '--root',
+    root,
+    '--codex-home',
+    codexHome,
+    '--json',
+    pluginName,
+  ], {
+    env: { ...process.env, PATH: '' },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.pluginName, pluginName);
+  assert.equal(payload.expectedVersion, '0.1.2');
+  assert.equal(payload.sourceVersions.length, 5);
+  assert.deepEqual(payload.codexCache.versions, ['0.1.1']);
+  assert.equal(payload.codexCache.hasExpected, false);
+  assert.equal(payload.codexCache.status, 'missing');
+  assert.equal(payload.claude.status, 'cli-unavailable');
+  assert.equal(payload.versionMismatch, true);
+});
+
 test('version check fails when source versions differ', () => {
   const root = makeRoot();
   createPackage(root, '0.1.2');
@@ -567,6 +597,46 @@ exit 99
   assert.match(log, /claude plugin update demo-ops@demo-ops --scope user/);
   assert.match(log, /claude plugin list --json/);
   assert.doesNotMatch(log, /cursor/);
+});
+
+test('local agent trigger refresh syncs when structured version check reports missing expected cache', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const fakeBin = makeRoot();
+  const commandLog = join(fakeBin, 'commands.log');
+  createPackage(root, '0.1.2');
+  const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeValidSkillAndCommand(root, pluginDir);
+  write(root, `${pluginDir}/fresh.txt`, 'fresh local plugin snapshot');
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache only');
+  writeExecutable(fakeBin, 'claude', `#!/bin/sh
+printf 'claude %s\\n' "$*" >> "${commandLog}"
+if [ "$1" = "plugin" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  printf '[{"id":"demo-ops@demo-ops","version":"0.1.2"}]\\n'
+fi
+`);
+
+  const result = runScript('update-local-agent-triggers.mjs', [
+    '--root',
+    root,
+    '--codex-home',
+    codexHome,
+    '--no-codex-debug',
+    pluginName,
+  ], {
+    env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Codex cache is missing or stale; syncing local cache/);
+  assert.equal(readFileSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/fresh.txt'), 'utf8').trim(), 'fresh local plugin snapshot');
+});
+
+test('local agent trigger refresh uses structured version check output', () => {
+  const script = readFileSync(join(repoRoot, 'scripts/update-local-agent-triggers.mjs'), 'utf8');
+
+  assert.match(script, /'--json'/);
+  assert.doesNotMatch(script, /codex cache expected version/);
 });
 
 test('local agent trigger refresh skips Claude update when CLI is unavailable', () => {

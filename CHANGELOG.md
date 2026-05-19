@@ -6,6 +6,12 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## Unreleased
+
+- Added `check-plugin-version --json` for automation.
+- Updated the local agent refresh flow to read structured version-check output
+  instead of matching human-readable stdout.
+
 ## 0.1.2 - Natural Version Check Skill
 
 - Added `agent-trigger-kit:version-check` for natural-language questions such

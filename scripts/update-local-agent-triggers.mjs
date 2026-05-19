@@ -56,13 +56,14 @@ function filesDiffer(left, right) {
 }
 
 function run(command, commandArgs, options = {}) {
+  const { silent = false, ...spawnOptions } = options;
   const result = spawnSync(command, commandArgs, {
     cwd: root,
     encoding: 'utf8',
-    ...options,
+    ...spawnOptions,
   });
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
+  if (!silent && result.stdout) process.stdout.write(result.stdout);
+  if (!silent && result.stderr) process.stderr.write(result.stderr);
   return result;
 }
 
@@ -76,6 +77,8 @@ function requireSuccess(label, result) {
     process.exit(1);
   }
   if (result.status !== 0) {
+    if (result.stdout) process.stderr.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
     console.error(`${label}: failed with exit code ${result.status}`);
     process.exit(result.status || 1);
   }
@@ -137,11 +140,20 @@ const versionCheck = runNodeScript('check-plugin-version.mjs', [
   root,
   '--codex-home',
   codexHome,
+  '--json',
   pluginName,
-]);
+], { silent: true });
 requireSuccess('plugin version check', versionCheck);
 
-if (/codex cache expected version: missing/.test(versionCheck.stdout || '') || filesDiffer(sourceDir, targetDir)) {
+let versionCheckPayload = null;
+try {
+  versionCheckPayload = JSON.parse(versionCheck.stdout || '{}');
+} catch (error) {
+  console.error(`plugin version check: unable to parse JSON output (${error.message})`);
+  process.exit(1);
+}
+
+if (versionCheckPayload.codexCache?.hasExpected === false || filesDiffer(sourceDir, targetDir)) {
   console.log('Codex cache is missing or stale; syncing local cache');
   const sync = runNodeScript('sync-codex-plugin-cache.mjs', [
     '--root',

@@ -259,6 +259,7 @@ snapshots:
 
 ```bash
 npm run ops:plugin-version-check -- agent-trigger-kit
+npm run ops:plugin-version-check -- --json agent-trigger-kit
 ```
 
 Use strict installed-state checking when you want stale local Codex or Claude
