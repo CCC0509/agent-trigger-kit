@@ -513,6 +513,293 @@ Maintenance contract: \`some/contract.md\`
   );
 });
 
+test('clean --apply deletes orphan generated skill file with marker and removes empty skill directory', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
+  const skillDir = 'plugins/demo-ops/skills/deploy-ops';
+  write(
+    root,
+    skillPath,
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Maintenance contract: \`some/contract.md\`
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--apply',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(
+    result.stdout.trim(),
+    ['clean apply: deleted orphan generated skills for demo-ops', `  deleted ${skillPath}`].join(
+      '\n',
+    ),
+  );
+  assert.equal(existsSync(join(root, skillPath)), false);
+  assert.equal(existsSync(join(root, skillDir)), false);
+});
+
+test('clean --apply leaves hand-rolled markerless skill on disk', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
+  write(
+    root,
+    skillPath,
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Hand rolled deploy notes.
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--apply',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), 'clean apply: no orphan generated skills for demo-ops');
+  assert.equal(existsSync(join(root, skillPath)), true);
+});
+
+test('clean --apply leaves currently managed skill on disk', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
+  write(
+    root,
+    skillPath,
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Maintenance contract: \`some/contract.md\`
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [{ kind: 'skill', path: skillPath }],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--apply',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), 'clean apply: no orphan generated skills for demo-ops');
+  assert.equal(existsSync(join(root, skillPath)), true);
+});
+
+test('clean --apply deletes only selected plugin orphan and leaves other plugin orphan on disk', () => {
+  const root = makeRoot();
+  createMinimalPlugins(root, ['demo-ops', 'other-ops']);
+  const selectedSkillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
+  const otherSkillPath = 'plugins/other-ops/skills/deploy-ops/SKILL.md';
+  for (const skillPath of [selectedSkillPath, otherSkillPath]) {
+    write(
+      root,
+      skillPath,
+      `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Maintenance contract: \`some/contract.md\`
+`,
+    );
+  }
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+    'other-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--apply',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(
+    result.stdout.trim(),
+    [
+      'clean apply: deleted orphan generated skills for demo-ops',
+      `  deleted ${selectedSkillPath}`,
+    ].join('\n'),
+  );
+  assert.equal(existsSync(join(root, selectedSkillPath)), false);
+  assert.equal(existsSync(join(root, otherSkillPath)), true);
+});
+
+test('clean --apply leaves non-empty skill directory after deleting SKILL.md', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
+  const extraPath = 'plugins/demo-ops/skills/deploy-ops/README.md';
+  const skillDir = 'plugins/demo-ops/skills/deploy-ops';
+  write(
+    root,
+    skillPath,
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Maintenance contract: \`some/contract.md\`
+`,
+  );
+  write(root, extraPath, '# Local notes');
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--apply',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(existsSync(join(root, skillPath)), false);
+  assert.equal(existsSync(join(root, extraPath)), true);
+  assert.deepEqual(readdirSync(join(root, skillDir)), ['README.md']);
+});
+
+test('clean --apply does not modify generated.json', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
+  const manifestPath = '.agent-trigger-kit/generated.json';
+  write(
+    root,
+    skillPath,
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Maintenance contract: \`some/contract.md\`
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+  const before = readFileSync(join(root, manifestPath), 'utf8');
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--apply',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(readFileSync(join(root, manifestPath), 'utf8'), before);
+});
+
+test('clean dry-run still does not delete files', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
+  write(
+    root,
+    skillPath,
+    `---
+name: deploy-ops
+description: Use for deploy ops.
+---
+
+# Deploy Ops
+
+Maintenance contract: \`some/contract.md\`
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      files: [],
+    },
+  });
+
+  const result = runScript('clean-generated-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(
+    result.stdout.trim(),
+    ['clean dry-run: orphan generated skills for demo-ops', `  orphan ${skillPath}`].join('\n'),
+  );
+  assert.equal(existsSync(join(root, skillPath)), true);
+});
+
 test('clean dry-run skips hand-rolled skills without a maintenance contract marker', () => {
   const root = makeRoot();
   createMinimalPlugin(root);

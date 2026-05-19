@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmdirSync, unlinkSync } from 'node:fs';
 import { normalize } from 'node:path';
 
 import { parseArgs } from './lib/args.mjs';
@@ -9,9 +9,10 @@ import { generatedPluginEntry } from './lib/generated-manifest.mjs';
 const generatedMarker = 'Maintenance contract:';
 const safePluginNamePattern = /^[A-Za-z0-9_-]+$/;
 
-const args = parseArgs(process.argv.slice(2));
+const args = parseArgs(process.argv.slice(2), { booleanKeys: ['apply'] });
 const root = normalize(requiredStringArg(args, 'root'));
 const pluginName = requiredStringArg(args, 'plugin');
+const apply = args.apply === true;
 
 if (!safePluginNamePattern.test(pluginName)) {
   console.error(`Invalid plugin name "${pluginName}": --plugin must be a simple plugin id.`);
@@ -44,13 +45,10 @@ const orphanSkillPaths = findSkillPaths(pluginName)
   .filter((path) => readFileSync(pathOf(path), 'utf8').includes(generatedMarker))
   .sort();
 
-if (orphanSkillPaths.length === 0) {
-  console.log(`clean dry-run: no orphan generated skills for ${pluginName}`);
+if (apply) {
+  applyOrphans(orphanSkillPaths);
 } else {
-  console.log(`clean dry-run: orphan generated skills for ${pluginName}`);
-  for (const path of orphanSkillPaths) {
-    console.log(`  orphan ${path}`);
-  }
+  printDryRun(orphanSkillPaths);
 }
 
 function findSkillPaths(plugin) {
@@ -61,6 +59,44 @@ function findSkillPaths(plugin) {
     .filter((entry) => entry.isDirectory())
     .map((entry) => `plugins/${plugin}/skills/${entry.name}/SKILL.md`)
     .filter((path) => existsSync(pathOf(path)));
+}
+
+function printDryRun(paths) {
+  if (paths.length === 0) {
+    console.log(`clean dry-run: no orphan generated skills for ${pluginName}`);
+    return;
+  }
+
+  console.log(`clean dry-run: orphan generated skills for ${pluginName}`);
+  for (const path of paths) {
+    console.log(`  orphan ${path}`);
+  }
+}
+
+function applyOrphans(paths) {
+  if (paths.length === 0) {
+    console.log(`clean apply: no orphan generated skills for ${pluginName}`);
+    return;
+  }
+
+  for (const path of paths) {
+    unlinkSync(pathOf(path));
+    removeSkillDirIfEmpty(path);
+  }
+
+  console.log(`clean apply: deleted orphan generated skills for ${pluginName}`);
+  for (const path of paths) {
+    console.log(`  deleted ${path}`);
+  }
+}
+
+function removeSkillDirIfEmpty(skillPath) {
+  const skillDir = skillPath.slice(0, skillPath.lastIndexOf('/'));
+  const fullSkillDir = pathOf(skillDir);
+
+  if (readdirSync(fullSkillDir).length === 0) {
+    rmdirSync(fullSkillDir);
+  }
 }
 
 function requiredStringArg(args, key) {
