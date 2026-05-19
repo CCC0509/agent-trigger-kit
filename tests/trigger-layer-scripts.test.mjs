@@ -241,6 +241,27 @@ function writeGeneratedManifest(root, pluginName, pluginVersion, files) {
   });
 }
 
+function writeGeneratedManifestV2(root, plugins, overrides = {}) {
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 2,
+    kitVersion: '0.1.4',
+    templateVersion: 1,
+    plugins,
+    ...overrides,
+  });
+}
+
+function generatedPluginEntry(root, pluginName = 'demo-ops') {
+  const manifest = readJson(root, '.agent-trigger-kit/generated.json');
+  if (manifest.schemaVersion === 2) return manifest.plugins?.[pluginName] || null;
+  if (manifest.pluginName === pluginName) return manifest;
+  return null;
+}
+
+function generatedFiles(root, pluginName = 'demo-ops') {
+  return generatedPluginEntry(root, pluginName)?.files || [];
+}
+
 function writeGeneratedManifestForDemoPlugin(root, pluginDir, pluginName, pluginVersion) {
   writeGeneratedManifest(root, pluginName, pluginVersion, [
     { kind: 'plugin-manifest', path: `${pluginDir}/.codex-plugin/plugin.json` },
@@ -342,6 +363,57 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   return { pluginDir, pluginName, skillPath: `${pluginDir}/skills/docs-review/SKILL.md` };
 }
 
+function createVersionBumpFixtureV2(root, options = {}) {
+  const plugins =
+    options.pluginNames && options.pluginNames.length > 1
+      ? createMinimalPlugins(root, options.pluginNames)
+      : [createMinimalPlugin(root)];
+  for (const plugin of plugins) {
+    mkdirSync(join(root, `${plugin.pluginDir}/skills`), { recursive: true });
+    mkdirSync(join(root, `${plugin.pluginDir}/commands`), { recursive: true });
+  }
+  const { pluginDir, pluginName } = plugins.find((plugin) => plugin.pluginName === 'demo-ops');
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  writeManagedSkill(root, pluginDir);
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs-review\` skill before acting.
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [{ kind: 'skill', path: `${pluginDir}/skills/docs-review/SKILL.md` }],
+    },
+    ...(options.pluginNames?.includes('other-ops')
+      ? {
+          'other-ops': {
+            pluginVersion: '0.1.0',
+            playbook: 'docs/agent-playbooks/other-ops.md',
+            maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+            tasks: ['docs-review'],
+            files: [
+              {
+                kind: 'skill',
+                path: 'plugins/other-ops/skills/docs-review/SKILL.md',
+              },
+            ],
+          },
+        }
+      : {}),
+  });
+  initGitFixture(root);
+  return { pluginDir, pluginName, skillPath: `${pluginDir}/skills/docs-review/SKILL.md` };
+}
+
 test('package exposes the agent-trigger-kit bin entry', () => {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
 
@@ -425,16 +497,18 @@ test('init records generated trigger-layer files without claiming user-owned fil
   const manifest = JSON.parse(
     readFileSync(join(root, '.agent-trigger-kit/generated.json'), 'utf8'),
   );
-  const trackedPaths = manifest.files.map((file) => file.path);
-  const trackedKinds = Object.fromEntries(manifest.files.map((file) => [file.path, file.kind]));
+  const entry = manifest.plugins?.['demo-ops'];
+  const trackedPaths = entry.files.map((file) => file.path);
+  const trackedKinds = Object.fromEntries(entry.files.map((file) => [file.path, file.kind]));
   const skillPath = 'plugins/demo-ops/skills/docs-review/SKILL.md';
 
-  assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.pluginName, 'demo-ops');
-  assert.equal(manifest.pluginVersion, '0.1.0');
-  assert.equal(manifest.playbook, 'docs/agent-playbooks/demo-ops.md');
-  assert.equal(manifest.maintenanceContract, '.agent-trigger-kit/MAINTENANCE.md');
-  assert.deepEqual(manifest.tasks, ['docs-review', 'deploy-ops']);
+  assert.equal(manifest.schemaVersion, 2);
+  assert.equal(Object.hasOwn(manifest, 'pluginName'), false);
+  assert.equal(Object.hasOwn(manifest, 'files'), false);
+  assert.equal(entry.pluginVersion, '0.1.0');
+  assert.equal(entry.playbook, 'docs/agent-playbooks/demo-ops.md');
+  assert.equal(entry.maintenanceContract, '.agent-trigger-kit/MAINTENANCE.md');
+  assert.deepEqual(entry.tasks, ['docs-review', 'deploy-ops']);
   assert.equal(trackedKinds['plugins/demo-ops/.codex-plugin/plugin.json'], 'plugin-manifest');
   assert.equal(trackedKinds['plugins/demo-ops/.claude-plugin/plugin.json'], 'plugin-manifest');
   assert.equal(trackedKinds[skillPath], 'skill');
@@ -445,7 +519,7 @@ test('init records generated trigger-layer files without claiming user-owned fil
   assert.equal(trackedPaths.includes('.claude-plugin/marketplace.json'), false);
   assert.equal(trackedPaths.includes('.agent-trigger-kit/generated.json'), false);
   assert.equal(
-    manifest.files.find((file) => file.path === skillPath).sha256,
+    entry.files.find((file) => file.path === skillPath).sha256,
     sha256(join(root, skillPath)),
   );
   assert.equal(existsSync(join(root, '.agent-trigger-kit/MAINTENANCE.md')), true);
@@ -456,6 +530,46 @@ test('init records generated trigger-layer files without claiming user-owned fil
   assert.match(
     readFileSync(join(root, 'docs/agent-playbooks/demo-ops.md'), 'utf8'),
     /Maintenance contract: `\.\.\/\.\.\/\.agent-trigger-kit\/MAINTENANCE\.md`/,
+  );
+});
+
+test('init for a second plugin preserves existing v2 plugin entries', () => {
+  const root = makeRoot();
+  const first = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+  assert.equal(first.status, 0, first.stderr || first.stdout);
+  const firstEntry = generatedPluginEntry(root, 'demo-ops');
+
+  const second = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'deploy-ops',
+    '--tasks',
+    'release-check',
+    '--playbook',
+    'docs/agent-playbooks/deploy-ops.md',
+  ]);
+
+  assert.equal(second.status, 0, second.stderr || second.stdout);
+  const manifest = readJson(root, '.agent-trigger-kit/generated.json');
+  assert.equal(manifest.schemaVersion, 2);
+  assert.deepEqual(manifest.plugins['demo-ops'], firstEntry);
+  assert.equal(manifest.plugins['deploy-ops'].pluginVersion, '0.1.0');
+  assert.deepEqual(manifest.plugins['deploy-ops'].tasks, ['release-check']);
+  assert.equal(
+    manifest.plugins['deploy-ops'].files.some(
+      (file) => file.path === 'plugins/deploy-ops/skills/release-check/SKILL.md',
+    ),
+    true,
   );
 });
 
@@ -473,9 +587,7 @@ test('init force overwrites unchanged managed skills and updates generated check
     'docs/agent-playbooks/demo-ops.md',
   ]);
   assert.equal(first.status, 0, first.stderr || first.stdout);
-  const previousChecksum = readJson(root, '.agent-trigger-kit/generated.json').files.find(
-    (file) => file.path === skillPath,
-  ).sha256;
+  const previousChecksum = generatedFiles(root).find((file) => file.path === skillPath).sha256;
 
   const second = runScript('init-project-trigger-layer.mjs', [
     '--root',
@@ -491,8 +603,8 @@ test('init force overwrites unchanged managed skills and updates generated check
 
   assert.equal(second.status, 0, second.stderr || second.stdout);
   const skillText = readFileSync(join(root, skillPath), 'utf8');
-  const nextManifest = readJson(root, '.agent-trigger-kit/generated.json');
-  const nextEntry = nextManifest.files.find((file) => file.path === skillPath);
+  const nextManifestEntry = generatedPluginEntry(root);
+  const nextEntry = nextManifestEntry.files.find((file) => file.path === skillPath);
   assert.match(skillText, /docs\/agent-playbooks\/renamed-demo-ops\.md/);
   assert.notEqual(nextEntry.sha256, previousChecksum);
   assert.equal(nextEntry.sha256, sha256(join(root, skillPath)));
@@ -589,6 +701,24 @@ test('init force rejects existing skill targets without matching previous genera
         ],
       },
     },
+    {
+      name: 'v2 missing current plugin',
+      manifest: {
+        schemaVersion: 2,
+        plugins: {
+          'other-ops': {
+            pluginVersion: '0.1.0',
+            files: [
+              {
+                kind: 'skill',
+                path: 'plugins/demo-ops/skills/docs-review/SKILL.md',
+                sha256: null,
+              },
+            ],
+          },
+        },
+      },
+    },
   ];
 
   for (const { name, manifest } of cases) {
@@ -655,9 +785,7 @@ test('init force leaves orphaned managed files on disk and removes them from gen
   assert.equal(second.status, 0, second.stderr || second.stdout);
   assert.equal(existsSync(join(root, orphanSkill)), true);
   assert.equal(existsSync(join(root, orphanCommand)), true);
-  const trackedPaths = readJson(root, '.agent-trigger-kit/generated.json').files.map(
-    (file) => file.path,
-  );
+  const trackedPaths = generatedFiles(root).map((file) => file.path);
   assert.equal(trackedPaths.includes(orphanSkill), false);
   assert.equal(trackedPaths.includes(orphanCommand), false);
 });
@@ -801,7 +929,8 @@ test('init force preserves existing plugin version instead of downgrading', () =
   assert.equal(readJson(root, '.claude-plugin/marketplace.json').plugins[0].version, '0.2.0');
   assert.equal(readJson(root, `${pluginDir}/.codex-plugin/plugin.json`).version, '0.2.0');
   assert.equal(readJson(root, `${pluginDir}/.claude-plugin/plugin.json`).version, '0.2.0');
-  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').pluginVersion, '0.2.0');
+  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').schemaVersion, 2);
+  assert.equal(generatedPluginEntry(root, pluginName).pluginVersion, '0.2.0');
 });
 
 test('init ignores initial version when an existing plugin version is present', () => {
@@ -829,7 +958,7 @@ test('init ignores initial version when an existing plugin version is present', 
   assert.equal(readJson(root, '.claude-plugin/marketplace.json').plugins[0].version, '0.2.0');
   assert.equal(readJson(root, `${pluginDir}/.codex-plugin/plugin.json`).version, '0.2.0');
   assert.equal(readJson(root, `${pluginDir}/.claude-plugin/plugin.json`).version, '0.2.0');
-  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').pluginVersion, '0.2.0');
+  assert.equal(generatedPluginEntry(root, pluginName).pluginVersion, '0.2.0');
 });
 
 test('init uses an existing partial manifest version as the recovery baseline', () => {
@@ -935,7 +1064,7 @@ test('init applies initial version only when no existing plugin version is prese
   assert.equal(readJson(root, '.claude-plugin/marketplace.json').plugins[0].version, '0.3.0');
   assert.equal(readJson(root, 'plugins/demo-ops/.codex-plugin/plugin.json').version, '0.3.0');
   assert.equal(readJson(root, 'plugins/demo-ops/.claude-plugin/plugin.json').version, '0.3.0');
-  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').pluginVersion, '0.3.0');
+  assert.equal(generatedPluginEntry(root).pluginVersion, '0.3.0');
 });
 
 test('init uses generated manifest fallback only for the matching plugin name', () => {
@@ -968,8 +1097,46 @@ test('init uses generated manifest fallback only for the matching plugin name', 
   assert.equal(readJson(root, '.claude-plugin/marketplace.json').plugins[0].version, '0.1.0');
   assert.equal(readJson(root, 'plugins/demo-ops/.codex-plugin/plugin.json').version, '0.1.0');
   assert.equal(readJson(root, 'plugins/demo-ops/.claude-plugin/plugin.json').version, '0.1.0');
-  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').pluginName, 'demo-ops');
-  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').pluginVersion, '0.1.0');
+  assert.equal(generatedPluginEntry(root).pluginVersion, '0.1.0');
+});
+
+test('init uses generated v2 fallback only for the current plugin entry', () => {
+  const root = makeRoot();
+  writeGeneratedManifestV2(root, {
+    'other-ops': {
+      pluginVersion: '0.9.0',
+      playbook: 'docs/agent-playbooks/other-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [],
+    },
+    'demo-ops': {
+      pluginVersion: '0.3.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [],
+    },
+  });
+
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(readJson(root, '.agents/plugins/marketplace.json').plugins[0].version, '0.3.0');
+  assert.equal(readJson(root, '.claude-plugin/marketplace.json').plugins[0].version, '0.3.0');
+  assert.equal(readJson(root, 'plugins/demo-ops/.codex-plugin/plugin.json').version, '0.3.0');
+  assert.equal(readJson(root, 'plugins/demo-ops/.claude-plugin/plugin.json').version, '0.3.0');
+  assert.equal(generatedPluginEntry(root, 'demo-ops').pluginVersion, '0.3.0');
+  assert.equal(generatedPluginEntry(root, 'other-ops').pluginVersion, '0.9.0');
 });
 
 test('init script consumes project trigger layer templates for generated wrappers', () => {
@@ -1601,6 +1768,28 @@ test('validator fails when a managed skill lacks a maintenance contract pointer'
   assert.match(result.stderr, /maintenance contract pointer/i);
 });
 
+test('validator fails when a v2 managed skill lacks a maintenance contract pointer', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
+  writeValidSkillAndCommand(root, pluginDir);
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [{ kind: 'skill', path: skillPath }],
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(result.stderr, /maintenance contract pointer/i);
+});
+
 test('validator accepts a managed skill with a loose maintenance contract pointer path', () => {
   const root = makeRoot();
   const { pluginDir } = createMinimalPlugin(root);
@@ -1723,6 +1912,74 @@ test('validator require-version-bump accepts managed skill changes with aligned 
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator require-version-bump infers the plugin from a single-plugin v2 manifest', () => {
+  const root = makeRoot();
+  const { pluginDir } = createVersionBumpFixtureV2(root);
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
+  bumpDemoPluginVersion(root, pluginDir);
+  commitAll(root, 'change managed skill and bump version');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator require-version-bump requires --plugin for multi-plugin v2 manifests', () => {
+  const root = makeRoot();
+  const { pluginDir, skillPath } = createVersionBumpFixtureV2(root, {
+    pluginNames: ['demo-ops', 'other-ops'],
+  });
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
+  commitAll(root, 'change managed skill');
+
+  const ambiguous = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+  assert.notEqual(ambiguous.status, 0);
+  assert.match(ambiguous.stderr, /multiple plugins|--plugin/i);
+
+  const selectedMatching = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+    '--plugin',
+    'demo-ops',
+  ]);
+  assert.notEqual(selectedMatching.status, 0);
+  assert.match(selectedMatching.stderr, /version bump/i);
+  assert.match(
+    selectedMatching.stderr,
+    new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+  );
+
+  const selectedOther = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+    '--plugin',
+    'other-ops',
+  ]);
+  assert.equal(selectedOther.status, 0, selectedOther.stderr || selectedOther.stdout);
+  assert.match(selectedOther.stdout, /trigger layer validation passed/);
 });
 
 test('validator require-version-bump rejects stale matching package version', () => {

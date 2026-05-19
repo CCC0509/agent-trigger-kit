@@ -9,6 +9,11 @@ import {
   readJsonFileIfExists,
   writeJsonFileCreatingParents,
 } from './lib/fs-json.mjs';
+import {
+  generatedPluginEntry,
+  generatedPluginNames,
+  upsertGeneratedPluginEntry,
+} from './lib/generated-manifest.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 const root = normalize(requiredArg(args, 'root'));
@@ -128,9 +133,7 @@ function existingPluginVersion() {
   }
 
   const generated = readJsonFileIfExists(pathOf('.agent-trigger-kit/generated.json'), null);
-  return generated?.pluginName === pluginName && generated.pluginVersion
-    ? generated.pluginVersion
-    : initialVersion;
+  return generatedPluginEntry(generated, pluginName)?.pluginVersion || initialVersion;
 }
 
 let pluginVersion;
@@ -168,13 +171,17 @@ function verifyForceOverwrite(path, kind, full) {
     );
   }
 
-  if (previousGeneratedManifest.pluginName !== pluginName) {
+  const previousGeneratedEntry = generatedPluginEntry(previousGeneratedManifest, pluginName);
+  if (!previousGeneratedEntry) {
+    const previousPlugins = generatedPluginNames(previousGeneratedManifest);
     throw new Error(
-      `${path} exists but .agent-trigger-kit/generated.json belongs to ${previousGeneratedManifest.pluginName || 'an unknown plugin'}; refusing overwrite with --force for ${pluginName}`,
+      `${path} exists but .agent-trigger-kit/generated.json has no entry for ${pluginName}${
+        previousPlugins.length > 0 ? ` (found ${previousPlugins.join(', ')})` : ''
+      }; refusing overwrite with --force`,
     );
   }
 
-  const previousEntry = previousGeneratedManifest.files?.find((file) => file.path === path);
+  const previousEntry = previousGeneratedEntry.files?.find((file) => file.path === path);
   if (!previousEntry) {
     throw new Error(
       `${path} exists but is not listed in .agent-trigger-kit/generated.json; refusing overwrite with --force`,
@@ -395,17 +402,24 @@ function writeTaskWrappers() {
 }
 
 function writeGeneratedManifest() {
-  writeJsonFileCreatingParents(pathOf('.agent-trigger-kit/generated.json'), {
-    schemaVersion: 1,
-    kitVersion: kitPackage.version,
-    templateVersion,
-    pluginName,
-    pluginVersion,
-    playbook,
-    maintenanceContract,
-    tasks,
-    files: generatedFiles,
-  });
+  writeJsonFileCreatingParents(
+    pathOf('.agent-trigger-kit/generated.json'),
+    upsertGeneratedPluginEntry(
+      previousGeneratedManifest,
+      pluginName,
+      {
+        pluginVersion,
+        playbook,
+        maintenanceContract,
+        tasks,
+        files: generatedFiles,
+      },
+      {
+        kitVersion: kitPackage.version,
+        templateVersion,
+      },
+    ),
+  );
   console.log('wrote .agent-trigger-kit/generated.json');
 }
 

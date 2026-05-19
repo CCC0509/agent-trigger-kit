@@ -5,6 +5,11 @@ import { dirname, join, normalize } from 'node:path';
 
 import { parseArgs } from './lib/args.mjs';
 import { createPathOf } from './lib/fs-json.mjs';
+import {
+  generatedPluginEntry,
+  generatedPluginNames,
+  normalizeGeneratedManifest,
+} from './lib/generated-manifest.mjs';
 
 const args = parseArgs(process.argv.slice(2), { booleanKeys: ['require-version-bump'] });
 const root = normalize(args.root || process.cwd());
@@ -16,6 +21,7 @@ const markdownHeadingCache = new Map();
 const reportedDuplicateHeadingSlugs = new Set();
 const requireVersionBump = args['require-version-bump'] === true;
 const versionBumpBase = args.base;
+const versionBumpPlugin = typeof args.plugin === 'string' ? args.plugin.trim() : '';
 
 if (requireVersionBump && (typeof versionBumpBase !== 'string' || versionBumpBase.trim() === '')) {
   console.error('--require-version-bump requires --base <ref>');
@@ -320,11 +326,14 @@ function validateMaintenanceContractPointers() {
   const generated = parseJson(generatedPath);
   if (!generated) return;
 
-  for (const entry of generated.files || []) {
-    if (entry?.kind !== 'skill' || typeof entry.path !== 'string') continue;
-    if (!existsSync(pathOf(entry.path))) continue;
-    if (!/Maintenance contract:\s*`[^`]+`/.test(read(entry.path))) {
-      fail(`${entry.path}: missing maintenance contract pointer`);
+  const normalized = normalizeGeneratedManifest(generated);
+  for (const plugin of Object.values(normalized.plugins)) {
+    for (const entry of plugin.files || []) {
+      if (entry?.kind !== 'skill' || typeof entry.path !== 'string') continue;
+      if (!existsSync(pathOf(entry.path))) continue;
+      if (!/Maintenance contract:\s*`[^`]+`/.test(read(entry.path))) {
+        fail(`${entry.path}: missing maintenance contract pointer`);
+      }
     }
   }
 }
@@ -485,15 +494,56 @@ function compareCleanSemver(left, right) {
   return 0;
 }
 
-function generatedPluginVisiblePaths(ref) {
+function generatedPluginVisiblePaths(ref, pluginName) {
   const generatedText = showFile(ref, '.agent-trigger-kit/generated.json');
   if (!generatedText) return [];
 
   const generated = parseJsonText(`${ref}:.agent-trigger-kit/generated.json`, generatedText);
   const pluginVisibleKinds = new Set(['skill', 'command', 'plugin-manifest']);
-  return (generated?.files || [])
+  return (generatedPluginEntry(generated, pluginName)?.files || [])
     .filter((entry) => pluginVisibleKinds.has(entry?.kind) && typeof entry.path === 'string')
     .map((entry) => normalizeGeneratedPath(entry.path));
+}
+
+function versionBumpGeneratedPluginName(generated, generatedPath) {
+  if (!generated) return null;
+
+  if (generated.schemaVersion !== 2) {
+    if (!generated.pluginName) {
+      fail(`${generatedPath}: missing pluginName required by --require-version-bump`);
+      return null;
+    }
+    if (versionBumpPlugin && versionBumpPlugin !== generated.pluginName) {
+      fail(
+        `${generatedPath}: --plugin ${versionBumpPlugin} does not match generated pluginName ${generated.pluginName}`,
+      );
+      return null;
+    }
+    return generated.pluginName;
+  }
+
+  const pluginNames = generatedPluginNames(generated);
+  if (versionBumpPlugin) {
+    if (!pluginNames.includes(versionBumpPlugin)) {
+      fail(`${generatedPath}: --plugin ${versionBumpPlugin} is not present in generated manifest`);
+      return null;
+    }
+    return versionBumpPlugin;
+  }
+
+  if (pluginNames.length === 1) {
+    return pluginNames[0];
+  }
+
+  if (pluginNames.length > 1) {
+    fail(
+      `${generatedPath}: multiple plugins (${pluginNames.join(', ')}) require --plugin <name> with --require-version-bump`,
+    );
+    return null;
+  }
+
+  fail(`${generatedPath}: missing plugin entry required by --require-version-bump`);
+  return null;
 }
 
 function validateRequiredVersionBump() {
@@ -506,10 +556,8 @@ function validateRequiredVersionBump() {
   }
 
   const generated = parseJson(generatedPath);
-  if (!generated?.pluginName) {
-    fail(`${generatedPath}: missing pluginName required by --require-version-bump`);
-    return;
-  }
+  const pluginName = versionBumpGeneratedPluginName(generated, generatedPath);
+  if (!pluginName) return;
 
   const gitVersion = runGit(['--version']);
   if (!gitVersion.ok) {
@@ -543,8 +591,8 @@ function validateRequiredVersionBump() {
   );
   const pluginVisibleChanges = [];
   const generatedPluginVisiblePathsByPath = new Set([
-    ...generatedPluginVisiblePaths(mergeBase),
-    ...generatedPluginVisiblePaths('HEAD'),
+    ...generatedPluginVisiblePaths(mergeBase, pluginName),
+    ...generatedPluginVisiblePaths('HEAD', pluginName),
   ]);
 
   for (const entryPath of generatedPluginVisiblePathsByPath) {
@@ -557,7 +605,7 @@ function validateRequiredVersionBump() {
   ]) {
     if (
       changedFiles.has(marketplacePath) &&
-      marketplaceEntryChanged(marketplacePath, mergeBase, generated.pluginName)
+      marketplaceEntryChanged(marketplacePath, mergeBase, pluginName)
     ) {
       pluginVisibleChanges.push(marketplacePath);
     }
@@ -565,8 +613,8 @@ function validateRequiredVersionBump() {
 
   if (pluginVisibleChanges.length === 0) return;
 
-  const baseSnapshot = pluginVersionSnapshot(mergeBase, generated.pluginName);
-  const currentSnapshot = pluginVersionSnapshot('HEAD', generated.pluginName);
+  const baseSnapshot = pluginVersionSnapshot(mergeBase, pluginName);
+  const currentSnapshot = pluginVersionSnapshot('HEAD', pluginName);
   if (baseSnapshot.error || currentSnapshot.error) {
     fail(
       `Cannot determine plugin version for --require-version-bump: ${[
