@@ -210,6 +210,20 @@ function readJson(root, path) {
   return JSON.parse(readFileSync(join(root, path), 'utf8'));
 }
 
+function readPluginVersionSources(root, pluginName) {
+  return {
+    package: readJson(root, 'package.json').version,
+    codexMarketplace: readJson(root, '.agents/plugins/marketplace.json').plugins.find(
+      (plugin) => plugin.name === pluginName,
+    )?.version,
+    claudeMarketplace: readJson(root, '.claude-plugin/marketplace.json').plugins.find(
+      (plugin) => plugin.name === pluginName,
+    )?.version,
+    codexManifest: readJson(root, `plugins/${pluginName}/.codex-plugin/plugin.json`).version,
+    claudeManifest: readJson(root, `plugins/${pluginName}/.claude-plugin/plugin.json`).version,
+  };
+}
+
 function writeGeneratedManifest(root, pluginName, pluginVersion, files) {
   writeJson(root, '.agent-trigger-kit/generated.json', {
     schemaVersion: 1,
@@ -2470,6 +2484,271 @@ test('bump plugin version warns when updating a partial surface', () => {
       .version,
     '0.1.2',
   );
+});
+
+test('bump plugin version --next patch updates matching package and all plugin surfaces', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2', 'demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'patch',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), {
+    package: '0.1.3',
+    codexMarketplace: '0.1.3',
+    claudeMarketplace: '0.1.3',
+    codexManifest: '0.1.3',
+    claudeManifest: '0.1.3',
+  });
+});
+
+test('bump plugin version --next patch skips matching package when explicitly excluded', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2', 'demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'patch',
+    '--no-include-package',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), {
+    package: '0.1.2',
+    codexMarketplace: '0.1.3',
+    claudeMarketplace: '0.1.3',
+    codexManifest: '0.1.3',
+    claudeManifest: '0.1.3',
+  });
+});
+
+test('bump plugin version --next patch updates unrelated package when explicitly included', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2', 'demo-trigger-kit');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'patch',
+    '--include-package',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), {
+    package: '0.1.3',
+    codexMarketplace: '0.1.3',
+    claudeMarketplace: '0.1.3',
+    codexManifest: '0.1.3',
+    claudeManifest: '0.1.3',
+  });
+});
+
+test('bump plugin version --next minor resets patch version', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2', '@acme/demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'minor',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), {
+    package: '0.2.0',
+    codexMarketplace: '0.2.0',
+    claudeMarketplace: '0.2.0',
+    codexManifest: '0.2.0',
+    claudeManifest: '0.2.0',
+  });
+});
+
+test('bump plugin version --next major resets minor and patch versions', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2', 'demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'major',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), {
+    package: '1.0.0',
+    codexMarketplace: '1.0.0',
+    claudeMarketplace: '1.0.0',
+    codexManifest: '1.0.0',
+    claudeManifest: '1.0.0',
+  });
+});
+
+test('bump plugin version --next rejects partial surfaces before writing files', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2', 'demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  const before = readPluginVersionSources(root, pluginName);
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'patch',
+    '--surface',
+    'codex',
+  ]);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /--next requires --surface all/);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), before);
+});
+
+test('bump plugin version --next rejects non-clean current semver before writing files', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.0-rc.1', 'demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.0-rc.1' });
+  const before = readPluginVersionSources(root, pluginName);
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'patch',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /clean semver|0\.1\.0-rc\.1/);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), before);
+});
+
+test('bump plugin version --next rejects differing source versions before writing files', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2', 'demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  const claudeManifest = readJson(root, `plugins/${pluginName}/.claude-plugin/plugin.json`);
+  claudeManifest.version = '0.1.3';
+  writeJson(root, `plugins/${pluginName}/.claude-plugin/plugin.json`, claudeManifest);
+  const before = readPluginVersionSources(root, pluginName);
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'patch',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /source versions differ|aligned source version/);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), before);
+});
+
+test('bump plugin version --next rejects differing explicitly included package before writing files', () => {
+  const root = makeRoot();
+  createPackage(root, '5.8.0', 'demo-trigger-kit');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  const before = readPluginVersionSources(root, pluginName);
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'patch',
+    '--include-package',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /source versions differ|aligned source version/);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), before);
+});
+
+test('bump plugin version --next leaves unrelated package versions unchanged', () => {
+  const root = makeRoot();
+  createPackage(root, '5.8.0', 'demo-trigger-kit');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'patch',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), {
+    package: '5.8.0',
+    codexMarketplace: '0.1.3',
+    claudeMarketplace: '0.1.3',
+    codexManifest: '0.1.3',
+    claudeManifest: '0.1.3',
+  });
+});
+
+test('bump plugin version --next rejects invalid increments', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2', 'demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  const before = readPluginVersionSources(root, pluginName);
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--next',
+    'invalid',
+  ]);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /--next must be patch, minor, or major/);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), before);
+});
+
+test('bump plugin version requires --version or --next', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2', 'demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  const before = readPluginVersionSources(root, pluginName);
+
+  const result = runScript('bump-plugin-version.mjs', ['--root', root, '--plugin', pluginName]);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /--version or --next/);
+  assert.deepEqual(readPluginVersionSources(root, pluginName), before);
 });
 
 test('agent-trigger-kit exposes version-check skill and Claude command', () => {
