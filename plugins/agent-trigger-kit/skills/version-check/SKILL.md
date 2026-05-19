@@ -13,6 +13,9 @@ latest, stale, needs an update, or whether the kit version is correct.
 - Source version means the versions in the Agent Trigger Kit checkout.
 - Installed version means the Codex or Claude plugin cache currently visible to
   the agent runtime.
+- Project package versions are checked only when `package.json.name` equals the
+  plugin name or ends with `/<plugin-name>`, unless `--include-package` or
+  `--no-include-package` is passed.
 - Version checks are read-only by default. Do not run sync, update, install, or
   cache repair commands unless the user asks to repair or update.
 - Old installed versions cannot know about newly added skills. If this skill is

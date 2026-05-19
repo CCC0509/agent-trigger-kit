@@ -6,6 +6,19 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.4 - Project Trigger Layer Maintainability
+
+- Generated project trigger layers now preserve existing plugin versions on
+  re-init and use `--initial-version` only for brand-new layers.
+- Added `.agent-trigger-kit/generated.json` and
+  `.agent-trigger-kit/MAINTENANCE.md` generation for managed-file tracking and
+  centralized maintenance policy.
+- Decoupled external project `package.json` versions from plugin version checks
+  and bumps unless the package name matches the plugin name or is explicitly
+  included.
+- Added `--include-package` and `--no-include-package` overrides for version
+  checks and plugin version bumps.
+
 ## 0.1.3 - Version Checks And Toolkit Hardening
 
 - Added scoped version checks with `--surface codex|claude|source|all`, keeping

@@ -2,9 +2,11 @@
 import { normalize } from 'node:path';
 
 import { parseArgs, requiredArg } from './lib/args.mjs';
-import { createPathOf, updateJsonFileIfExists } from './lib/fs-json.mjs';
+import { createPathOf, readJsonFileIfExists, updateJsonFileIfExists } from './lib/fs-json.mjs';
 
-const args = parseArgs(process.argv.slice(2));
+const args = parseArgs(process.argv.slice(2), {
+  booleanKeys: ['include-package', 'no-include-package'],
+});
 const root = normalize(args.root || process.cwd());
 const pathOf = createPathOf(root);
 const pluginName = requiredArg(args, 'plugin');
@@ -13,6 +15,11 @@ const surface = args.surface || 'all';
 
 if (!['all', 'codex', 'claude'].includes(surface)) {
   console.error('--surface must be all, codex, or claude');
+  process.exit(2);
+}
+
+if (args['include-package'] && args['no-include-package']) {
+  console.error('--include-package and --no-include-package cannot both be set');
   process.exit(2);
 }
 
@@ -29,8 +36,19 @@ function updateJson(path, mutate) {
   }
 }
 
+function packageNameMatchesPlugin(packageName) {
+  return packageName === pluginName || packageName?.endsWith(`/${pluginName}`);
+}
+
+function shouldIncludePackage(packageJson) {
+  if (args['include-package']) return true;
+  if (args['no-include-package']) return false;
+  return packageNameMatchesPlugin(packageJson?.name);
+}
+
 if (surface === 'all' || surface === 'codex') {
-  if (surface === 'all') {
+  const packageJson = readJsonFileIfExists(pathOf('package.json'), null);
+  if (surface === 'all' && shouldIncludePackage(packageJson)) {
     updateJson('package.json', (pkg) => {
       pkg.version = version;
     });

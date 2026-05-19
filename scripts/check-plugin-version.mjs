@@ -8,7 +8,7 @@ import { parseArgs } from './lib/args.mjs';
 import { createPathOf, readJsonFileIfExistsOrExit } from './lib/fs-json.mjs';
 
 const args = parseArgs(process.argv.slice(2), {
-  booleanKeys: ['json', 'strict-installed'],
+  booleanKeys: ['json', 'strict-installed', 'include-package', 'no-include-package'],
   collectPositionals: true,
 });
 const root = normalize(args.root || process.cwd());
@@ -36,12 +36,27 @@ if (!validSurfaces.has(surface)) {
   process.exit(2);
 }
 
+if (args['include-package'] && args['no-include-package']) {
+  console.error('--include-package and --no-include-package cannot both be set');
+  process.exit(2);
+}
+
 const checkCodex = surface === 'all' || surface === 'codex';
 const checkClaude = surface === 'all' || surface === 'claude';
 const sourceOnly = surface === 'source';
 
 function sourceEntry(label, version) {
   return { label, version: version || 'missing' };
+}
+
+function packageNameMatchesPlugin(packageName) {
+  return packageName === pluginName || packageName?.endsWith(`/${pluginName}`);
+}
+
+function shouldIncludePackage(packageJson) {
+  if (args['include-package']) return true;
+  if (args['no-include-package']) return false;
+  return packageNameMatchesPlugin(packageJson?.name);
 }
 
 const packageJson = readJsonFileIfExistsOrExit(pathOf('package.json'), null);
@@ -72,7 +87,7 @@ const claudePlugin = readJsonFileIfExistsOrExit(
   null,
 );
 const sourceVersions = [
-  sourceEntry('package.json', packageJson?.version),
+  ...(shouldIncludePackage(packageJson) ? [sourceEntry('package.json', packageJson?.version)] : []),
   sourceEntry('codex marketplace', codexEntry?.version),
   sourceEntry('codex plugin', codexPlugin?.version),
   sourceEntry('claude marketplace', claudeEntry?.version),

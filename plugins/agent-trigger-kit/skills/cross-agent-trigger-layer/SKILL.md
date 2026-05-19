@@ -21,11 +21,13 @@ Do not copy long SOP bodies into trigger layers.
 
 1. Identify the canonical playbook path and the task names.
 2. Create project-local plugin manifests for Codex and Claude.
-3. Create one thin skill per task.
-4. For Claude Code discoverability, create one command shim per task and declare `commands` in `.claude-plugin/plugin.json`.
-5. For Cursor, create `.cursor/rules/*.mdc` only when task-specific globs are known.
-6. Add or update a validator that checks all trigger surfaces.
-7. Document install and fallback behavior in pointer docs.
+3. Create `.agent-trigger-kit/MAINTENANCE.md` and
+   `.agent-trigger-kit/generated.json`; keep `generated.json` committed.
+4. Create one thin skill per task.
+5. For Claude Code discoverability, create one command shim per task and declare `commands` in `.claude-plugin/plugin.json`.
+6. For Cursor, create `.cursor/rules/*.mdc` only when task-specific globs are known.
+7. Add or update a validator that checks all trigger surfaces.
+8. Document install and fallback behavior in pointer docs.
 
 ## Required Checks
 

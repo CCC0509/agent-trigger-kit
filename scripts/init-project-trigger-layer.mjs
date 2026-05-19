@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 
@@ -13,12 +14,18 @@ const args = parseArgs(process.argv.slice(2));
 const root = normalize(requiredArg(args, 'root'));
 const pathOf = createPathOf(root);
 const pluginName = requiredArg(args, 'plugin');
+const pluginDir = `plugins/${pluginName}`;
 const tasks = requiredArg(args, 'tasks')
   .split(',')
   .map((item) => item.trim())
   .filter(Boolean);
 const playbook = requiredArg(args, 'playbook');
 const force = Boolean(args.force);
+const initialVersion = args['initial-version'] || '0.1.0';
+const maintenanceContract = '.agent-trigger-kit/MAINTENANCE.md';
+const templateVersion = 1;
+const kitPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const generatedFiles = [];
 const cursorGlobs = args['cursor-globs']
   ? args['cursor-globs']
       .split(',')
@@ -59,18 +66,85 @@ function markdownRelativePath(fromDir, toPath) {
   return relative(fromDir, toPath).replaceAll('\\', '/');
 }
 
-function write(path, content) {
+function existingPluginVersion() {
+  const versions = [];
+  const codexMarketplace = readJsonFileIfExists(pathOf('.agents/plugins/marketplace.json'), null);
+  const codexEntry = codexMarketplace?.plugins?.find((entry) => entry.name === pluginName);
+  if (codexEntry?.version) {
+    versions.push({ label: 'codex marketplace', version: codexEntry.version });
+  }
+
+  const codexPlugin = readJsonFileIfExists(pathOf(`${pluginDir}/.codex-plugin/plugin.json`), null);
+  if (codexPlugin?.version) {
+    versions.push({ label: 'codex plugin', version: codexPlugin.version });
+  }
+
+  const claudeMarketplace = readJsonFileIfExists(pathOf('.claude-plugin/marketplace.json'), null);
+  const claudeEntry = claudeMarketplace?.plugins?.find((entry) => entry.name === pluginName);
+  if (claudeEntry?.version) {
+    versions.push({ label: 'claude marketplace', version: claudeEntry.version });
+  }
+
+  const claudePlugin = readJsonFileIfExists(
+    pathOf(`${pluginDir}/.claude-plugin/plugin.json`),
+    null,
+  );
+  if (claudePlugin?.version) {
+    versions.push({ label: 'claude plugin', version: claudePlugin.version });
+  }
+
+  const unique = new Set(versions.map((entry) => entry.version));
+  if (unique.size > 1) {
+    throw new Error(
+      `existing manifest versions differ: ${versions.map((entry) => `${entry.label}=${entry.version}`).join(', ')}`,
+    );
+  }
+
+  if (versions.length > 0) {
+    return versions[0].version;
+  }
+
+  const generated = readJsonFileIfExists(pathOf('.agent-trigger-kit/generated.json'), null);
+  return generated?.pluginName === pluginName && generated.pluginVersion
+    ? generated.pluginVersion
+    : initialVersion;
+}
+
+let pluginVersion;
+try {
+  pluginVersion = existingPluginVersion();
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+
+function sha256(path) {
+  return createHash('sha256')
+    .update(readFileSync(pathOf(path)))
+    .digest('hex');
+}
+
+function trackGeneratedFile(path, kind) {
+  generatedFiles.push({
+    path,
+    kind,
+    sha256: sha256(path),
+  });
+}
+
+function write(path, content, kind = null) {
   const full = pathOf(path);
   if (existsSync(full) && !force) {
     throw new Error(`${path} already exists; rerun with --force to overwrite generated files`);
   }
   mkdirSync(join(full, '..'), { recursive: true });
   writeFileSync(full, `${content.trimEnd()}\n`);
+  if (kind) trackGeneratedFile(path, kind);
   console.log(`wrote ${path}`);
 }
 
-function writeJson(path, value) {
-  write(path, JSON.stringify(value, null, 2));
+function writeJson(path, value, kind = null) {
+  write(path, JSON.stringify(value, null, 2), kind);
 }
 
 function writeJsonAlways(path, value) {
@@ -101,8 +175,8 @@ function upsertCodexMarketplace() {
   marketplace.plugins = marketplace.plugins || [];
   const entry = {
     name: pluginName,
-    version: '0.1.0',
-    source: { source: 'local', path: `./plugins/${pluginName}` },
+    version: pluginVersion,
+    source: { source: 'local', path: `./${pluginDir}` },
     policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
     category: 'Productivity',
     description: `${titleize(pluginName)} trigger skills for Codex and compatible skill loaders`,
@@ -123,9 +197,9 @@ function upsertClaudeMarketplace() {
   marketplace.plugins = marketplace.plugins || [];
   const entry = {
     name: pluginName,
-    source: `./plugins/${pluginName}`,
+    source: `./${pluginDir}`,
     description: `${titleize(pluginName)} trigger skills for Claude Code`,
-    version: '0.1.0',
+    version: pluginVersion,
     author: { name: titleize(pluginName) },
     category: 'workflow',
     strict: false,
@@ -148,34 +222,59 @@ This is the canonical playbook for the ${pluginName} trigger layer.
 ${taskList}
 
 Keep project operating rules here. Codex skills, Claude commands, Cursor rules, and pointer docs should stay thin references to this file.
+
+Maintenance contract: \`${markdownRelativePath(dirname(playbook), maintenanceContract)}\`
+`,
+  );
+}
+
+function writeMaintenanceContract() {
+  writeIfMissing(
+    maintenanceContract,
+    `# Agent Trigger Layer Maintenance
+
+This file is the maintenance contract for the project-local trigger layer.
+
+- Keep long operating rules in the canonical playbook: \`${playbook}\`.
+- Keep skills, commands, Cursor rules, and pointer docs as thin routing surfaces.
+- Bump the local plugin version when plugin-visible files change: skills, commands, plugin manifests, or marketplace manifests.
+- Run the project trigger-layer validator after editing trigger surfaces.
 `,
   );
 }
 
 function writePluginManifests() {
-  writeJson(`plugins/${pluginName}/.codex-plugin/plugin.json`, {
-    name: pluginName,
-    version: '0.1.0',
-    description: `${titleize(pluginName)} trigger skills for Codex and compatible skill loaders`,
-    author: { name: titleize(pluginName) },
-    skills: './skills/',
-    interface: {
-      displayName: pluginName,
-      shortDescription: `${titleize(pluginName)} playbook trigger skills`,
-      longDescription: `Thin trigger skills that route ${pluginName} tasks to the canonical playbook.`,
-      developerName: titleize(pluginName),
-      category: 'Development',
+  writeJson(
+    `${pluginDir}/.codex-plugin/plugin.json`,
+    {
+      name: pluginName,
+      version: pluginVersion,
+      description: `${titleize(pluginName)} trigger skills for Codex and compatible skill loaders`,
+      author: { name: titleize(pluginName) },
+      skills: './skills/',
+      interface: {
+        displayName: pluginName,
+        shortDescription: `${titleize(pluginName)} playbook trigger skills`,
+        longDescription: `Thin trigger skills that route ${pluginName} tasks to the canonical playbook.`,
+        developerName: titleize(pluginName),
+        category: 'Development',
+      },
     },
-  });
+    'plugin-manifest',
+  );
 
-  writeJson(`plugins/${pluginName}/.claude-plugin/plugin.json`, {
-    name: pluginName,
-    version: '0.1.0',
-    description: `${titleize(pluginName)} trigger skills for Claude-compatible skill loaders`,
-    author: { name: titleize(pluginName) },
-    skills: ['./skills/'],
-    commands: ['./commands/'],
-  });
+  writeJson(
+    `${pluginDir}/.claude-plugin/plugin.json`,
+    {
+      name: pluginName,
+      version: pluginVersion,
+      description: `${titleize(pluginName)} trigger skills for Claude-compatible skill loaders`,
+      author: { name: titleize(pluginName) },
+      skills: ['./skills/'],
+      commands: ['./commands/'],
+    },
+    'plugin-manifest',
+  );
 }
 
 function writeTaskWrappers() {
@@ -188,18 +287,21 @@ function writeTaskWrappers() {
       description,
       pluginName,
     };
-    const skillPath = `plugins/${pluginName}/skills/${task}/SKILL.md`;
+    const skillPath = `${pluginDir}/skills/${task}/SKILL.md`;
     write(
       skillPath,
       renderTemplate(wrapperTemplates.skill, {
         ...values,
         canonicalPlaybook: markdownRelativePath(dirname(skillPath), playbook),
+        maintenanceContract: markdownRelativePath(dirname(skillPath), maintenanceContract),
       }),
+      'skill',
     );
 
     write(
-      `plugins/${pluginName}/commands/${task}.md`,
+      `${pluginDir}/commands/${task}.md`,
       renderTemplate(wrapperTemplates.command, values),
+      'command',
     );
 
     if (cursorGlobs.length > 0) {
@@ -211,16 +313,34 @@ function writeTaskWrappers() {
           canonicalPlaybook: playbook,
           globs,
         }),
+        'cursor-rule',
       );
     }
   }
 }
 
+function writeGeneratedManifest() {
+  writeJsonFileCreatingParents(pathOf('.agent-trigger-kit/generated.json'), {
+    schemaVersion: 1,
+    kitVersion: kitPackage.version,
+    templateVersion,
+    pluginName,
+    pluginVersion,
+    playbook,
+    maintenanceContract,
+    tasks,
+    files: generatedFiles,
+  });
+  console.log('wrote .agent-trigger-kit/generated.json');
+}
+
 upsertCodexMarketplace();
 upsertClaudeMarketplace();
 writePlaybookPlaceholder();
+writeMaintenanceContract();
 writePluginManifests();
 writeTaskWrappers();
+writeGeneratedManifest();
 
 console.log(`created trigger layer for ${pluginName} with ${tasks.length} task(s) in ${root}`);
 if (cursorGlobs.length === 0) {

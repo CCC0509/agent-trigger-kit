@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   cpSync,
@@ -104,9 +105,9 @@ function createMinimalPlugin(root, overrides = {}) {
   return { pluginDir, pluginName };
 }
 
-function createPackage(root, version = '0.1.0') {
+function createPackage(root, version = '0.1.0', name = 'demo-trigger-kit') {
   writeJson(root, 'package.json', {
-    name: 'demo-trigger-kit',
+    name,
     version,
     private: true,
     type: 'module',
@@ -140,6 +141,14 @@ description: Use for docs review work.
 Apply the \`demo-ops:docs-review\` skill before acting.
 `,
   );
+}
+
+function sha256(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function readJson(root, path) {
+  return JSON.parse(readFileSync(join(root, path), 'utf8'));
 }
 
 test('package exposes the agent-trigger-kit bin entry', () => {
@@ -204,6 +213,59 @@ test('init creates a canonical playbook placeholder when it is missing', () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(existsSync(join(root, playbook)), true);
   assert.match(readFileSync(join(root, playbook), 'utf8'), /# Demo Ops Playbook/);
+});
+
+test('init records generated trigger-layer files without claiming user-owned files', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review,deploy-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--cursor-globs',
+    'docs/**,README.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const manifest = JSON.parse(
+    readFileSync(join(root, '.agent-trigger-kit/generated.json'), 'utf8'),
+  );
+  const trackedPaths = manifest.files.map((file) => file.path);
+  const trackedKinds = Object.fromEntries(manifest.files.map((file) => [file.path, file.kind]));
+  const skillPath = 'plugins/demo-ops/skills/docs-review/SKILL.md';
+
+  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.pluginName, 'demo-ops');
+  assert.equal(manifest.pluginVersion, '0.1.0');
+  assert.equal(manifest.playbook, 'docs/agent-playbooks/demo-ops.md');
+  assert.equal(manifest.maintenanceContract, '.agent-trigger-kit/MAINTENANCE.md');
+  assert.deepEqual(manifest.tasks, ['docs-review', 'deploy-ops']);
+  assert.equal(trackedKinds['plugins/demo-ops/.codex-plugin/plugin.json'], 'plugin-manifest');
+  assert.equal(trackedKinds['plugins/demo-ops/.claude-plugin/plugin.json'], 'plugin-manifest');
+  assert.equal(trackedKinds[skillPath], 'skill');
+  assert.equal(trackedKinds['plugins/demo-ops/commands/docs-review.md'], 'command');
+  assert.equal(trackedKinds['.cursor/rules/docs-review.mdc'], 'cursor-rule');
+  assert.equal(trackedPaths.includes('docs/agent-playbooks/demo-ops.md'), false);
+  assert.equal(trackedPaths.includes('.agents/plugins/marketplace.json'), false);
+  assert.equal(trackedPaths.includes('.claude-plugin/marketplace.json'), false);
+  assert.equal(trackedPaths.includes('.agent-trigger-kit/generated.json'), false);
+  assert.equal(
+    manifest.files.find((file) => file.path === skillPath).sha256,
+    sha256(join(root, skillPath)),
+  );
+  assert.equal(existsSync(join(root, '.agent-trigger-kit/MAINTENANCE.md')), true);
+  assert.match(
+    readFileSync(join(root, skillPath), 'utf8'),
+    /Maintenance contract: `\.\.\/\.\.\/\.\.\/\.\.\/\.agent-trigger-kit\/MAINTENANCE\.md`/,
+  );
+  assert.match(
+    readFileSync(join(root, 'docs/agent-playbooks/demo-ops.md'), 'utf8'),
+    /Maintenance contract: `\.\.\/\.\.\/\.agent-trigger-kit\/MAINTENANCE\.md`/,
+  );
 });
 
 test('init computes playbook refs relative to nested generated skill paths', () => {
@@ -291,6 +353,198 @@ test('init upserts plugin entries into existing marketplaces without force', () 
   );
   assert.equal(codex.plugins[0].version, '0.2.0');
   assert.equal(claude.plugins[0].version, '0.2.0');
+});
+
+test('init force preserves existing plugin version instead of downgrading', () => {
+  const root = makeRoot();
+  const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.2.0' });
+  writeValidSkillAndCommand(root, pluginDir);
+
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--force',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(readJson(root, '.agents/plugins/marketplace.json').plugins[0].version, '0.2.0');
+  assert.equal(readJson(root, '.claude-plugin/marketplace.json').plugins[0].version, '0.2.0');
+  assert.equal(readJson(root, `${pluginDir}/.codex-plugin/plugin.json`).version, '0.2.0');
+  assert.equal(readJson(root, `${pluginDir}/.claude-plugin/plugin.json`).version, '0.2.0');
+  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').pluginVersion, '0.2.0');
+});
+
+test('init ignores initial version when an existing plugin version is present', () => {
+  const root = makeRoot();
+  const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.2.0' });
+  writeValidSkillAndCommand(root, pluginDir);
+
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--initial-version',
+    '0.3.0',
+    '--force',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(readJson(root, '.agents/plugins/marketplace.json').plugins[0].version, '0.2.0');
+  assert.equal(readJson(root, '.claude-plugin/marketplace.json').plugins[0].version, '0.2.0');
+  assert.equal(readJson(root, `${pluginDir}/.codex-plugin/plugin.json`).version, '0.2.0');
+  assert.equal(readJson(root, `${pluginDir}/.claude-plugin/plugin.json`).version, '0.2.0');
+  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').pluginVersion, '0.2.0');
+});
+
+test('init uses an existing partial manifest version as the recovery baseline', () => {
+  const root = makeRoot();
+  writeJson(root, '.agents/plugins/marketplace.json', {
+    name: 'project-marketplace',
+    interface: { displayName: 'Project Plugins' },
+    plugins: [
+      {
+        name: 'demo-ops',
+        version: '0.2.0',
+        source: { source: 'local', path: './plugins/demo-ops' },
+        policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+        category: 'Productivity',
+        description: 'Demo Ops trigger skills',
+      },
+    ],
+  });
+
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(readJson(root, '.agents/plugins/marketplace.json').plugins[0].version, '0.2.0');
+  assert.equal(readJson(root, '.claude-plugin/marketplace.json').plugins[0].version, '0.2.0');
+  assert.equal(readJson(root, 'plugins/demo-ops/.codex-plugin/plugin.json').version, '0.2.0');
+  assert.equal(readJson(root, 'plugins/demo-ops/.claude-plugin/plugin.json').version, '0.2.0');
+});
+
+test('init fails when existing manifest versions disagree', () => {
+  const root = makeRoot();
+  writeJson(root, '.agents/plugins/marketplace.json', {
+    name: 'project-marketplace',
+    interface: { displayName: 'Project Plugins' },
+    plugins: [
+      {
+        name: 'demo-ops',
+        version: '0.2.0',
+        source: { source: 'local', path: './plugins/demo-ops' },
+        policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+        category: 'Productivity',
+        description: 'Demo Ops trigger skills',
+      },
+    ],
+  });
+  writeJson(root, '.claude-plugin/marketplace.json', {
+    name: 'project-marketplace',
+    owner: { name: 'Project Maintainers' },
+    metadata: { description: 'Project trigger skills' },
+    plugins: [
+      {
+        name: 'demo-ops',
+        source: './plugins/demo-ops',
+        description: 'Demo Ops trigger skills',
+        version: '0.3.0',
+        author: { name: 'Project Maintainers' },
+        category: 'workflow',
+        strict: false,
+      },
+    ],
+  });
+
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /existing manifest versions differ/);
+});
+
+test('init applies initial version only when no existing plugin version is present', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--initial-version',
+    '0.3.0',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(readJson(root, '.agents/plugins/marketplace.json').plugins[0].version, '0.3.0');
+  assert.equal(readJson(root, '.claude-plugin/marketplace.json').plugins[0].version, '0.3.0');
+  assert.equal(readJson(root, 'plugins/demo-ops/.codex-plugin/plugin.json').version, '0.3.0');
+  assert.equal(readJson(root, 'plugins/demo-ops/.claude-plugin/plugin.json').version, '0.3.0');
+  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').pluginVersion, '0.3.0');
+});
+
+test('init uses generated manifest fallback only for the matching plugin name', () => {
+  const root = makeRoot();
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 1,
+    kitVersion: '0.1.4',
+    templateVersion: 1,
+    pluginName: 'other-ops',
+    pluginVersion: '0.9.0',
+    playbook: 'docs/agent-playbooks/other-ops.md',
+    maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+    tasks: ['docs-review'],
+    files: [],
+  });
+
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(readJson(root, '.agents/plugins/marketplace.json').plugins[0].version, '0.1.0');
+  assert.equal(readJson(root, '.claude-plugin/marketplace.json').plugins[0].version, '0.1.0');
+  assert.equal(readJson(root, 'plugins/demo-ops/.codex-plugin/plugin.json').version, '0.1.0');
+  assert.equal(readJson(root, 'plugins/demo-ops/.claude-plugin/plugin.json').version, '0.1.0');
+  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').pluginName, 'demo-ops');
+  assert.equal(readJson(root, '.agent-trigger-kit/generated.json').pluginVersion, '0.1.0');
 });
 
 test('init script consumes project trigger layer templates for generated wrappers', () => {
@@ -493,7 +747,7 @@ test('Codex plugin cache sync snapshots the marketplace plugin version and backs
 test('version check reports matching source versions and Codex cache versions', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
-  createPackage(root, '0.1.2');
+  createPackage(root, '5.8.0');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
@@ -508,7 +762,7 @@ test('version check reports matching source versions and Codex cache versions', 
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /expected source version: 0\.1\.2/);
-  assert.match(result.stdout, /package\.json: 0\.1\.2/);
+  assert.doesNotMatch(result.stdout, /package\.json:/);
   assert.match(result.stdout, /codex marketplace: 0\.1\.2/);
   assert.match(result.stdout, /claude plugin: 0\.1\.2/);
   assert.match(result.stdout, /codex cache versions: 0\.1\.1, 0\.1\.2/);
@@ -535,7 +789,11 @@ test('version check emits structured JSON when requested', () => {
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.pluginName, pluginName);
   assert.equal(payload.expectedVersion, '0.1.2');
-  assert.equal(payload.sourceVersions.length, 5);
+  assert.equal(payload.sourceVersions.length, 4);
+  assert.equal(
+    payload.sourceVersions.some((entry) => entry.label === 'package.json'),
+    false,
+  );
   assert.deepEqual(payload.codexCache.versions, ['0.1.1']);
   assert.equal(payload.codexCache.hasExpected, false);
   assert.equal(payload.codexCache.status, 'missing');
@@ -698,7 +956,7 @@ exit 23
 
 test('version check fails when source versions differ', () => {
   const root = makeRoot();
-  createPackage(root, '0.1.2');
+  createPackage(root, '0.1.2', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.1' });
 
   const result = runScript('check-plugin-version.mjs', ['--root', root, pluginName], {
@@ -711,7 +969,59 @@ test('version check fails when source versions differ', () => {
   assert.match(result.stderr, /codex marketplace=0\.1\.1/);
 });
 
-test('bump plugin version updates package and all plugin manifests by default', () => {
+test('version check includes scoped package versions by default', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.2', '@acme/demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    ['--root', root, '--surface', 'source', '--json', pluginName],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(
+    payload.sourceVersions.some((entry) => entry.label === 'package.json'),
+    true,
+  );
+});
+
+test('version check can force or skip package version alignment', () => {
+  const root = makeRoot();
+  createPackage(root, '5.8.0', 'demo-ops');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+
+  const skipped = runScript(
+    'check-plugin-version.mjs',
+    ['--root', root, '--surface', 'source', '--json', '--no-include-package', pluginName],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
+
+  assert.equal(skipped.status, 0, skipped.stderr || skipped.stdout);
+  assert.equal(
+    JSON.parse(skipped.stdout).sourceVersions.some((entry) => entry.label === 'package.json'),
+    false,
+  );
+
+  const forced = runScript(
+    'check-plugin-version.mjs',
+    ['--root', root, '--surface', 'source', '--include-package', pluginName],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
+
+  assert.notEqual(forced.status, 0);
+  assert.match(forced.stderr, /package\.json=5\.8\.0/);
+});
+
+test('bump plugin version leaves unrelated package versions unchanged by default', () => {
   const root = makeRoot();
   createPackage(root);
   const { pluginName } = createMinimalPlugin(root);
@@ -726,7 +1036,7 @@ test('bump plugin version updates package and all plugin manifests by default', 
   ]);
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, '0.1.2');
+  assert.equal(readJson(root, 'package.json').version, '0.1.0');
   assert.equal(
     JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0]
       .version,
@@ -747,6 +1057,38 @@ test('bump plugin version updates package and all plugin manifests by default', 
       .version,
     '0.1.2',
   );
+});
+
+test('bump plugin version updates matching package versions unless explicitly skipped', () => {
+  const root = makeRoot();
+  createPackage(root, '0.1.0', '@acme/demo-ops');
+  const { pluginName } = createMinimalPlugin(root);
+
+  const updatePackage = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--version',
+    '0.1.2',
+  ]);
+
+  assert.equal(updatePackage.status, 0, updatePackage.stderr || updatePackage.stdout);
+  assert.equal(readJson(root, 'package.json').version, '0.1.2');
+
+  const skipPackage = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--version',
+    '0.1.3',
+    '--no-include-package',
+  ]);
+
+  assert.equal(skipPackage.status, 0, skipPackage.stderr || skipPackage.stdout);
+  assert.equal(readJson(root, 'package.json').version, '0.1.2');
+  assert.equal(readJson(root, '.agents/plugins/marketplace.json').plugins[0].version, '0.1.3');
 });
 
 test('bump plugin version validates surface before writing files', () => {
