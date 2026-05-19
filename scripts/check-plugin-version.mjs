@@ -18,16 +18,27 @@ const codexHome = normalize(
 );
 const pluginName = args.plugin || args._[0];
 const jsonOutput = Boolean(args.json);
+const surface = args.surface || 'all';
+const validSurfaces = new Set(['all', 'codex', 'claude', 'source']);
 
 if (!pluginName) {
   console.error(
     [
       'Missing plugin name.',
-      'Usage: check-plugin-version.mjs [--root <path>] [--codex-home <path>] <plugin-name>',
+      'Usage: check-plugin-version.mjs [--root <path>] [--codex-home <path>] [--surface all|codex|claude|source] <plugin-name>',
     ].join(' '),
   );
   process.exit(2);
 }
+
+if (!validSurfaces.has(surface)) {
+  console.error('--surface must be all, codex, claude, or source');
+  process.exit(2);
+}
+
+const checkCodex = surface === 'all' || surface === 'codex';
+const checkClaude = surface === 'all' || surface === 'claude';
+const sourceOnly = surface === 'source';
 
 function sourceEntry(label, version) {
   return { label, version: version || 'missing' };
@@ -78,106 +89,125 @@ if (uniqueVersions.size !== 1) {
 
 const expectedVersion = sourceVersions[0].version;
 const marketplaceName = codexMarketplace?.name || pluginName;
-const cacheParent = join(codexHome, 'plugins/cache', marketplaceName, pluginName);
-let codexCacheVersions = [];
-if (existsSync(cacheParent)) {
-  codexCacheVersions = readdirSync(cacheParent)
-    .filter((name) => statSync(join(cacheParent, name)).isDirectory())
-    .sort();
-}
-
 if (!jsonOutput) {
   console.log(`expected source version: ${expectedVersion}`);
   console.log('source versions:');
   for (const entry of sourceVersions) {
     console.log(`  ${entry.label}: ${entry.version}`);
   }
-  console.log(
-    `codex cache versions: ${codexCacheVersions.length > 0 ? codexCacheVersions.join(', ') : 'none'}`,
-  );
 }
-const codexCacheHasExpected = codexCacheVersions.includes(expectedVersion);
 let versionMismatch = false;
-if (!jsonOutput) {
-  console.log(`codex cache expected version: ${codexCacheHasExpected ? 'present' : 'missing'}`);
-}
-if (codexCacheVersions.length > 0 && !codexCacheHasExpected) {
-  versionMismatch = true;
-}
-const codexCache = {
-  path: cacheParent,
-  versions: codexCacheVersions,
-  hasExpected: codexCacheHasExpected,
-  status: codexCacheHasExpected ? 'present' : 'missing',
-};
 
-const claude = spawnSync('claude', ['plugin', 'list', '--json'], {
-  encoding: 'utf8',
-});
-let claudeStatus = { status: 'unchecked' };
-if (claude.error?.code === 'ENOENT') {
-  claudeStatus = {
-    status: 'cli-unavailable',
-    message: 'run `claude plugin list --json` manually',
-  };
-  if (!jsonOutput) {
-    console.log('claude: CLI unavailable; run `claude plugin list --json` manually');
+let codexCache = { status: 'skipped', reason: `--surface ${surface}` };
+if (checkCodex) {
+  const cacheParent = join(codexHome, 'plugins/cache', marketplaceName, pluginName);
+  let codexCacheVersions = [];
+  if (existsSync(cacheParent)) {
+    codexCacheVersions = readdirSync(cacheParent)
+      .filter((name) => statSync(join(cacheParent, name)).isDirectory())
+      .sort();
   }
-} else if (claude.error) {
-  claudeStatus = {
-    status: 'error',
-    message: claude.error.message,
-  };
+  const codexCacheHasExpected = codexCacheVersions.includes(expectedVersion);
   if (!jsonOutput) {
-    console.log(`claude: unable to run plugin list (${claude.error.message})`);
+    console.log(
+      `codex cache versions: ${codexCacheVersions.length > 0 ? codexCacheVersions.join(', ') : 'none'}`,
+    );
+    console.log(`codex cache expected version: ${codexCacheHasExpected ? 'present' : 'missing'}`);
   }
-} else if (claude.status !== 0) {
-  claudeStatus = {
-    status: 'command-failed',
-    exitCode: claude.status,
+  if (codexCacheVersions.length > 0 && !codexCacheHasExpected) {
+    versionMismatch = true;
+  }
+  codexCache = {
+    path: cacheParent,
+    versions: codexCacheVersions,
+    hasExpected: codexCacheHasExpected,
+    status: codexCacheHasExpected ? 'present' : 'missing',
   };
-  if (!jsonOutput) {
-    console.log('claude: `claude plugin list --json` did not complete successfully');
-  }
 } else {
-  try {
-    const plugins = JSON.parse(claude.stdout);
-    const claudePluginId = `${pluginName}@${claudeMarketplace?.name || marketplaceName}`;
-    const installed = plugins.find((entry) => entry.id === claudePluginId);
-    if (!installed) {
-      claudeStatus = {
-        status: 'missing',
-        pluginId: claudePluginId,
-      };
-      if (!jsonOutput) {
-        console.log(`claude installed version: missing (${claudePluginId})`);
-      }
-      versionMismatch = true;
-    } else {
-      const expectedPresent = installed.version === expectedVersion;
-      claudeStatus = {
-        status: expectedPresent ? 'present' : 'stale',
-        pluginId: claudePluginId,
-        version: installed.version,
-        hasExpected: expectedPresent,
-      };
-      if (!jsonOutput) {
-        console.log(`claude installed version: ${installed.version}`);
-        console.log(`claude installed expected version: ${expectedPresent ? 'present' : 'stale'}`);
-      }
-      if (installed.version !== expectedVersion) {
-        versionMismatch = true;
-      }
-    }
-  } catch (error) {
+  if (!jsonOutput && !sourceOnly) {
+    console.log(`codex cache: skipped (--surface ${surface})`);
+  }
+}
+
+let claudeStatus = { status: 'skipped', reason: `--surface ${surface}` };
+if (checkClaude) {
+  const claude = spawnSync('claude', ['plugin', 'list', '--json'], {
+    encoding: 'utf8',
+  });
+  if (claude.error?.code === 'ENOENT') {
     claudeStatus = {
-      status: 'parse-error',
-      message: error.message,
+      status: 'cli-unavailable',
+      message: 'run `claude plugin list --json` manually',
     };
     if (!jsonOutput) {
-      console.log(`claude: unable to parse plugin list JSON (${error.message})`);
+      console.log('claude: CLI unavailable; run `claude plugin list --json` manually');
+    }
+  } else if (claude.error) {
+    claudeStatus = {
+      status: 'error',
+      message: claude.error.message,
+    };
+    if (!jsonOutput) {
+      console.log(`claude: unable to run plugin list (${claude.error.message})`);
+    }
+  } else if (claude.status !== 0) {
+    claudeStatus = {
+      status: 'command-failed',
+      exitCode: claude.status,
+    };
+    if (!jsonOutput) {
+      console.log('claude: `claude plugin list --json` did not complete successfully');
+    }
+  } else {
+    try {
+      const plugins = JSON.parse(claude.stdout);
+      const claudePluginId = `${pluginName}@${claudeMarketplace?.name || marketplaceName}`;
+      const installed = plugins.find((entry) => entry.id === claudePluginId);
+      if (!installed) {
+        claudeStatus = {
+          status: 'missing',
+          pluginId: claudePluginId,
+        };
+        if (!jsonOutput) {
+          console.log(`claude installed version: missing (${claudePluginId})`);
+        }
+        versionMismatch = true;
+      } else {
+        const expectedPresent = installed.version === expectedVersion;
+        claudeStatus = {
+          status: expectedPresent ? 'present' : 'stale',
+          pluginId: claudePluginId,
+          version: installed.version,
+          hasExpected: expectedPresent,
+        };
+        if (!jsonOutput) {
+          console.log(`claude installed version: ${installed.version}`);
+          console.log(
+            `claude installed expected version: ${expectedPresent ? 'present' : 'stale'}`,
+          );
+        }
+        if (installed.version !== expectedVersion) {
+          versionMismatch = true;
+        }
+      }
+    } catch (error) {
+      claudeStatus = {
+        status: 'parse-error',
+        message: error.message,
+      };
+      if (!jsonOutput) {
+        console.log(`claude: unable to parse plugin list JSON (${error.message})`);
+      }
     }
   }
+} else {
+  if (!jsonOutput && !sourceOnly) {
+    console.log(`claude: skipped (--surface ${surface})`);
+  }
+}
+
+if (!jsonOutput && sourceOnly) {
+  console.log('installed state: skipped ("--surface source")');
 }
 
 if (jsonOutput) {

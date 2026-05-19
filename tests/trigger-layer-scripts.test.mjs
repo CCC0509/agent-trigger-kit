@@ -543,6 +543,159 @@ test('version check emits structured JSON when requested', () => {
   assert.equal(payload.versionMismatch, true);
 });
 
+test('version check --surface codex skips Claude installed-state checks', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const fakeBin = makeRoot();
+  const commandLog = join(fakeBin, 'commands.log');
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/bin/sh
+printf 'claude should not be called\\n' >> "${commandLog}"
+exit 23
+`,
+  );
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    ['--root', root, '--codex-home', codexHome, '--surface', 'codex', '--json', pluginName],
+    {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.codexCache.status, 'present');
+  assert.equal(payload.claude.status, 'skipped');
+  assert.equal(existsSync(commandLog), false);
+});
+
+test('version check --surface claude skips Codex cache installed-state checks', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const fakeBin = makeRoot();
+  const commandLog = join(fakeBin, 'commands.log');
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache only');
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/bin/sh
+printf 'claude %s\\n' "$*" >> "${commandLog}"
+if [ "$1" = "plugin" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  printf '[{"id":"demo-ops@demo-ops","version":"0.1.2"}]\\n'
+fi
+`,
+  );
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--surface',
+      'claude',
+      '--strict-installed',
+      '--json',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.codexCache.status, 'skipped');
+  assert.equal(payload.claude.status, 'present');
+  assert.equal(payload.versionMismatch, false);
+  assert.match(readFileSync(commandLog, 'utf8'), /claude plugin list --json/);
+});
+
+test('version check --surface source skips installed-state checks', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const fakeBin = makeRoot();
+  const commandLog = join(fakeBin, 'commands.log');
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache only');
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/bin/sh
+printf 'claude should not be called\\n' >> "${commandLog}"
+exit 23
+`,
+  );
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--surface',
+      'source',
+      '--strict-installed',
+      '--json',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.codexCache.status, 'skipped');
+  assert.equal(payload.claude.status, 'skipped');
+  assert.equal(payload.versionMismatch, false);
+  assert.equal(existsSync(commandLog), false);
+});
+
+test('version check --surface source keeps human output focused on source state', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const fakeBin = makeRoot();
+  const commandLog = join(fakeBin, 'commands.log');
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache only');
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/bin/sh
+printf 'claude should not be called\\n' >> "${commandLog}"
+exit 23
+`,
+  );
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    ['--root', root, '--codex-home', codexHome, '--surface', 'source', pluginName],
+    {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /expected source version: 0\.1\.2/);
+  assert.match(result.stdout, /installed state: skipped \("--surface source"\)/);
+  assert.doesNotMatch(result.stdout, /codex cache: skipped/);
+  assert.doesNotMatch(result.stdout, /claude: skipped/);
+  assert.equal(existsSync(commandLog), false);
+});
+
 test('version check fails when source versions differ', () => {
   const root = makeRoot();
   createPackage(root, '0.1.2');
@@ -679,10 +832,13 @@ test('agent-trigger-kit exposes version-check skill and Claude command', () => {
 
   assert.match(skillText, /^name: version-check/m);
   assert.match(skillText, /kit version/i);
-  assert.match(skillText, /ops:local-agent-sync/);
+  assert.match(skillText, /Scope First/);
+  assert.match(skillText, /ops:plugin-version-check/);
+  assert.doesNotMatch(skillText, /ops:local-agent-sync/);
   assert.match(skillText, /codex plugin marketplace upgrade agent-trigger-kit/);
   assert.match(skillText, /claude plugin update agent-trigger-kit@agent-trigger-kit --scope user/);
   assert.match(commandText, /agent-trigger-kit:version-check/);
+  assert.match(commandText, /--surface claude/);
 });
 
 test('local agent trigger refresh syncs stale Codex cache and updates Claude when available', () => {

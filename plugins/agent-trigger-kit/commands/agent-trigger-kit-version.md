@@ -1,5 +1,5 @@
 ---
-description: Check whether Agent Trigger Kit source manifests and local plugin caches are current.
+description: Check whether Agent Trigger Kit source manifests and Claude plugin state are current.
 ---
 
 # Agent Trigger Kit Version Command
@@ -15,7 +15,7 @@ lives in `skills/version-check/SKILL.md`.
 
 Apply the `agent-trigger-kit:version-check` skill before answering or acting.
 
-- Check source manifest versions when an Agent Trigger Kit checkout is
-  available.
-- Check Codex and Claude installed/cache state when possible.
-- Report stale cache/update steps separately for Codex and Claude.
+- This slash command runs in Claude Code, so default to `--surface claude`.
+- Use Codex, source, or all only when `$ARGUMENTS` explicitly asks for that
+  scope.
+- Do not run sync, update, install, or cache repair commands unless requested.

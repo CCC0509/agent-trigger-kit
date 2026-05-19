@@ -258,19 +258,29 @@ Claude Code users can also run:
 /agent-trigger-kit-version
 ```
 
-From an Agent Trigger Kit checkout, check source versions and Codex cache
-snapshots:
+From an Agent Trigger Kit checkout, use the narrowest read-only check for the
+question:
 
 ```bash
-npm run ops:plugin-version-check -- agent-trigger-kit
-npm run ops:plugin-version-check -- --json agent-trigger-kit
+npm run ops:plugin-version-check -- --surface source agent-trigger-kit
+npm run ops:plugin-version-check -- --surface codex agent-trigger-kit
+npm run ops:plugin-version-check -- --surface claude agent-trigger-kit
+npm run ops:plugin-version-check -- --surface all agent-trigger-kit
 ```
 
-Use strict installed-state checking when you want stale local Codex or Claude
-caches to fail the command:
+Use `--surface source` for source manifests only, `codex` for Codex cache state,
+`claude` for Claude installed state, and `all` only when the question is
+cross-agent. Add `--json` for automation:
 
 ```bash
-npm run ops:plugin-version-check -- --strict-installed agent-trigger-kit
+npm run ops:plugin-version-check -- --surface codex --json agent-trigger-kit
+```
+
+Use strict installed-state checking when you want stale checked surfaces to fail
+the command:
+
+```bash
+npm run ops:plugin-version-check -- --surface all --strict-installed agent-trigger-kit
 ```
 
 Expected source versions must match across `package.json`, both marketplace
