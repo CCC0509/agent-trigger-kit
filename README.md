@@ -139,6 +139,8 @@ npx --yes github:CCC0509/agent-trigger-kit init \
 If the playbook file is missing, the generator creates a short canonical
 placeholder at that path. Edit that playbook with the real project rules;
 generated skills, commands, Cursor rules, and pointer docs should remain thin.
+Playbook refs with anchors use simplified heading slugs: lowercase, trimmed,
+whitespace runs as hyphens, and only `a-z`, `0-9`, and hyphen kept.
 The generator also writes `.agent-trigger-kit/MAINTENANCE.md` and
 `.agent-trigger-kit/generated.json`; keep both in git so future validation,
 safe regeneration, and migration flows can tell which files are managed.

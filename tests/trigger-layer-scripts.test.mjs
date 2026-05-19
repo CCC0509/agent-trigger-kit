@@ -105,6 +105,56 @@ function createMinimalPlugin(root, overrides = {}) {
   return { pluginDir, pluginName };
 }
 
+function createMinimalPlugins(root, pluginNames, version = '0.1.0') {
+  writeJson(root, '.agents/plugins/marketplace.json', {
+    name: 'demo-trigger-kit',
+    interface: { displayName: 'Demo Ops Plugins' },
+    plugins: pluginNames.map((pluginName) => ({
+      name: pluginName,
+      version,
+      source: { source: 'local', path: `./plugins/${pluginName}` },
+      policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+      category: 'Productivity',
+      description: `${pluginName} trigger skills`,
+    })),
+  });
+  writeJson(root, '.claude-plugin/marketplace.json', {
+    name: 'demo-trigger-kit',
+    owner: { name: 'Demo Ops' },
+    metadata: { description: 'Demo Ops trigger skills' },
+    plugins: pluginNames.map((pluginName) => ({
+      name: pluginName,
+      source: `./plugins/${pluginName}`,
+      description: `${pluginName} trigger skills`,
+      version,
+      author: { name: 'Demo Ops' },
+      category: 'workflow',
+      strict: false,
+    })),
+  });
+  for (const pluginName of pluginNames) {
+    writeJson(root, `plugins/${pluginName}/.codex-plugin/plugin.json`, {
+      name: pluginName,
+      version,
+      description: `${pluginName} trigger skills`,
+      author: { name: 'Demo Ops' },
+      skills: './skills/',
+    });
+    writeJson(root, `plugins/${pluginName}/.claude-plugin/plugin.json`, {
+      name: pluginName,
+      version,
+      description: `${pluginName} trigger skills`,
+      author: { name: 'Demo Ops' },
+      skills: ['./skills/'],
+      commands: ['./commands/'],
+    });
+  }
+  return pluginNames.map((pluginName) => ({
+    pluginName,
+    pluginDir: `plugins/${pluginName}`,
+  }));
+}
+
 function createPackage(root, version = '0.1.0', name = 'demo-trigger-kit') {
   writeJson(root, 'package.json', {
     name,
@@ -640,6 +690,78 @@ Apply the \`demo-ops:deploy-ops\` skill before acting.
   assert.match(result.stderr, /delegates to missing skill demo-ops:deploy-ops/);
 });
 
+test('validator accepts command delegation to a visible skill name that differs from its directory', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  write(
+    root,
+    `${pluginDir}/skills/docs/SKILL.md`,
+    `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+  );
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs-review\` skill before acting.
+`,
+  );
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator rejects command delegation to a skill directory when the visible name differs', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  write(
+    root,
+    `${pluginDir}/skills/docs/SKILL.md`,
+    `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+  );
+  write(
+    root,
+    `${pluginDir}/commands/docs.md`,
+    `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs\` skill before acting.
+`,
+  );
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /delegates to missing skill demo-ops:docs/);
+});
+
 test('validator fails when Claude commands exist but are not declared', () => {
   const root = makeRoot();
   const { pluginDir } = createMinimalPlugin(root, { commands: false });
@@ -674,6 +796,380 @@ Apply the \`demo-ops:docs-review\` skill before acting.
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /commands exist but are not declared/);
+});
+
+test('validator fails when same-plugin skill frontmatter names collide across different directories', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  for (const skillDir of ['docs-review', 'docs-review-alias']) {
+    write(
+      root,
+      `${pluginDir}/skills/${skillDir}/SKILL.md`,
+      `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+    );
+  }
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs-review\` skill before acting.
+`,
+  );
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /skill name collision/);
+  assert.match(result.stderr, /docs-review/);
+  assert.match(result.stderr, /plugins\/demo-ops\/skills\/docs-review\/SKILL\.md/);
+  assert.match(result.stderr, /plugins\/demo-ops\/skills\/docs-review-alias\/SKILL\.md/);
+});
+
+test('validator fails when plugin skill directory names collide', () => {
+  const root = makeRoot();
+  const plugins = createMinimalPlugins(root, ['demo-ops', 'data-ops']);
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  for (const { pluginDir, pluginName } of plugins) {
+    write(
+      root,
+      `${pluginDir}/skills/docs-review/SKILL.md`,
+      `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+    );
+    write(
+      root,
+      `${pluginDir}/commands/${pluginName}.md`,
+      `---
+description: Use for ${pluginName} work.
+---
+
+Apply the \`${pluginName}:docs-review\` skill before acting.
+`,
+    );
+  }
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /skill name collision/);
+  assert.match(result.stderr, /docs-review/);
+  assert.match(result.stderr, /demo-ops/);
+  assert.match(result.stderr, /data-ops/);
+  assert.match(result.stderr, /plugins\/demo-ops\/skills\/docs-review\/SKILL\.md/);
+  assert.match(result.stderr, /plugins\/data-ops\/skills\/docs-review\/SKILL\.md/);
+});
+
+test('validator fails when plugin skill frontmatter names collide across different directories', () => {
+  const root = makeRoot();
+  const plugins = createMinimalPlugins(root, ['demo-ops', 'data-ops']);
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  for (const { pluginDir, pluginName } of plugins) {
+    const skillDir = pluginName === 'demo-ops' ? 'docs-review' : 'data-review';
+    write(
+      root,
+      `${pluginDir}/skills/${skillDir}/SKILL.md`,
+      `---
+name: shared-review
+description: Use for shared review work.
+---
+
+# Shared Review
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+    );
+    write(
+      root,
+      `${pluginDir}/commands/${skillDir}.md`,
+      `---
+description: Use for ${pluginName} work.
+---
+
+Apply the \`${pluginName}:${skillDir}\` skill before acting.
+`,
+    );
+  }
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /skill name collision/);
+  assert.match(result.stderr, /shared-review/);
+  assert.match(result.stderr, /plugins\/demo-ops\/skills\/docs-review\/SKILL\.md/);
+  assert.match(result.stderr, /plugins\/data-ops\/skills\/data-review\/SKILL\.md/);
+});
+
+test('validator fails when plugin command filename stems collide', () => {
+  const root = makeRoot();
+  const plugins = createMinimalPlugins(root, ['demo-ops', 'data-ops']);
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  for (const { pluginDir, pluginName } of plugins) {
+    const skillName = pluginName === 'demo-ops' ? 'docs-review' : 'data-review';
+    write(
+      root,
+      `${pluginDir}/skills/${skillName}/SKILL.md`,
+      `---
+name: ${skillName}
+description: Use for ${skillName} work.
+---
+
+# ${skillName}
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+    );
+    write(
+      root,
+      `${pluginDir}/commands/run-check.md`,
+      `---
+description: Use for ${pluginName} work.
+---
+
+Apply the \`${pluginName}:${skillName}\` skill before acting.
+`,
+    );
+  }
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /command name collision/);
+  assert.match(result.stderr, /run-check/);
+  assert.match(result.stderr, /demo-ops/);
+  assert.match(result.stderr, /data-ops/);
+  assert.match(result.stderr, /plugins\/demo-ops\/commands\/run-check\.md/);
+  assert.match(result.stderr, /plugins\/data-ops\/commands\/run-check\.md/);
+});
+
+test('validator passes when a markdown playbook anchor exists', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook\n\n## Deploy Ops');
+  write(
+    root,
+    `${pluginDir}/skills/docs-review/SKILL.md`,
+    `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md#deploy-ops\`
+`,
+  );
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs-review\` skill before acting.
+`,
+  );
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator fails when a markdown playbook anchor is missing', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook\n\n## Deploy Ops');
+  write(
+    root,
+    `${pluginDir}/skills/docs-review/SKILL.md`,
+    `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md#missing-anchor\`
+`,
+  );
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs-review\` skill before acting.
+`,
+  );
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /missing canonical playbook anchor/);
+  assert.match(result.stderr, /missing-anchor/);
+  assert.match(result.stderr, /docs\/agent-playbooks\/demo-ops\.md/);
+});
+
+test('validator fails when a markdown playbook has duplicate heading slugs', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  write(
+    root,
+    'docs/agent-playbooks/demo-ops.md',
+    '# Demo Ops Playbook\n\n## Deploy Ops!\n\n## Deploy Ops',
+  );
+  write(
+    root,
+    `${pluginDir}/skills/docs-review/SKILL.md`,
+    `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md#deploy-ops\`
+`,
+  );
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs-review\` skill before acting.
+`,
+  );
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /duplicate heading slug/);
+  assert.match(result.stderr, /deploy-ops/);
+  assert.match(result.stderr, /docs\/agent-playbooks\/demo-ops\.md/);
+});
+
+test('validator fails when a plain markdown playbook ref has duplicate heading slugs', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  write(
+    root,
+    'docs/agent-playbooks/demo-ops.md',
+    '# Demo Ops Playbook\n\n## Deploy Ops!\n\n## Deploy Ops',
+  );
+  write(
+    root,
+    `${pluginDir}/skills/docs-review/SKILL.md`,
+    `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+  );
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs-review\` skill before acting.
+`,
+  );
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /duplicate heading slug/);
+  assert.match(result.stderr, /deploy-ops/);
+  assert.match(result.stderr, /docs\/agent-playbooks\/demo-ops\.md/);
+});
+
+test('validator reports duplicate heading slugs once when multiple skills reference the same playbook', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  write(
+    root,
+    'docs/agent-playbooks/demo-ops.md',
+    '# Demo Ops Playbook\n\n## Deploy Ops!\n\n## Deploy Ops',
+  );
+  for (const skillName of ['docs-review', 'deploy-ops']) {
+    write(
+      root,
+      `${pluginDir}/skills/${skillName}/SKILL.md`,
+      `---
+name: ${skillName}
+description: Use for ${skillName} work.
+---
+
+# ${skillName}
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+    );
+  }
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs-review\` skill before acting.
+`,
+  );
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.equal(
+    result.stderr.match(/docs\/agent-playbooks\/demo-ops\.md: duplicate heading slug deploy-ops/g)
+      ?.length,
+    1,
+  );
 });
 
 test('validator fails when Codex marketplace and plugin manifest versions differ', () => {

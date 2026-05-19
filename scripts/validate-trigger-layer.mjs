@@ -9,6 +9,10 @@ const args = parseArgs(process.argv.slice(2));
 const root = normalize(args.root || process.cwd());
 const pathOf = createPathOf(root);
 const failures = [];
+const skillNames = new Map();
+const commandNames = new Map();
+const markdownHeadingCache = new Map();
+const reportedDuplicateHeadingSlugs = new Set();
 
 function fail(message) {
   failures.push(message);
@@ -35,17 +39,31 @@ function listDirs(path) {
 
 function hasFrontmatter(path, keys) {
   const text = read(path);
-  const match = text.match(/^---\n([\s\S]*?)\n---/);
-  if (!match) {
-    fail(`${path}: missing frontmatter`);
-    return false;
-  }
+  const frontmatter = parseFrontmatter(path, text);
+  if (!frontmatter) return false;
+  validateFrontmatterKeys(path, frontmatter, keys);
+  return true;
+}
+
+function validateFrontmatterKeys(path, frontmatter, keys) {
   for (const key of keys) {
-    if (!new RegExp(`^${key}:`, 'm').test(match[1])) {
+    if (!new RegExp(`^${key}:`, 'm').test(frontmatter)) {
       fail(`${path}: missing frontmatter key ${key}`);
     }
   }
-  return true;
+}
+
+function parseFrontmatter(path, text = read(path)) {
+  const match = text.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) {
+    fail(`${path}: missing frontmatter`);
+    return null;
+  }
+  return match[1];
+}
+
+function frontmatterValue(frontmatter, key) {
+  return frontmatter?.match(new RegExp(`^${key}:\\s*(.+?)\\s*$`, 'm'))?.[1]?.trim() || null;
 }
 
 function localBacktickRefs(text) {
@@ -54,8 +72,40 @@ function localBacktickRefs(text) {
     .filter((ref) => {
       if (ref.startsWith('/') || ref.startsWith('#')) return false;
       if (/^[a-z][a-z0-9+.-]*:/i.test(ref)) return false;
-      return ref.endsWith('.md');
+      return /\.md(?:#[^`\s#]+)?$/.test(ref);
     });
+}
+
+function parseMarkdownRef(ref) {
+  const [path, anchor] = ref.split('#');
+  return { path, anchor };
+}
+
+function simplifiedHeadingSlug(heading) {
+  return heading
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+}
+
+function markdownHeadingSlugs(path) {
+  if (markdownHeadingCache.has(path)) return markdownHeadingCache.get(path);
+
+  const slugs = new Map();
+  const duplicateSlugs = new Set();
+  for (const line of read(path).split('\n')) {
+    const match = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
+    if (!match) continue;
+    const slug = simplifiedHeadingSlug(match[1]);
+    if (!slug) continue;
+    if (slugs.has(slug)) duplicateSlugs.add(slug);
+    slugs.set(slug, (slugs.get(slug) || 0) + 1);
+  }
+
+  const result = { slugs, duplicateSlugs };
+  markdownHeadingCache.set(path, result);
+  return result;
 }
 
 function sectionBody(text, heading) {
@@ -72,9 +122,24 @@ function sectionBody(text, heading) {
 
 function validateCanonicalRefs(path, baseDir, text = read(path)) {
   for (const ref of localBacktickRefs(text)) {
-    const candidate = normalize(join(baseDir, ref));
+    const { path: refPath, anchor } = parseMarkdownRef(ref);
+    const candidate = normalize(join(baseDir, refPath));
     if (!existsSync(pathOf(candidate))) {
       fail(`${path}: missing canonical playbook ${candidate}`);
+      continue;
+    }
+    const { slugs, duplicateSlugs } = markdownHeadingSlugs(candidate);
+    for (const duplicateSlug of duplicateSlugs) {
+      const duplicateKey = `${candidate}\0${duplicateSlug}`;
+      if (!reportedDuplicateHeadingSlugs.has(duplicateKey)) {
+        fail(`${candidate}: duplicate heading slug ${duplicateSlug}`);
+        reportedDuplicateHeadingSlugs.add(duplicateKey);
+      }
+    }
+    if (!anchor) continue;
+
+    if (!slugs.has(anchor)) {
+      fail(`${path}: missing canonical playbook anchor ${anchor} in ${candidate}`);
     }
   }
 }
@@ -118,6 +183,21 @@ function parsePluginEntries() {
   return [...entries.values()];
 }
 
+function recordName(map, name, entry) {
+  const entries = map.get(name) || [];
+  entries.push(entry);
+  map.set(name, entries);
+}
+
+function validateNameCollisions(map, kind) {
+  for (const [name, entries] of map) {
+    if (entries.length < 2) continue;
+    fail(
+      `${kind} name collision ${name}: ${entries.map((entry) => `${entry.plugin} (${entry.path})`).join(', ')}`,
+    );
+  }
+}
+
 function validatePlugin(plugin) {
   if (!plugin.pluginDir || !existsSync(pathOf(plugin.pluginDir))) {
     fail(`${plugin.name}: plugin directory missing`);
@@ -156,14 +236,23 @@ function validatePlugin(plugin) {
     }
   }
 
+  const visibleSkillNames = new Set();
   for (const skillName of listDirs(`${plugin.pluginDir}/skills`)) {
     const skillPath = `${plugin.pluginDir}/skills/${skillName}/SKILL.md`;
     if (!existsSync(pathOf(skillPath))) {
       fail(`${skillPath}: missing`);
       continue;
     }
-    hasFrontmatter(skillPath, ['name', 'description']);
-    validateCanonicalRefs(skillPath, dirname(skillPath), sectionBody(read(skillPath), 'Must Read'));
+    const skillText = read(skillPath);
+    const frontmatter = parseFrontmatter(skillPath, skillText);
+    if (frontmatter) validateFrontmatterKeys(skillPath, frontmatter, ['name', 'description']);
+    const visibleSkillName = frontmatterValue(frontmatter, 'name') || skillName;
+    visibleSkillNames.add(visibleSkillName);
+    recordName(skillNames, visibleSkillName, {
+      plugin: plugin.name,
+      path: skillPath,
+    });
+    validateCanonicalRefs(skillPath, dirname(skillPath), sectionBody(skillText, 'Must Read'));
   }
 
   const commandDir = `${plugin.pluginDir}/commands`;
@@ -178,6 +267,10 @@ function validatePlugin(plugin) {
     const delegationPattern = new RegExp(`${escapeRegExp(plugin.name)}:([A-Za-z0-9_-]+)`, 'g');
     for (const file of commandFiles) {
       const commandPath = `${commandDir}/${file}`;
+      recordName(commandNames, file.replace(/\.md$/, ''), {
+        plugin: plugin.name,
+        path: commandPath,
+      });
       hasFrontmatter(commandPath, ['description']);
       const commandText = read(commandPath);
       const delegations = [...commandText.matchAll(delegationPattern)].map((match) => match[1]);
@@ -185,7 +278,7 @@ function validatePlugin(plugin) {
         fail(`${commandPath}: missing delegation to ${plugin.name}:<skill>`);
       }
       for (const skillName of delegations) {
-        if (!existsSync(pathOf(`${plugin.pluginDir}/skills/${skillName}/SKILL.md`))) {
+        if (!visibleSkillNames.has(skillName)) {
           fail(`${commandPath}: delegates to missing skill ${plugin.name}:${skillName}`);
         }
       }
@@ -213,6 +306,8 @@ if (plugins.length === 0) {
 for (const plugin of plugins) {
   validatePlugin(plugin);
 }
+validateNameCollisions(skillNames, 'skill');
+validateNameCollisions(commandNames, 'command');
 validateCursorRules();
 
 if (failures.length > 0) {

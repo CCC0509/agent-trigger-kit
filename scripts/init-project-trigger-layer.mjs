@@ -237,6 +237,7 @@ This file is the maintenance contract for the project-local trigger layer.
 
 - Keep long operating rules in the canonical playbook: \`${playbook}\`.
 - Keep skills, commands, Cursor rules, and pointer docs as thin routing surfaces.
+- For playbook refs with anchors, use simplified heading slugs: lowercase, trimmed, whitespace runs as hyphens, and only a-z, 0-9, and hyphen kept.
 - Bump the local plugin version when plugin-visible files change: skills, commands, plugin manifests, or marketplace manifests.
 - Run the project trigger-layer validator after editing trigger surfaces.
 `,
