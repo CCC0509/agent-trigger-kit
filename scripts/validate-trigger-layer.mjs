@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';
 
 import { parseArgs } from './lib/args.mjs';
 import { createPathOf } from './lib/fs-json.mjs';
 
-const args = parseArgs(process.argv.slice(2));
+const args = parseArgs(process.argv.slice(2), { booleanKeys: ['require-version-bump'] });
 const root = normalize(args.root || process.cwd());
 const pathOf = createPathOf(root);
 const failures = [];
@@ -13,6 +14,13 @@ const skillNames = new Map();
 const commandNames = new Map();
 const markdownHeadingCache = new Map();
 const reportedDuplicateHeadingSlugs = new Set();
+const requireVersionBump = args['require-version-bump'] === true;
+const versionBumpBase = args.base;
+
+if (requireVersionBump && (typeof versionBumpBase !== 'string' || versionBumpBase.trim() === '')) {
+  console.error('--require-version-bump requires --base <ref>');
+  process.exit(2);
+}
 
 function fail(message) {
   failures.push(message);
@@ -25,6 +33,15 @@ function read(path) {
 function parseJson(path) {
   try {
     return JSON.parse(read(path));
+  } catch (error) {
+    fail(`${path}: invalid JSON (${error.message})`);
+    return null;
+  }
+}
+
+function parseJsonText(path, text) {
+  try {
+    return JSON.parse(text);
   } catch (error) {
     fail(`${path}: invalid JSON (${error.message})`);
     return null;
@@ -312,6 +329,277 @@ function validateMaintenanceContractPointers() {
   }
 }
 
+function runGit(argsToRun) {
+  const result = spawnSync('git', argsToRun, { cwd: root, encoding: 'utf8' });
+  if (result.error) {
+    return {
+      ok: false,
+      missingGit: result.error.code === 'ENOENT',
+      message: result.error.message,
+      stdout: '',
+      stderr: '',
+    };
+  }
+  return {
+    ok: result.status === 0,
+    missingGit: false,
+    message: result.stderr || result.stdout,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
+}
+
+function shallowFetchHint(operation, details = '') {
+  return `${operation} failed. Run git fetch --unshallow or use fetch-depth: 0 before running --require-version-bump.${details ? ` ${details.trim()}` : ''}`;
+}
+
+function normalizeGeneratedPath(path) {
+  return path.replaceAll('\\', '/').replace(/^\.\//, '');
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function showFile(ref, path) {
+  const result = runGit(['show', `${ref}:${path}`]);
+  if (!result.ok) return null;
+  return result.stdout;
+}
+
+function marketplaceEntry(json, pluginName) {
+  return (json?.plugins || []).find((plugin) => plugin?.name === pluginName) || null;
+}
+
+function marketplaceEntryChanged(path, mergeBase, pluginName) {
+  const baseText = showFile(mergeBase, path);
+  const currentText = showFile('HEAD', path);
+  const baseEntry = baseText
+    ? marketplaceEntry(parseJsonText(`${mergeBase}:${path}`, baseText), pluginName)
+    : null;
+  const currentEntry = currentText
+    ? marketplaceEntry(parseJsonText(`HEAD:${path}`, currentText), pluginName)
+    : null;
+  return stableStringify(baseEntry) !== stableStringify(currentEntry);
+}
+
+function sourceVersionsFromJson(ref, path) {
+  const text = showFile(ref, path);
+  if (!text) return null;
+  return parseJsonText(`${ref}:${path}`, text);
+}
+
+function pluginDirFromEntry(entry, surface) {
+  const sourcePath = surface === 'codex' ? entry?.source?.path : entry?.source;
+  return typeof sourcePath === 'string' ? sourcePath.replace(/^\.\//, '') : '';
+}
+
+function packageNameMatchesPlugin(packageName, pluginName) {
+  return packageName === pluginName || packageName?.endsWith(`/${pluginName}`);
+}
+
+function pluginVersionSnapshot(ref, pluginName) {
+  const versions = [];
+  const errors = [];
+  const packageJson = sourceVersionsFromJson(ref, 'package.json');
+  const codexMarketplace = sourceVersionsFromJson(ref, '.agents/plugins/marketplace.json');
+  const claudeMarketplace = sourceVersionsFromJson(ref, '.claude-plugin/marketplace.json');
+  const codexEntry = marketplaceEntry(codexMarketplace, pluginName);
+  const claudeEntry = marketplaceEntry(claudeMarketplace, pluginName);
+  const pluginDir =
+    pluginDirFromEntry(codexEntry, 'codex') || pluginDirFromEntry(claudeEntry, 'claude');
+  const refName = ref || 'current';
+
+  if (codexEntry?.version) {
+    versions.push(codexEntry.version);
+  } else {
+    errors.push(`${refName}: missing Codex marketplace entry version for ${pluginName}`);
+  }
+
+  if (claudeEntry?.version) {
+    versions.push(claudeEntry.version);
+  } else {
+    errors.push(`${refName}: missing Claude marketplace entry version for ${pluginName}`);
+  }
+
+  if (packageNameMatchesPlugin(packageJson?.name, pluginName)) {
+    if (packageJson?.version) {
+      versions.push(packageJson.version);
+    } else {
+      errors.push(`${refName}: missing package.json version for ${pluginName}`);
+    }
+  }
+
+  if (!pluginDir) {
+    errors.push(`${refName}: missing plugin source path for ${pluginName}`);
+  } else {
+    const codexManifestPath = `${pluginDir}/.codex-plugin/plugin.json`;
+    const claudeManifestPath = `${pluginDir}/.claude-plugin/plugin.json`;
+    const codexManifest = sourceVersionsFromJson(ref, codexManifestPath);
+    const claudeManifest = sourceVersionsFromJson(ref, claudeManifestPath);
+
+    if (codexManifest?.version) {
+      versions.push(codexManifest.version);
+    } else {
+      errors.push(`${refName}: missing Codex plugin manifest version at ${codexManifestPath}`);
+    }
+
+    if (claudeManifest?.version) {
+      versions.push(claudeManifest.version);
+    } else {
+      errors.push(`${refName}: missing Claude plugin manifest version at ${claudeManifestPath}`);
+    }
+  }
+
+  const uniqueVersions = new Set(versions);
+  if (errors.length > 0 || uniqueVersions.size !== 1) {
+    return {
+      version: null,
+      error: `${refName}: cannot determine aligned plugin version for ${pluginName}${
+        errors.length > 0 ? ` (${errors.join('; ')})` : ''
+      }`,
+    };
+  }
+
+  return { version: versions[0], error: null };
+}
+
+function parseCleanSemver(version, label) {
+  const match = version?.match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
+  if (!match) return { parts: null, error: `${label} is not clean semver x.y.z: ${version}` };
+  return { parts: match.slice(1).map(Number), error: null };
+}
+
+function compareCleanSemver(left, right) {
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] > right[index]) return 1;
+    if (left[index] < right[index]) return -1;
+  }
+  return 0;
+}
+
+function generatedPluginVisiblePaths(ref) {
+  const generatedText = showFile(ref, '.agent-trigger-kit/generated.json');
+  if (!generatedText) return [];
+
+  const generated = parseJsonText(`${ref}:.agent-trigger-kit/generated.json`, generatedText);
+  const pluginVisibleKinds = new Set(['skill', 'command', 'plugin-manifest']);
+  return (generated?.files || [])
+    .filter((entry) => pluginVisibleKinds.has(entry?.kind) && typeof entry.path === 'string')
+    .map((entry) => normalizeGeneratedPath(entry.path));
+}
+
+function validateRequiredVersionBump() {
+  if (!requireVersionBump) return;
+
+  const generatedPath = '.agent-trigger-kit/generated.json';
+  if (!existsSync(pathOf(generatedPath))) {
+    fail(`${generatedPath}: required by --require-version-bump to identify the plugin`);
+    return;
+  }
+
+  const generated = parseJson(generatedPath);
+  if (!generated?.pluginName) {
+    fail(`${generatedPath}: missing pluginName required by --require-version-bump`);
+    return;
+  }
+
+  const gitVersion = runGit(['--version']);
+  if (!gitVersion.ok) {
+    fail(
+      gitVersion.missingGit
+        ? '--require-version-bump requires git, but the git binary was not found'
+        : `--require-version-bump requires git, but git --version failed: ${gitVersion.message}`,
+    );
+    return;
+  }
+
+  const mergeBaseResult = runGit(['merge-base', versionBumpBase, 'HEAD']);
+  if (!mergeBaseResult.ok) {
+    fail(shallowFetchHint(`git merge-base ${versionBumpBase} HEAD`, mergeBaseResult.message));
+    return;
+  }
+  const mergeBase = mergeBaseResult.stdout.trim();
+
+  const diffResult = runGit(['diff', '--name-only', `${versionBumpBase}...HEAD`]);
+  if (!diffResult.ok) {
+    fail(shallowFetchHint(`git diff --name-only ${versionBumpBase}...HEAD`, diffResult.message));
+    return;
+  }
+
+  const changedFiles = new Set(
+    diffResult.stdout
+      .split('\n')
+      .map((path) => path.trim())
+      .filter(Boolean)
+      .map(normalizeGeneratedPath),
+  );
+  const pluginVisibleChanges = [];
+  const generatedPluginVisiblePathsByPath = new Set([
+    ...generatedPluginVisiblePaths(mergeBase),
+    ...generatedPluginVisiblePaths('HEAD'),
+  ]);
+
+  for (const entryPath of generatedPluginVisiblePathsByPath) {
+    if (changedFiles.has(entryPath)) pluginVisibleChanges.push(entryPath);
+  }
+
+  for (const marketplacePath of [
+    '.agents/plugins/marketplace.json',
+    '.claude-plugin/marketplace.json',
+  ]) {
+    if (
+      changedFiles.has(marketplacePath) &&
+      marketplaceEntryChanged(marketplacePath, mergeBase, generated.pluginName)
+    ) {
+      pluginVisibleChanges.push(marketplacePath);
+    }
+  }
+
+  if (pluginVisibleChanges.length === 0) return;
+
+  const baseSnapshot = pluginVersionSnapshot(mergeBase, generated.pluginName);
+  const currentSnapshot = pluginVersionSnapshot('HEAD', generated.pluginName);
+  if (baseSnapshot.error || currentSnapshot.error) {
+    fail(
+      `Cannot determine plugin version for --require-version-bump: ${[
+        baseSnapshot.error,
+        currentSnapshot.error,
+      ]
+        .filter(Boolean)
+        .join('; ')}`,
+    );
+    return;
+  }
+
+  const baseSemver = parseCleanSemver(baseSnapshot.version, 'base plugin version');
+  const currentSemver = parseCleanSemver(currentSnapshot.version, 'current plugin version');
+  if (baseSemver.error || currentSemver.error) {
+    fail(
+      `Cannot determine plugin version bump for --require-version-bump: ${[
+        baseSemver.error,
+        currentSemver.error,
+      ]
+        .filter(Boolean)
+        .join('; ')}`,
+    );
+    return;
+  }
+
+  if (compareCleanSemver(currentSemver.parts, baseSemver.parts) <= 0) {
+    fail(
+      `Version bump required for plugin-visible trigger-layer changes: current plugin version ${currentSnapshot.version} must be greater than base plugin version ${baseSnapshot.version}; changed files: ${pluginVisibleChanges.join(', ')}`,
+    );
+  }
+}
+
 const plugins = parsePluginEntries();
 if (plugins.length === 0) {
   fail(
@@ -326,6 +614,7 @@ validateNameCollisions(skillNames, 'skill');
 validateNameCollisions(commandNames, 'command');
 validateCursorRules();
 validateMaintenanceContractPointers();
+validateRequiredVersionBump();
 
 if (failures.length > 0) {
   console.error(failures.join('\n'));

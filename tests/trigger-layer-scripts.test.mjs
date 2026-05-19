@@ -9,6 +9,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,6 +34,14 @@ function runScript(scriptName, args, options = {}) {
 function runCli(args, options = {}) {
   return spawnSync(process.execPath, [join(repoRoot, 'scripts', 'cli.mjs'), ...args], {
     cwd: repoRoot,
+    encoding: 'utf8',
+    ...options,
+  });
+}
+
+function runGit(root, args, options = {}) {
+  return spawnSync('git', args, {
+    cwd: root,
     encoding: 'utf8',
     ...options,
   });
@@ -199,6 +208,98 @@ function sha256(path) {
 
 function readJson(root, path) {
   return JSON.parse(readFileSync(join(root, path), 'utf8'));
+}
+
+function initGitFixture(root) {
+  for (const args of [
+    ['init'],
+    ['config', 'user.name', 'Agent Trigger Kit Tests'],
+    ['config', 'user.email', 'agent-trigger-kit-tests@example.com'],
+  ]) {
+    const result = runGit(root, args);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  }
+}
+
+function commitAll(root, message) {
+  let result = runGit(root, ['add', '.']);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runGit(root, ['commit', '-m', message]);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  result = runGit(root, ['rev-parse', 'HEAD']);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return result.stdout.trim();
+}
+
+function bumpDemoPluginVersion(root, pluginDir, version = '0.1.1') {
+  const codexMarketplace = readJson(root, '.agents/plugins/marketplace.json');
+  codexMarketplace.plugins.find((plugin) => plugin.name === 'demo-ops').version = version;
+  writeJson(root, '.agents/plugins/marketplace.json', codexMarketplace);
+
+  const claudeMarketplace = readJson(root, '.claude-plugin/marketplace.json');
+  claudeMarketplace.plugins.find((plugin) => plugin.name === 'demo-ops').version = version;
+  writeJson(root, '.claude-plugin/marketplace.json', claudeMarketplace);
+
+  const codexManifest = readJson(root, `${pluginDir}/.codex-plugin/plugin.json`);
+  codexManifest.version = version;
+  writeJson(root, `${pluginDir}/.codex-plugin/plugin.json`, codexManifest);
+
+  const claudeManifest = readJson(root, `${pluginDir}/.claude-plugin/plugin.json`);
+  claudeManifest.version = version;
+  writeJson(root, `${pluginDir}/.claude-plugin/plugin.json`, claudeManifest);
+}
+
+function writeManagedSkill(root, pluginDir, body = 'Use for docs review work.') {
+  write(
+    root,
+    `${pluginDir}/skills/docs-review/SKILL.md`,
+    `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+Maintenance contract: \`some/contract.md\`
+
+${body}
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+  );
+}
+
+function createVersionBumpFixture(root, options = {}) {
+  const plugins =
+    options.pluginNames && options.pluginNames.length > 1
+      ? createMinimalPlugins(root, options.pluginNames)
+      : [createMinimalPlugin(root)];
+  for (const plugin of plugins) {
+    mkdirSync(join(root, `${plugin.pluginDir}/skills`), { recursive: true });
+    mkdirSync(join(root, `${plugin.pluginDir}/commands`), { recursive: true });
+  }
+  const { pluginDir, pluginName } = plugins.find((plugin) => plugin.pluginName === 'demo-ops');
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  writeManagedSkill(root, pluginDir);
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
+description: Use for docs review work.
+---
+
+Apply the \`demo-ops:docs-review\` skill before acting.
+`,
+  );
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 1,
+    pluginName,
+    files: [{ kind: 'skill', path: `${pluginDir}/skills/docs-review/SKILL.md` }],
+  });
+  initGitFixture(root);
+  return { pluginDir, pluginName, skillPath: `${pluginDir}/skills/docs-review/SKILL.md` };
 }
 
 test('package exposes the agent-trigger-kit bin entry', () => {
@@ -1285,6 +1386,381 @@ test('validator accepts a generated command without a maintenance contract point
   });
 
   const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator require-version-bump requires a base ref', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 1,
+    pluginName: 'demo-ops',
+    files: [],
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+  ]);
+
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /--base/);
+});
+
+test('validator require-version-bump rejects managed skill changes without a version bump', () => {
+  const root = makeRoot();
+  const { skillPath } = createVersionBumpFixture(root);
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, 'plugins/demo-ops', 'Changed generated skill body.');
+  commitAll(root, 'change managed skill');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /version bump/i);
+  assert.match(result.stderr, new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('validator require-version-bump accepts managed skill changes with aligned version bump', () => {
+  const root = makeRoot();
+  const { pluginDir } = createVersionBumpFixture(root);
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
+  bumpDemoPluginVersion(root, pluginDir);
+  commitAll(root, 'change managed skill and bump version');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator require-version-bump rejects stale matching package version', () => {
+  const root = makeRoot();
+  const { pluginDir, pluginName } = createVersionBumpFixture(root);
+  createPackage(root, '0.1.0', pluginName);
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
+  bumpDemoPluginVersion(root, pluginDir);
+  commitAll(root, 'change managed skill and bump plugin surfaces');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Cannot determine plugin version|version bump/i);
+  assert.match(result.stderr, /package\.json|aligned plugin version/i);
+});
+
+test('validator require-version-bump rejects stale scoped matching package version', () => {
+  const root = makeRoot();
+  const { pluginDir, pluginName } = createVersionBumpFixture(root);
+  createPackage(root, '0.1.0', `@acme/${pluginName}`);
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
+  bumpDemoPluginVersion(root, pluginDir);
+  commitAll(root, 'change managed skill and bump plugin surfaces');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Cannot determine plugin version|version bump/i);
+  assert.match(result.stderr, /package\.json|aligned plugin version/i);
+});
+
+test('validator require-version-bump ignores stale unrelated package version', () => {
+  const root = makeRoot();
+  const { pluginDir } = createVersionBumpFixture(root);
+  createPackage(root, '0.1.0', 'external-project');
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
+  bumpDemoPluginVersion(root, pluginDir);
+  commitAll(root, 'change managed skill and bump plugin surfaces');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator require-version-bump accepts matching package version aligned with plugin surfaces', () => {
+  const root = makeRoot();
+  const { pluginDir, pluginName } = createVersionBumpFixture(root);
+  createPackage(root, '0.1.0', pluginName);
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
+  bumpDemoPluginVersion(root, pluginDir);
+  const packageJson = readJson(root, 'package.json');
+  packageJson.version = '0.1.1';
+  writeJson(root, 'package.json', packageJson);
+  commitAll(root, 'change managed skill and bump aligned versions');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator require-version-bump rejects managed skill changes when a required manifest version is missing', () => {
+  const root = makeRoot();
+  const { pluginDir } = createVersionBumpFixture(root);
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
+  bumpDemoPluginVersion(root, pluginDir);
+  rmSync(join(root, `${pluginDir}/.codex-plugin/plugin.json`), { force: true });
+  commitAll(root, 'change managed skill and remove codex manifest');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Cannot determine plugin version/i);
+  assert.match(result.stderr, /missing.*codex plugin manifest.*version/i);
+});
+
+test('validator require-version-bump rejects managed skill changes with a lower aligned version', () => {
+  const root = makeRoot();
+  const { pluginDir } = createVersionBumpFixture(root);
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
+  bumpDemoPluginVersion(root, pluginDir, '0.0.9');
+  commitAll(root, 'change managed skill and lower version');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /version bump/i);
+  assert.match(result.stderr, /greater than/i);
+});
+
+test('validator require-version-bump rejects deleting a previously managed plugin-visible file without a version bump', () => {
+  const root = makeRoot();
+  const { pluginDir, skillPath } = createVersionBumpFixture(root);
+  const base = commitAll(root, 'base trigger layer');
+  rmSync(join(root, `${pluginDir}/skills/docs-review`), { recursive: true, force: true });
+  rmSync(join(root, `${pluginDir}/commands/docs-review.md`), { force: true });
+  const generated = readJson(root, '.agent-trigger-kit/generated.json');
+  generated.files = [];
+  writeJson(root, '.agent-trigger-kit/generated.json', generated);
+  commitAll(root, 'remove managed skill from generated files');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /version bump/i);
+  assert.match(result.stderr, new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('validator require-version-bump ignores cursor playbook maintenance and generated changes', () => {
+  const root = makeRoot();
+  createVersionBumpFixture(root);
+  const base = commitAll(root, 'base trigger layer');
+  write(
+    root,
+    '.cursor/rules/docs-review.mdc',
+    `---
+description: Use for docs review work.
+globs: docs/**
+---
+
+See \`docs/agent-playbooks/demo-ops.md\`.
+`,
+  );
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook\n\nChanged playbook.');
+  write(root, '.agent-trigger-kit/MAINTENANCE.md', '# Maintenance\n\nChanged contract.');
+  const generated = readJson(root, '.agent-trigger-kit/generated.json');
+  generated.note = 'changed generated manifest';
+  writeJson(root, '.agent-trigger-kit/generated.json', generated);
+  commitAll(root, 'change non-plugin-visible generated files');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator require-version-bump ignores unrelated marketplace plugin entry changes', () => {
+  const root = makeRoot();
+  createVersionBumpFixture(root, { pluginNames: ['demo-ops', 'other-ops'] });
+  const base = commitAll(root, 'base trigger layer');
+  const codexMarketplace = readJson(root, '.agents/plugins/marketplace.json');
+  codexMarketplace.plugins.find((plugin) => plugin.name === 'other-ops').description =
+    'Changed unrelated trigger skills';
+  writeJson(root, '.agents/plugins/marketplace.json', codexMarketplace);
+  const claudeMarketplace = readJson(root, '.claude-plugin/marketplace.json');
+  claudeMarketplace.plugins.find((plugin) => plugin.name === 'other-ops').description =
+    'Changed unrelated trigger skills';
+  writeJson(root, '.claude-plugin/marketplace.json', claudeMarketplace);
+  commitAll(root, 'change unrelated marketplace entry');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator require-version-bump rejects matching marketplace entry changes without version bump', () => {
+  const root = makeRoot();
+  createVersionBumpFixture(root);
+  const base = commitAll(root, 'base trigger layer');
+  const codexMarketplace = readJson(root, '.agents/plugins/marketplace.json');
+  codexMarketplace.plugins.find((plugin) => plugin.name === 'demo-ops').description =
+    'Changed demo trigger skills';
+  writeJson(root, '.agents/plugins/marketplace.json', codexMarketplace);
+  commitAll(root, 'change matching marketplace entry');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /version bump/i);
+  assert.match(result.stderr, /\.agents\/plugins\/marketplace\.json/);
+});
+
+test('validator require-version-bump accepts matching marketplace version change with aligned manifests', () => {
+  const root = makeRoot();
+  const { pluginDir } = createVersionBumpFixture(root);
+  const base = commitAll(root, 'base trigger layer');
+  bumpDemoPluginVersion(root, pluginDir);
+  commitAll(root, 'bump matching marketplace entry');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator require-version-bump fails explicitly when git is unavailable', () => {
+  const root = makeRoot();
+  createVersionBumpFixture(root);
+  const base = commitAll(root, 'base trigger layer');
+  const emptyPath = makeRoot();
+
+  const result = runScript(
+    'validate-trigger-layer.mjs',
+    ['--root', root, '--require-version-bump', '--base', base],
+    {
+      env: { ...process.env, PATH: emptyPath },
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /git/i);
+});
+
+test('validator require-version-bump explains unavailable base refs', () => {
+  const root = makeRoot();
+  createVersionBumpFixture(root);
+  commitAll(root, 'base trigger layer');
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    'missing-base-ref',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /git fetch --unshallow|fetch-depth: 0/);
+});
+
+test('validator require-version-bump works from detached HEAD', () => {
+  const root = makeRoot();
+  const { pluginDir } = createVersionBumpFixture(root);
+  const base = commitAll(root, 'base trigger layer');
+  writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
+  bumpDemoPluginVersion(root, pluginDir);
+  const head = commitAll(root, 'change managed skill and bump version');
+  const checkout = runGit(root, ['checkout', '--detach', head]);
+  assert.equal(checkout.status, 0, checkout.stderr || checkout.stdout);
+
+  const result = runScript('validate-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--require-version-bump',
+    '--base',
+    base,
+  ]);
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /trigger layer validation passed/);
