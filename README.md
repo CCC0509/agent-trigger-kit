@@ -288,7 +288,12 @@ manifests, and both plugin manifests.
 
 ## Maintainer Workflows
 
-Bump a plugin version for a release:
+Bump the aligned version before commit and before push whenever plugin-visible
+files change, including plugin skills, commands, marketplace manifests, or
+plugin manifests. This gives installed caches a fresh snapshot instead of
+reusing a same-version cache.
+
+Bump a plugin version:
 
 ```bash
 node scripts/bump-plugin-version.mjs \
@@ -321,11 +326,7 @@ claude plugin validate plugins/agent-trigger-kit
 ```
 
 Run the `/private/tmp` smoke flow from this README's project examples when
-generator behavior changes. If Claude-visible plugin files change, especially
-commands or `.claude-plugin/plugin.json`, bump the plugin version in both
-`.claude-plugin/marketplace.json` and
-`plugins/agent-trigger-kit/.claude-plugin/plugin.json` so marketplace caches
-take a fresh snapshot.
+generator behavior changes.
 
 ## Troubleshooting
 

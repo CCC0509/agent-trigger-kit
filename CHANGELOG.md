@@ -8,11 +8,15 @@ Claude marketplace, and Claude plugin versions aligned.
 
 ## Unreleased
 
+## 0.1.3 - Scoped Version Checks
+
 - Added scoped version checks with `--surface codex|claude|source|all`, keeping
   source manifest consistency checks always on while limiting installed-state
   checks to the requested surface.
 - Updated the `agent-trigger-kit:version-check` workflow to be read-only by
   default instead of running local sync/update commands for version questions.
+- Documented the completion gate requiring aligned version bumps before commit
+  and push when plugin-visible files change.
 - Added `check-plugin-version --json` for automation.
 - Updated the local agent refresh flow to read structured version-check output
   instead of matching human-readable stdout.
