@@ -6,9 +6,7 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
-## Unreleased
-
-## 0.1.3 - Scoped Version Checks
+## 0.1.3 - Version Checks And Toolkit Hardening
 
 - Added scoped version checks with `--surface codex|claude|source|all`, keeping
   source manifest consistency checks always on while limiting installed-state
