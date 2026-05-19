@@ -2,34 +2,16 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';
 
+import { parseArgs } from './lib/args.mjs';
+import { createPathOf } from './lib/fs-json.mjs';
+
 const args = parseArgs(process.argv.slice(2));
 const root = normalize(args.root || process.cwd());
+const pathOf = createPathOf(root);
 const failures = [];
-
-function parseArgs(argv) {
-  const out = {};
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2);
-      const next = argv[i + 1];
-      if (!next || next.startsWith('--')) {
-        out[key] = true;
-      } else {
-        out[key] = next;
-        i += 1;
-      }
-    }
-  }
-  return out;
-}
 
 function fail(message) {
   failures.push(message);
-}
-
-function pathOf(path) {
-  return join(root, path);
 }
 
 function read(path) {

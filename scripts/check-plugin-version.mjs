@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, normalize } from 'node:path';
 
-const args = parseArgs(process.argv.slice(2));
+import { parseArgs } from './lib/args.mjs';
+import { createPathOf, readJsonFileIfExistsOrExit } from './lib/fs-json.mjs';
+
+const args = parseArgs(process.argv.slice(2), {
+  booleanKeys: ['strict-installed'],
+  collectPositionals: true,
+});
 const root = normalize(args.root || process.cwd());
+const pathOf = createPathOf(root);
 const codexHome = normalize(args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'));
 const pluginName = args.plugin || args._[0];
 
@@ -17,56 +24,13 @@ if (!pluginName) {
   process.exit(2);
 }
 
-function parseArgs(argv) {
-  const out = { _: [] };
-  const booleanKeys = new Set(['strict-installed']);
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2);
-      if (booleanKeys.has(key)) {
-        out[key] = true;
-        continue;
-      }
-      const next = argv[i + 1];
-      if (!next || next.startsWith('--')) {
-        out[key] = true;
-      } else {
-        out[key] = next;
-        i += 1;
-      }
-    } else {
-      out._.push(arg);
-    }
-  }
-  return out;
-}
-
-function pathOf(path) {
-  return join(root, path);
-}
-
-function readJson(path) {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch (error) {
-    console.error(`${path}: ${error.message}`);
-    process.exit(1);
-  }
-}
-
-function optionalJson(path) {
-  if (!existsSync(pathOf(path))) return null;
-  return readJson(pathOf(path));
-}
-
 function sourceEntry(label, version) {
   return { label, version: version || 'missing' };
 }
 
-const packageJson = optionalJson('package.json');
-const codexMarketplace = optionalJson('.agents/plugins/marketplace.json');
-const claudeMarketplace = optionalJson('.claude-plugin/marketplace.json');
+const packageJson = readJsonFileIfExistsOrExit(pathOf('package.json'), null);
+const codexMarketplace = readJsonFileIfExistsOrExit(pathOf('.agents/plugins/marketplace.json'), null);
+const claudeMarketplace = readJsonFileIfExistsOrExit(pathOf('.claude-plugin/marketplace.json'), null);
 const codexEntry = codexMarketplace?.plugins?.find((entry) => entry.name === pluginName);
 const claudeEntry = claudeMarketplace?.plugins?.find((entry) => entry.name === pluginName);
 const pluginDir = codexEntry?.source?.path?.replace(/^\.\//, '') || claudeEntry?.source?.replace(/^\.\//, '');
@@ -76,8 +40,8 @@ if (!pluginDir) {
   process.exit(1);
 }
 
-const codexPlugin = optionalJson(`${pluginDir}/.codex-plugin/plugin.json`);
-const claudePlugin = optionalJson(`${pluginDir}/.claude-plugin/plugin.json`);
+const codexPlugin = readJsonFileIfExistsOrExit(pathOf(`${pluginDir}/.codex-plugin/plugin.json`), null);
+const claudePlugin = readJsonFileIfExistsOrExit(pathOf(`${pluginDir}/.claude-plugin/plugin.json`), null);
 const sourceVersions = [
   sourceEntry('package.json', packageJson?.version),
   sourceEntry('codex marketplace', codexEntry?.version),

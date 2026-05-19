@@ -1,44 +1,18 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join, normalize } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, normalize } from 'node:path';
+
+import { parseArgs, requiredArg } from './lib/args.mjs';
+import { createPathOf, readJsonFileIfExists, writeJsonFileCreatingParents } from './lib/fs-json.mjs';
 
 const args = parseArgs(process.argv.slice(2));
-const root = normalize(required('root'));
-const pluginName = required('plugin');
-const tasks = required('tasks').split(',').map((item) => item.trim()).filter(Boolean);
-const playbook = required('playbook');
+const root = normalize(requiredArg(args, 'root'));
+const pathOf = createPathOf(root);
+const pluginName = requiredArg(args, 'plugin');
+const tasks = requiredArg(args, 'tasks').split(',').map((item) => item.trim()).filter(Boolean);
+const playbook = requiredArg(args, 'playbook');
 const force = Boolean(args.force);
 const cursorGlobs = args['cursor-globs'] ? args['cursor-globs'].split(',').map((item) => item.trim()).filter(Boolean) : [];
-
-function parseArgs(argv) {
-  const out = {};
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2);
-      const next = argv[i + 1];
-      if (!next || next.startsWith('--')) {
-        out[key] = true;
-      } else {
-        out[key] = next;
-        i += 1;
-      }
-    }
-  }
-  return out;
-}
-
-function required(key) {
-  if (!args[key]) {
-    console.error(`Missing required --${key}`);
-    process.exit(2);
-  }
-  return args[key];
-}
-
-function pathOf(path) {
-  return join(root, path);
-}
 
 function titleize(name) {
   return name.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
@@ -54,11 +28,6 @@ function write(path, content) {
   console.log(`wrote ${path}`);
 }
 
-function readJsonIfExists(path, fallback) {
-  if (!existsSync(pathOf(path))) return fallback;
-  return JSON.parse(readFileSync(pathOf(path), 'utf8'));
-}
-
 function writeJson(path, value) {
   write(path, JSON.stringify(value, null, 2));
 }
@@ -66,8 +35,7 @@ function writeJson(path, value) {
 function writeJsonAlways(path, value) {
   const full = pathOf(path);
   const existed = existsSync(full);
-  mkdirSync(join(full, '..'), { recursive: true });
-  writeFileSync(full, `${JSON.stringify(value, null, 2)}\n`);
+  writeJsonFileCreatingParents(full, value);
   console.log(`${existed ? 'updated' : 'wrote'} ${path}`);
 }
 
@@ -84,7 +52,7 @@ function writeIfMissing(path, content) {
 
 function upsertCodexMarketplace() {
   const path = '.agents/plugins/marketplace.json';
-  const marketplace = readJsonIfExists(path, {
+  const marketplace = readJsonFileIfExists(pathOf(path), {
     name: pluginName,
     interface: { displayName: `${titleize(pluginName)} Plugins` },
     plugins: [],
@@ -105,7 +73,7 @@ function upsertCodexMarketplace() {
 
 function upsertClaudeMarketplace() {
   const path = '.claude-plugin/marketplace.json';
-  const marketplace = readJsonIfExists(path, {
+  const marketplace = readJsonFileIfExists(pathOf(path), {
     name: pluginName,
     owner: { name: titleize(pluginName) },
     metadata: { description: `${titleize(pluginName)} trigger skills` },

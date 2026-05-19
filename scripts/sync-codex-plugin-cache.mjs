@@ -4,14 +4,17 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  readFileSync,
   renameSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, normalize, resolve } from 'node:path';
 
-const args = parseArgs(process.argv.slice(2));
+import { parseArgs } from './lib/args.mjs';
+import { createPathOf, readJsonFileOrExit } from './lib/fs-json.mjs';
+
+const args = parseArgs(process.argv.slice(2), { collectPositionals: true });
 const root = normalize(args.root || process.cwd());
+const pathOf = createPathOf(root);
 const codexHome = normalize(args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'));
 const pluginName = args.plugin || args._[0];
 
@@ -21,39 +24,6 @@ if (!pluginName) {
     'Usage: sync-codex-plugin-cache.mjs [--root <path>] [--codex-home <path>] <plugin-name>',
   ].join(' '));
   process.exit(2);
-}
-
-function parseArgs(argv) {
-  const out = { _: [] };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2);
-      const next = argv[i + 1];
-      if (!next || next.startsWith('--')) {
-        out[key] = true;
-      } else {
-        out[key] = next;
-        i += 1;
-      }
-    } else {
-      out._.push(arg);
-    }
-  }
-  return out;
-}
-
-function pathOf(path) {
-  return join(root, path);
-}
-
-function readJson(path) {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch (error) {
-    console.error(`${path}: ${error.message}`);
-    process.exit(1);
-  }
 }
 
 function backupName(version) {
@@ -77,7 +47,7 @@ if (!existsSync(marketplacePath)) {
   process.exit(1);
 }
 
-const marketplace = readJson(marketplacePath);
+const marketplace = readJsonFileOrExit(marketplacePath);
 const plugin = marketplace.plugins?.find((entry) => entry.name === pluginName);
 if (!plugin) {
   console.error(`${pluginName}: missing from .agents/plugins/marketplace.json`);
@@ -104,7 +74,7 @@ if (!existsSync(pluginManifestPath)) {
   process.exit(1);
 }
 
-const pluginManifest = readJson(pluginManifestPath);
+const pluginManifest = readJsonFileOrExit(pluginManifestPath);
 if (pluginManifest.name !== pluginName) {
   console.error(`${pluginManifestPath}: name must be ${pluginName}`);
   process.exit(1);

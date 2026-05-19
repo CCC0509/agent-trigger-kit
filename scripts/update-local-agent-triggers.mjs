@@ -5,9 +5,16 @@ import { homedir } from 'node:os';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { parseArgs } from './lib/args.mjs';
+import { createPathOf, readJsonFileOrExit } from './lib/fs-json.mjs';
+
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const args = parseArgs(process.argv.slice(2));
+const args = parseArgs(process.argv.slice(2), {
+  booleanKeys: ['no-codex-debug'],
+  collectPositionals: true,
+});
 const root = normalize(args.root || process.cwd());
+const pathOf = createPathOf(root);
 const codexHome = normalize(args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'));
 const pluginName = args.plugin || args._[0];
 
@@ -17,44 +24,6 @@ if (!pluginName) {
     'Usage: update-local-agent-triggers.mjs [--root <path>] [--codex-home <path>] [--no-codex-debug] <plugin-name>',
   ].join(' '));
   process.exit(2);
-}
-
-function parseArgs(argv) {
-  const out = { _: [] };
-  const booleanKeys = new Set(['no-codex-debug']);
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2);
-      if (booleanKeys.has(key)) {
-        out[key] = true;
-        continue;
-      }
-      const next = argv[i + 1];
-      if (!next || next.startsWith('--')) {
-        out[key] = true;
-      } else {
-        out[key] = next;
-        i += 1;
-      }
-    } else {
-      out._.push(arg);
-    }
-  }
-  return out;
-}
-
-function pathOf(path) {
-  return join(root, path);
-}
-
-function readJson(path) {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch (error) {
-    console.error(`${path}: ${error.message}`);
-    process.exit(1);
-  }
 }
 
 function filesDiffer(left, right) {
@@ -127,7 +96,7 @@ if (!existsSync(codexMarketplacePath)) {
   process.exit(1);
 }
 
-const codexMarketplace = readJson(codexMarketplacePath);
+const codexMarketplace = readJsonFileOrExit(codexMarketplacePath);
 const codexEntry = codexMarketplace.plugins?.find((entry) => entry.name === pluginName);
 if (!codexEntry) {
   console.error(`${pluginName}: missing from .agents/plugins/marketplace.json`);
@@ -150,7 +119,7 @@ if (!existsSync(sourceDir)) {
 const targetDir = join(codexHome, 'plugins/cache', codexMarketplace.name, pluginName, codexEntry.version);
 
 const claudeMarketplacePath = pathOf('.claude-plugin/marketplace.json');
-const claudeMarketplace = existsSync(claudeMarketplacePath) ? readJson(claudeMarketplacePath) : null;
+const claudeMarketplace = existsSync(claudeMarketplacePath) ? readJsonFileOrExit(claudeMarketplacePath) : null;
 const claudeEntry = claudeMarketplace?.plugins?.find((entry) => entry.name === pluginName);
 const pluginDir = claudeEntry?.source || codexEntry.source?.path;
 if (!pluginDir) {
