@@ -23,7 +23,6 @@ Claude Code installs plugins into a cache snapshot. Source repo changes are not 
    ```
 
 3. Inspect the cache path from `plugin list --json`.
-
    - `skills/` present but no slash menu: expected unless `commands/` exists and is declared.
    - source has `commands/` but cache does not: stale snapshot or version issue.
    - `.orphaned_at` exists: install/cache state needs cleanup or reinstall.

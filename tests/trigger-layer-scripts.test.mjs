@@ -115,7 +115,10 @@ function createPackage(root, version = '0.1.0') {
 
 function writeValidSkillAndCommand(root, pluginDir) {
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
-  write(root, `${pluginDir}/skills/docs-review/SKILL.md`, `---
+  write(
+    root,
+    `${pluginDir}/skills/docs-review/SKILL.md`,
+    `---
 name: docs-review
 description: Use for docs review work.
 ---
@@ -125,13 +128,18 @@ description: Use for docs review work.
 ## Must Read
 
 - \`../../../../docs/agent-playbooks/demo-ops.md\`
-`);
-  write(root, `${pluginDir}/commands/docs-review.md`, `---
+`,
+  );
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
 description: Use for docs review work.
 ---
 
 Apply the \`demo-ops:docs-review\` skill before acting.
-`);
+`,
+  );
 }
 
 test('package exposes the agent-trigger-kit bin entry', () => {
@@ -168,14 +176,7 @@ test('cli routes version-check to the existing script', () => {
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
-  const result = runCli([
-    'version-check',
-    '--root',
-    root,
-    '--codex-home',
-    codexHome,
-    pluginName,
-  ], {
+  const result = runCli(['version-check', '--root', root, '--codex-home', codexHome, pluginName], {
     env: { ...process.env, PATH: '' },
   });
 
@@ -220,8 +221,14 @@ test('init computes playbook refs relative to nested generated skill paths', () 
   ]);
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const skillText = readFileSync(join(root, 'plugins/team/demo-ops/skills/docs-review/SKILL.md'), 'utf8');
-  assert.match(skillText, /`\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/docs\/agent-playbooks\/team-demo-ops\.md`/);
+  const skillText = readFileSync(
+    join(root, 'plugins/team/demo-ops/skills/docs-review/SKILL.md'),
+    'utf8',
+  );
+  assert.match(
+    skillText,
+    /`\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/docs\/agent-playbooks\/team-demo-ops\.md`/,
+  );
 
   const validate = runScript('validate-trigger-layer.mjs', ['--root', root]);
   assert.equal(validate.status, 0, validate.stderr || validate.stdout);
@@ -274,8 +281,14 @@ test('init upserts plugin entries into existing marketplaces without force', () 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const codex = JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8'));
   const claude = JSON.parse(readFileSync(join(root, '.claude-plugin/marketplace.json'), 'utf8'));
-  assert.deepEqual(codex.plugins.map((plugin) => plugin.name), ['existing-ops', 'demo-ops']);
-  assert.deepEqual(claude.plugins.map((plugin) => plugin.name), ['existing-ops', 'demo-ops']);
+  assert.deepEqual(
+    codex.plugins.map((plugin) => plugin.name),
+    ['existing-ops', 'demo-ops'],
+  );
+  assert.deepEqual(
+    claude.plugins.map((plugin) => plugin.name),
+    ['existing-ops', 'demo-ops'],
+  );
   assert.equal(codex.plugins[0].version, '0.2.0');
   assert.equal(claude.plugins[0].version, '0.2.0');
 });
@@ -287,15 +300,27 @@ test('init script consumes project trigger layer templates for generated wrapper
   assert.match(script, /skill\/SKILL\.md\.template/);
   assert.match(script, /command\.md\.template/);
   assert.match(script, /cursor-rule\.mdc\.template/);
-  assert.equal(existsSync(join(repoRoot, 'templates/project-trigger-layer/AGENTS.snippet.md')), false);
-  assert.equal(existsSync(join(repoRoot, 'templates/project-trigger-layer/CLAUDE.snippet.md')), false);
-  assert.equal(existsSync(join(repoRoot, 'templates/project-trigger-layer/GEMINI.snippet.md')), false);
+  assert.equal(
+    existsSync(join(repoRoot, 'templates/project-trigger-layer/AGENTS.snippet.md')),
+    false,
+  );
+  assert.equal(
+    existsSync(join(repoRoot, 'templates/project-trigger-layer/CLAUDE.snippet.md')),
+    false,
+  );
+  assert.equal(
+    existsSync(join(repoRoot, 'templates/project-trigger-layer/GEMINI.snippet.md')),
+    false,
+  );
 });
 
 test('validator fails when a skill delegates to a missing playbook', () => {
   const root = makeRoot();
   const { pluginDir } = createMinimalPlugin(root);
-  write(root, `${pluginDir}/skills/docs-review/SKILL.md`, `---
+  write(
+    root,
+    `${pluginDir}/skills/docs-review/SKILL.md`,
+    `---
 name: docs-review
 description: Use for docs review work.
 ---
@@ -305,13 +330,18 @@ description: Use for docs review work.
 ## Must Read
 
 - \`../../../../docs/agent-playbooks/missing.md\`
-`);
-  write(root, `${pluginDir}/commands/docs-review.md`, `---
+`,
+  );
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
 description: Use for docs review work.
 ---
 
 Apply the \`demo-ops:docs-review\` skill before acting.
-`);
+`,
+  );
 
   const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
 
@@ -324,7 +354,10 @@ test('validator fails when a command delegates to a missing skill', () => {
   const root = makeRoot();
   const { pluginDir } = createMinimalPlugin(root);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
-  write(root, `${pluginDir}/skills/docs-review/SKILL.md`, `---
+  write(
+    root,
+    `${pluginDir}/skills/docs-review/SKILL.md`,
+    `---
 name: docs-review
 description: Use for docs review work.
 ---
@@ -334,13 +367,18 @@ description: Use for docs review work.
 ## Must Read
 
 - \`../../../../docs/agent-playbooks/demo-ops.md\`
-`);
-  write(root, `${pluginDir}/commands/deploy-ops.md`, `---
+`,
+  );
+  write(
+    root,
+    `${pluginDir}/commands/deploy-ops.md`,
+    `---
 description: Use for deploy ops work.
 ---
 
 Apply the \`demo-ops:deploy-ops\` skill before acting.
-`);
+`,
+  );
 
   const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
 
@@ -352,7 +390,10 @@ test('validator fails when Claude commands exist but are not declared', () => {
   const root = makeRoot();
   const { pluginDir } = createMinimalPlugin(root, { commands: false });
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
-  write(root, `${pluginDir}/skills/docs-review/SKILL.md`, `---
+  write(
+    root,
+    `${pluginDir}/skills/docs-review/SKILL.md`,
+    `---
 name: docs-review
 description: Use for docs review work.
 ---
@@ -362,13 +403,18 @@ description: Use for docs review work.
 ## Must Read
 
 - \`../../../../docs/agent-playbooks/demo-ops.md\`
-`);
-  write(root, `${pluginDir}/commands/docs-review.md`, `---
+`,
+  );
+  write(
+    root,
+    `${pluginDir}/commands/docs-review.md`,
+    `---
 description: Use for docs review work.
 ---
 
 Apply the \`demo-ops:docs-review\` skill before acting.
-`);
+`,
+  );
 
   const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
 
@@ -452,16 +498,13 @@ test('version check reports matching source versions and Codex cache versions', 
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
 
-  const result = runScript('check-plugin-version.mjs', [
-    '--root',
-    root,
-    '--codex-home',
-    codexHome,
-    '--strict-installed',
-    pluginName,
-  ], {
-    env: { ...process.env, PATH: '' },
-  });
+  const result = runScript(
+    'check-plugin-version.mjs',
+    ['--root', root, '--codex-home', codexHome, '--strict-installed', pluginName],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /expected source version: 0\.1\.2/);
@@ -480,16 +523,13 @@ test('version check emits structured JSON when requested', () => {
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
 
-  const result = runScript('check-plugin-version.mjs', [
-    '--root',
-    root,
-    '--codex-home',
-    codexHome,
-    '--json',
-    pluginName,
-  ], {
-    env: { ...process.env, PATH: '' },
-  });
+  const result = runScript(
+    'check-plugin-version.mjs',
+    ['--root', root, '--codex-home', codexHome, '--json', pluginName],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout);
@@ -508,11 +548,7 @@ test('version check fails when source versions differ', () => {
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.1' });
 
-  const result = runScript('check-plugin-version.mjs', [
-    '--root',
-    root,
-    pluginName,
-  ], {
+  const result = runScript('check-plugin-version.mjs', ['--root', root, pluginName], {
     env: { ...process.env, PATH: '' },
   });
 
@@ -538,10 +574,26 @@ test('bump plugin version updates package and all plugin manifests by default', 
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, '0.1.2');
-  assert.equal(JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0].version, '0.1.2');
-  assert.equal(JSON.parse(readFileSync(join(root, '.claude-plugin/marketplace.json'), 'utf8')).plugins[0].version, '0.1.2');
-  assert.equal(JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.codex-plugin/plugin.json`), 'utf8')).version, '0.1.2');
-  assert.equal(JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.claude-plugin/plugin.json`), 'utf8')).version, '0.1.2');
+  assert.equal(
+    JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0]
+      .version,
+    '0.1.2',
+  );
+  assert.equal(
+    JSON.parse(readFileSync(join(root, '.claude-plugin/marketplace.json'), 'utf8')).plugins[0]
+      .version,
+    '0.1.2',
+  );
+  assert.equal(
+    JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.codex-plugin/plugin.json`), 'utf8'))
+      .version,
+    '0.1.2',
+  );
+  assert.equal(
+    JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.claude-plugin/plugin.json`), 'utf8'))
+      .version,
+    '0.1.2',
+  );
 });
 
 test('bump plugin version validates surface before writing files', () => {
@@ -563,7 +615,11 @@ test('bump plugin version validates surface before writing files', () => {
   assert.equal(result.status, 2);
   assert.match(result.stderr, /--surface must be all, codex, or claude/);
   assert.equal(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, '0.1.0');
-  assert.equal(JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0].version, '0.1.0');
+  assert.equal(
+    JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0]
+      .version,
+    '0.1.0',
+  );
 });
 
 test('bump plugin version warns when updating a partial surface', () => {
@@ -586,15 +642,34 @@ test('bump plugin version warns when updating a partial surface', () => {
   assert.match(result.stderr, /--surface claude updates only Claude plugin manifests/);
   assert.match(result.stderr, /does not keep release versions aligned/);
   assert.equal(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, '0.1.0');
-  assert.equal(JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0].version, '0.1.0');
-  assert.equal(JSON.parse(readFileSync(join(root, '.claude-plugin/marketplace.json'), 'utf8')).plugins[0].version, '0.1.2');
-  assert.equal(JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.codex-plugin/plugin.json`), 'utf8')).version, '0.1.0');
-  assert.equal(JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.claude-plugin/plugin.json`), 'utf8')).version, '0.1.2');
+  assert.equal(
+    JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0]
+      .version,
+    '0.1.0',
+  );
+  assert.equal(
+    JSON.parse(readFileSync(join(root, '.claude-plugin/marketplace.json'), 'utf8')).plugins[0]
+      .version,
+    '0.1.2',
+  );
+  assert.equal(
+    JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.codex-plugin/plugin.json`), 'utf8'))
+      .version,
+    '0.1.0',
+  );
+  assert.equal(
+    JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.claude-plugin/plugin.json`), 'utf8'))
+      .version,
+    '0.1.2',
+  );
 });
 
 test('agent-trigger-kit exposes version-check skill and Claude command', () => {
   const skillPath = join(repoRoot, 'plugins/agent-trigger-kit/skills/version-check/SKILL.md');
-  const commandPath = join(repoRoot, 'plugins/agent-trigger-kit/commands/agent-trigger-kit-version.md');
+  const commandPath = join(
+    repoRoot,
+    'plugins/agent-trigger-kit/commands/agent-trigger-kit-version.md',
+  );
 
   assert.equal(existsSync(skillPath), true);
   assert.equal(existsSync(commandPath), true);
@@ -620,39 +695,60 @@ test('local agent trigger refresh syncs stale Codex cache and updates Claude whe
   writeValidSkillAndCommand(root, pluginDir);
   write(root, `${pluginDir}/fresh.txt`, 'fresh local plugin snapshot');
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/old.txt', 'stale same-version cache');
-  writeExecutable(fakeBin, 'claude', `#!/bin/sh
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/bin/sh
 printf 'claude %s\\n' "$*" >> "${commandLog}"
 if [ "$1" = "plugin" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
   printf '[{"id":"demo-ops@demo-ops","version":"0.1.2"}]\\n'
 fi
-`);
-  writeExecutable(fakeBin, 'cursor', `#!/bin/sh
+`,
+  );
+  writeExecutable(
+    fakeBin,
+    'cursor',
+    `#!/bin/sh
 printf 'cursor should not be called\\n' >> "${commandLog}"
 exit 99
-`);
+`,
+  );
 
-  const result = runScript('update-local-agent-triggers.mjs', [
-    '--root',
-    root,
-    '--codex-home',
-    codexHome,
-    '--no-codex-debug',
-    pluginName,
-  ], {
-    env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
-  });
+  const result = runScript(
+    'update-local-agent-triggers.mjs',
+    ['--root', root, '--codex-home', codexHome, '--no-codex-debug', pluginName],
+    {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    },
+  );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Codex cache is missing or stale; syncing local cache/);
   assert.match(result.stdout, /Cursor: repo-local rules are covered by trigger-layer validation/);
-  assert.equal(readFileSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/fresh.txt'), 'utf8').trim(), 'fresh local plugin snapshot');
+  assert.equal(
+    readFileSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/fresh.txt'), 'utf8').trim(),
+    'fresh local plugin snapshot',
+  );
   assert.equal(existsSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/old.txt')), false);
-  const backups = readdirSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops')).filter((name) => name.startsWith('0.1.2.backup-'));
+  const backups = readdirSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops')).filter((name) =>
+    name.startsWith('0.1.2.backup-'),
+  );
   assert.equal(backups.length, 1);
-  assert.equal(existsSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops', backups[0], 'old.txt')), true);
+  assert.equal(
+    existsSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops', backups[0], 'old.txt')),
+    true,
+  );
   const log = readFileSync(commandLog, 'utf8');
-  assert.match(log, new RegExp(`claude plugin validate ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  assert.match(log, new RegExp(`claude plugin validate ${join(root, pluginDir).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(
+    log,
+    new RegExp(`claude plugin validate ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+  );
+  assert.match(
+    log,
+    new RegExp(
+      `claude plugin validate ${join(root, pluginDir).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+    ),
+  );
   assert.match(log, /claude plugin marketplace update demo-ops/);
   assert.match(log, /claude plugin update demo-ops@demo-ops --scope user/);
   assert.match(log, /claude plugin list --json/);
@@ -669,27 +765,31 @@ test('local agent trigger refresh syncs when structured version check reports mi
   writeValidSkillAndCommand(root, pluginDir);
   write(root, `${pluginDir}/fresh.txt`, 'fresh local plugin snapshot');
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache only');
-  writeExecutable(fakeBin, 'claude', `#!/bin/sh
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/bin/sh
 printf 'claude %s\\n' "$*" >> "${commandLog}"
 if [ "$1" = "plugin" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
   printf '[{"id":"demo-ops@demo-ops","version":"0.1.2"}]\\n'
 fi
-`);
+`,
+  );
 
-  const result = runScript('update-local-agent-triggers.mjs', [
-    '--root',
-    root,
-    '--codex-home',
-    codexHome,
-    '--no-codex-debug',
-    pluginName,
-  ], {
-    env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
-  });
+  const result = runScript(
+    'update-local-agent-triggers.mjs',
+    ['--root', root, '--codex-home', codexHome, '--no-codex-debug', pluginName],
+    {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    },
+  );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Codex cache is missing or stale; syncing local cache/);
-  assert.equal(readFileSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/fresh.txt'), 'utf8').trim(), 'fresh local plugin snapshot');
+  assert.equal(
+    readFileSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/fresh.txt'), 'utf8').trim(),
+    'fresh local plugin snapshot',
+  );
 });
 
 test('local agent trigger refresh uses structured version check output', () => {
@@ -705,18 +805,17 @@ test('local agent trigger refresh skips Claude update when CLI is unavailable', 
   createPackage(root, '0.1.2');
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   writeValidSkillAndCommand(root, pluginDir);
-  cpSync(join(root, pluginDir), join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2'), { recursive: true });
-
-  const result = runScript('update-local-agent-triggers.mjs', [
-    '--root',
-    root,
-    '--codex-home',
-    codexHome,
-    '--no-codex-debug',
-    pluginName,
-  ], {
-    env: { ...process.env, PATH: '' },
+  cpSync(join(root, pluginDir), join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2'), {
+    recursive: true,
   });
+
+  const result = runScript(
+    'update-local-agent-triggers.mjs',
+    ['--root', root, '--codex-home', codexHome, '--no-codex-debug', pluginName],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /claude: CLI unavailable; skipped Claude update commands/);

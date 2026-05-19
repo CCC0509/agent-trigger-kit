@@ -18,7 +18,9 @@ if (!['all', 'codex', 'claude'].includes(surface)) {
 
 if (surface !== 'all') {
   const label = surface === 'codex' ? 'Codex' : 'Claude';
-  console.error(`warning: --surface ${surface} updates only ${label} plugin manifests and does not keep release versions aligned`);
+  console.error(
+    `warning: --surface ${surface} updates only ${label} plugin manifests and does not keep release versions aligned`,
+  );
 }
 
 function updateJson(path, mutate) {

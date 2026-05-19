@@ -13,15 +13,19 @@ const args = parseArgs(process.argv.slice(2), {
 });
 const root = normalize(args.root || process.cwd());
 const pathOf = createPathOf(root);
-const codexHome = normalize(args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'));
+const codexHome = normalize(
+  args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'),
+);
 const pluginName = args.plugin || args._[0];
 const jsonOutput = Boolean(args.json);
 
 if (!pluginName) {
-  console.error([
-    'Missing plugin name.',
-    'Usage: check-plugin-version.mjs [--root <path>] [--codex-home <path>] <plugin-name>',
-  ].join(' '));
+  console.error(
+    [
+      'Missing plugin name.',
+      'Usage: check-plugin-version.mjs [--root <path>] [--codex-home <path>] <plugin-name>',
+    ].join(' '),
+  );
   process.exit(2);
 }
 
@@ -30,19 +34,32 @@ function sourceEntry(label, version) {
 }
 
 const packageJson = readJsonFileIfExistsOrExit(pathOf('package.json'), null);
-const codexMarketplace = readJsonFileIfExistsOrExit(pathOf('.agents/plugins/marketplace.json'), null);
-const claudeMarketplace = readJsonFileIfExistsOrExit(pathOf('.claude-plugin/marketplace.json'), null);
+const codexMarketplace = readJsonFileIfExistsOrExit(
+  pathOf('.agents/plugins/marketplace.json'),
+  null,
+);
+const claudeMarketplace = readJsonFileIfExistsOrExit(
+  pathOf('.claude-plugin/marketplace.json'),
+  null,
+);
 const codexEntry = codexMarketplace?.plugins?.find((entry) => entry.name === pluginName);
 const claudeEntry = claudeMarketplace?.plugins?.find((entry) => entry.name === pluginName);
-const pluginDir = codexEntry?.source?.path?.replace(/^\.\//, '') || claudeEntry?.source?.replace(/^\.\//, '');
+const pluginDir =
+  codexEntry?.source?.path?.replace(/^\.\//, '') || claudeEntry?.source?.replace(/^\.\//, '');
 
 if (!pluginDir) {
   console.error(`${pluginName}: missing plugin source in marketplace manifests`);
   process.exit(1);
 }
 
-const codexPlugin = readJsonFileIfExistsOrExit(pathOf(`${pluginDir}/.codex-plugin/plugin.json`), null);
-const claudePlugin = readJsonFileIfExistsOrExit(pathOf(`${pluginDir}/.claude-plugin/plugin.json`), null);
+const codexPlugin = readJsonFileIfExistsOrExit(
+  pathOf(`${pluginDir}/.codex-plugin/plugin.json`),
+  null,
+);
+const claudePlugin = readJsonFileIfExistsOrExit(
+  pathOf(`${pluginDir}/.claude-plugin/plugin.json`),
+  null,
+);
 const sourceVersions = [
   sourceEntry('package.json', packageJson?.version),
   sourceEntry('codex marketplace', codexEntry?.version),
@@ -53,7 +70,9 @@ const sourceVersions = [
 
 const uniqueVersions = new Set(sourceVersions.map((entry) => entry.version));
 if (uniqueVersions.size !== 1) {
-  console.error(`source versions differ: ${sourceVersions.map((entry) => `${entry.label}=${entry.version}`).join(', ')}`);
+  console.error(
+    `source versions differ: ${sourceVersions.map((entry) => `${entry.label}=${entry.version}`).join(', ')}`,
+  );
   process.exit(1);
 }
 
@@ -73,7 +92,9 @@ if (!jsonOutput) {
   for (const entry of sourceVersions) {
     console.log(`  ${entry.label}: ${entry.version}`);
   }
-  console.log(`codex cache versions: ${codexCacheVersions.length > 0 ? codexCacheVersions.join(', ') : 'none'}`);
+  console.log(
+    `codex cache versions: ${codexCacheVersions.length > 0 ? codexCacheVersions.join(', ') : 'none'}`,
+  );
 }
 const codexCacheHasExpected = codexCacheVersions.includes(expectedVersion);
 let versionMismatch = false;
@@ -160,14 +181,20 @@ if (claude.error?.code === 'ENOENT') {
 }
 
 if (jsonOutput) {
-  console.log(JSON.stringify({
-    pluginName,
-    expectedVersion,
-    sourceVersions,
-    codexCache,
-    claude: claudeStatus,
-    versionMismatch,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        pluginName,
+        expectedVersion,
+        sourceVersions,
+        codexCache,
+        claude: claudeStatus,
+        versionMismatch,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 if (versionMismatch && args['strict-installed']) {

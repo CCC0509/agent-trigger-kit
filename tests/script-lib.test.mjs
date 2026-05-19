@@ -18,16 +18,13 @@ function makeRoot() {
 }
 
 test('parseArgs supports options, booleans, and positional arguments', () => {
-  const args = parseArgs([
-    '--root',
-    '/tmp/project',
-    '--strict-installed',
-    'agent-trigger-kit',
-    '--dry-run',
-  ], {
-    booleanKeys: ['strict-installed'],
-    collectPositionals: true,
-  });
+  const args = parseArgs(
+    ['--root', '/tmp/project', '--strict-installed', 'agent-trigger-kit', '--dry-run'],
+    {
+      booleanKeys: ['strict-installed'],
+      collectPositionals: true,
+    },
+  );
 
   assert.deepEqual(args, {
     _: ['agent-trigger-kit'],
@@ -61,5 +58,8 @@ test('fs json helpers read, write, and update rooted JSON files', () => {
   assert.equal(updated, true);
   assert.deepEqual(readJsonFileIfExists(path, null), { version: '0.1.1' });
   assert.deepEqual(readJsonFileIfExistsOrExit(path, null), { version: '0.1.1' });
-  assert.equal(updateJsonFileIfExists(pathOf('missing.json'), () => {}), false);
+  assert.equal(
+    updateJsonFileIfExists(pathOf('missing.json'), () => {}),
+    false,
+  );
 });

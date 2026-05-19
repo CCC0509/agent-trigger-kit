@@ -1,6 +1,6 @@
 name: Documentation issue
 description: Report unclear, missing, or stale documentation.
-title: "docs: "
+title: 'docs: '
 labels:
   - documentation
 body:

@@ -1,5 +1,9 @@
 # Agent Trigger Kit
 
+[![CI](https://github.com/CCC0509/agent-trigger-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/CCC0509/agent-trigger-kit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-339933.svg)](package.json)
+
 Cross-agent trigger layer toolkit for projects that want the same operating
 rules to be discoverable in Codex, Claude Code, and Cursor without copying long
 SOP text into every surface.

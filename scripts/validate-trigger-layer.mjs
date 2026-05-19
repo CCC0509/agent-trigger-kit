@@ -169,7 +169,10 @@ function validatePlugin(plugin) {
   const commandDir = `${plugin.pluginDir}/commands`;
   if (existsSync(pathOf(commandDir))) {
     const commandFiles = readdirSync(pathOf(commandDir)).filter((name) => name.endsWith('.md'));
-    if (commandFiles.length > 0 && (!Array.isArray(claude?.commands) || claude.commands.length === 0)) {
+    if (
+      commandFiles.length > 0 &&
+      (!Array.isArray(claude?.commands) || claude.commands.length === 0)
+    ) {
       fail(`${claudeManifestPath}: commands exist but are not declared`);
     }
     const delegationPattern = new RegExp(`${escapeRegExp(plugin.name)}:([A-Za-z0-9_-]+)`, 'g');
@@ -202,7 +205,9 @@ function validateCursorRules() {
 
 const plugins = parsePluginEntries();
 if (plugins.length === 0) {
-  fail('No plugin entries found in .agents/plugins/marketplace.json or .claude-plugin/marketplace.json');
+  fail(
+    'No plugin entries found in .agents/plugins/marketplace.json or .claude-plugin/marketplace.json',
+  );
 }
 
 for (const plugin of plugins) {

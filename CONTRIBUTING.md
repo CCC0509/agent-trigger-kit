@@ -39,6 +39,9 @@ npm exec --cache /private/tmp/agent-trigger-kit-npm-cache --yes --package . -- a
 npm pack --cache /private/tmp/agent-trigger-kit-npm-cache --dry-run --json
 ```
 
+CI pins Claude Code CLI to `@anthropic-ai/claude-code@2.1.116`. Bump that
+version intentionally when validating against a newer Claude CLI release.
+
 ## Code Style
 
 - Keep scripts small and focused.
@@ -47,6 +50,21 @@ npm pack --cache /private/tmp/agent-trigger-kit-npm-cache --dry-run --json
   canonical playbooks.
 - Use structured JSON parsing/writing for manifests.
 - Keep examples copy-pasteable.
+
+## SemVer Policy
+
+Agent Trigger Kit is still in the `0.x` stage. Until `1.0.0`, minor releases
+may include breaking script or trigger-layer changes, and patch releases should
+stay limited to compatible fixes and documentation improvements.
+
+After `1.0.0`:
+
+- Major releases are for breaking CLI, script, generated layout, or plugin
+  manifest behavior.
+- Minor releases are for compatible new commands, skills, checks, and generated
+  surfaces.
+- Patch releases are for compatible bug fixes, documentation corrections, and
+  metadata updates.
 
 ## Version And Release Notes
 

@@ -13,6 +13,7 @@ Use this when invoking `/trigger-layer-validate`. The maintained workflow lives 
 ## Delegation
 
 Apply the `agent-trigger-kit:cross-agent-trigger-layer` skill before answering or acting.
+
 - Run the bundled validator against the target project.
 - Report manifest, skill, command, Cursor rule, and pointer-doc drift separately.
 - Do not rewrite canonical playbook content unless the user asks.

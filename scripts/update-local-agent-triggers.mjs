@@ -15,14 +15,18 @@ const args = parseArgs(process.argv.slice(2), {
 });
 const root = normalize(args.root || process.cwd());
 const pathOf = createPathOf(root);
-const codexHome = normalize(args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'));
+const codexHome = normalize(
+  args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'),
+);
 const pluginName = args.plugin || args._[0];
 
 if (!pluginName) {
-  console.error([
-    'Missing plugin name.',
-    'Usage: update-local-agent-triggers.mjs [--root <path>] [--codex-home <path>] [--no-codex-debug] <plugin-name>',
-  ].join(' '));
+  console.error(
+    [
+      'Missing plugin name.',
+      'Usage: update-local-agent-triggers.mjs [--root <path>] [--codex-home <path>] [--no-codex-debug] <plugin-name>',
+    ].join(' '),
+  );
   process.exit(2);
 }
 
@@ -119,10 +123,18 @@ if (!existsSync(sourceDir)) {
   console.error(`${pluginName}: source directory missing at ${sourceDir}`);
   process.exit(1);
 }
-const targetDir = join(codexHome, 'plugins/cache', codexMarketplace.name, pluginName, codexEntry.version);
+const targetDir = join(
+  codexHome,
+  'plugins/cache',
+  codexMarketplace.name,
+  pluginName,
+  codexEntry.version,
+);
 
 const claudeMarketplacePath = pathOf('.claude-plugin/marketplace.json');
-const claudeMarketplace = existsSync(claudeMarketplacePath) ? readJsonFileOrExit(claudeMarketplacePath) : null;
+const claudeMarketplace = existsSync(claudeMarketplacePath)
+  ? readJsonFileOrExit(claudeMarketplacePath)
+  : null;
 const claudeEntry = claudeMarketplace?.plugins?.find((entry) => entry.name === pluginName);
 const pluginDir = claudeEntry?.source || codexEntry.source?.path;
 if (!pluginDir) {
@@ -135,14 +147,11 @@ console.log(`Agent trigger refresh: ${pluginName}`);
 const validate = runNodeScript('validate-trigger-layer.mjs', ['--root', root]);
 requireSuccess('trigger layer validation', validate);
 
-const versionCheck = runNodeScript('check-plugin-version.mjs', [
-  '--root',
-  root,
-  '--codex-home',
-  codexHome,
-  '--json',
-  pluginName,
-], { silent: true });
+const versionCheck = runNodeScript(
+  'check-plugin-version.mjs',
+  ['--root', root, '--codex-home', codexHome, '--json', pluginName],
+  { silent: true },
+);
 requireSuccess('plugin version check', versionCheck);
 
 let versionCheckPayload = null;
@@ -184,7 +193,12 @@ if (firstClaude.unavailable) {
 } else {
   const pluginDirAbsolute = resolve(root, pluginDir);
   runClaude(['plugin', 'validate', pluginDirAbsolute]);
-  runClaude(['plugin', 'marketplace', 'update', claudeMarketplace?.name || codexMarketplace.name || pluginName]);
+  runClaude([
+    'plugin',
+    'marketplace',
+    'update',
+    claudeMarketplace?.name || codexMarketplace.name || pluginName,
+  ]);
   runClaude([
     'plugin',
     'update',

@@ -17,6 +17,8 @@ Claude marketplace, and Claude plugin versions aligned.
   checked-in templates.
 - Generated skill playbook references now use the actual skill path depth
   instead of a fixed `../../../../` prefix.
+- Added open-source hardening config: macOS CI coverage, pinned Claude Code CLI
+  install, editor settings, lint/format scripts, badges, and SemVer policy.
 
 ## 0.1.2 - Natural Version Check Skill
 

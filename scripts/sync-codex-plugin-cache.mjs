@@ -1,11 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  renameSync,
-} from 'node:fs';
+import { cpSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, normalize, resolve } from 'node:path';
 
@@ -15,14 +10,18 @@ import { createPathOf, readJsonFileOrExit } from './lib/fs-json.mjs';
 const args = parseArgs(process.argv.slice(2), { collectPositionals: true });
 const root = normalize(args.root || process.cwd());
 const pathOf = createPathOf(root);
-const codexHome = normalize(args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'));
+const codexHome = normalize(
+  args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'),
+);
 const pluginName = args.plugin || args._[0];
 
 if (!pluginName) {
-  console.error([
-    'Missing plugin name.',
-    'Usage: sync-codex-plugin-cache.mjs [--root <path>] [--codex-home <path>] <plugin-name>',
-  ].join(' '));
+  console.error(
+    [
+      'Missing plugin name.',
+      'Usage: sync-codex-plugin-cache.mjs [--root <path>] [--codex-home <path>] <plugin-name>',
+    ].join(' '),
+  );
   process.exit(2);
 }
 

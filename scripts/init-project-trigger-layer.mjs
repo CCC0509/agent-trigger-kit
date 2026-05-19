@@ -3,16 +3,28 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 
 import { parseArgs, requiredArg } from './lib/args.mjs';
-import { createPathOf, readJsonFileIfExists, writeJsonFileCreatingParents } from './lib/fs-json.mjs';
+import {
+  createPathOf,
+  readJsonFileIfExists,
+  writeJsonFileCreatingParents,
+} from './lib/fs-json.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 const root = normalize(requiredArg(args, 'root'));
 const pathOf = createPathOf(root);
 const pluginName = requiredArg(args, 'plugin');
-const tasks = requiredArg(args, 'tasks').split(',').map((item) => item.trim()).filter(Boolean);
+const tasks = requiredArg(args, 'tasks')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean);
 const playbook = requiredArg(args, 'playbook');
 const force = Boolean(args.force);
-const cursorGlobs = args['cursor-globs'] ? args['cursor-globs'].split(',').map((item) => item.trim()).filter(Boolean) : [];
+const cursorGlobs = args['cursor-globs']
+  ? args['cursor-globs']
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  : [];
 const templateRoot = new URL('../templates/project-trigger-layer/', import.meta.url);
 const wrapperTemplates = {
   skill: readTemplate('skill/SKILL.md.template'),
@@ -37,7 +49,10 @@ function renderTemplate(template, values) {
 }
 
 function titleize(name) {
-  return name.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+  return name
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function markdownRelativePath(fromDir, toPath) {
@@ -122,7 +137,9 @@ function upsertClaudeMarketplace() {
 
 function writePlaybookPlaceholder() {
   const taskList = tasks.map((task) => `- ${task}`).join('\n');
-  writeIfMissing(playbook, `# ${titleize(pluginName)} Playbook
+  writeIfMissing(
+    playbook,
+    `# ${titleize(pluginName)} Playbook
 
 This is the canonical playbook for the ${pluginName} trigger layer.
 
@@ -131,7 +148,8 @@ This is the canonical playbook for the ${pluginName} trigger layer.
 ${taskList}
 
 Keep project operating rules here. Codex skills, Claude commands, Cursor rules, and pointer docs should stay thin references to this file.
-`);
+`,
+  );
 }
 
 function writePluginManifests() {
@@ -171,20 +189,29 @@ function writeTaskWrappers() {
       pluginName,
     };
     const skillPath = `plugins/${pluginName}/skills/${task}/SKILL.md`;
-    write(skillPath, renderTemplate(wrapperTemplates.skill, {
-      ...values,
-      canonicalPlaybook: markdownRelativePath(dirname(skillPath), playbook),
-    }));
+    write(
+      skillPath,
+      renderTemplate(wrapperTemplates.skill, {
+        ...values,
+        canonicalPlaybook: markdownRelativePath(dirname(skillPath), playbook),
+      }),
+    );
 
-    write(`plugins/${pluginName}/commands/${task}.md`, renderTemplate(wrapperTemplates.command, values));
+    write(
+      `plugins/${pluginName}/commands/${task}.md`,
+      renderTemplate(wrapperTemplates.command, values),
+    );
 
     if (cursorGlobs.length > 0) {
       const globs = cursorGlobs.map((glob) => `  - ${glob}`).join('\n');
-      write(`.cursor/rules/${task}.mdc`, renderTemplate(wrapperTemplates.cursorRule, {
-        ...values,
-        canonicalPlaybook: playbook,
-        globs,
-      }));
+      write(
+        `.cursor/rules/${task}.mdc`,
+        renderTemplate(wrapperTemplates.cursorRule, {
+          ...values,
+          canonicalPlaybook: playbook,
+          globs,
+        }),
+      );
     }
   }
 }

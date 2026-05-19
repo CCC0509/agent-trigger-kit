@@ -8,8 +8,15 @@ on:
 
 jobs:
   validate:
-    name: Validate Trigger Layer
-    runs-on: ubuntu-latest
+    name: Validate Trigger Layer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
 
     steps:
       - name: Check out repository
@@ -19,15 +26,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint scripts
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
 
       - name: Run script tests
         run: npm test
 
       - name: Validate trigger layer
-        run: node scripts/validate-trigger-layer.mjs --root .
+        run: npm run validate
 
       - name: Install Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code
+        run: npm install -g @anthropic-ai/claude-code@2.1.116
 
       - name: Validate Claude marketplace manifest
         run: claude plugin validate .

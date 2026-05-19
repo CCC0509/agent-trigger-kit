@@ -14,6 +14,7 @@ lives in `skills/version-check/SKILL.md`.
 ## Delegation
 
 Apply the `agent-trigger-kit:version-check` skill before answering or acting.
+
 - Check source manifest versions when an Agent Trigger Kit checkout is
   available.
 - Check Codex and Claude installed/cache state when possible.

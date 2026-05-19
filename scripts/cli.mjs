@@ -12,14 +12,16 @@ const commands = {
 };
 
 function printUsage() {
-  console.error([
-    'Usage: agent-trigger-kit <command> [args]',
-    '',
-    'Commands:',
-    '  init           Create or update a project trigger layer',
-    '  validate       Validate a project trigger layer',
-    '  version-check  Check source and installed plugin versions',
-  ].join('\n'));
+  console.error(
+    [
+      'Usage: agent-trigger-kit <command> [args]',
+      '',
+      'Commands:',
+      '  init           Create or update a project trigger layer',
+      '  validate       Validate a project trigger layer',
+      '  version-check  Check source and installed plugin versions',
+    ].join('\n'),
+  );
 }
 
 if (!command || command === '--help' || command === '-h') {
