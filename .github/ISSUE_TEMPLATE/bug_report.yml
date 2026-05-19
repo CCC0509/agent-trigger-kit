@@ -1,0 +1,48 @@
+name: Bug report
+description: Report broken behavior in scripts, generated trigger layers, or docs.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a bug.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include exact commands and relevant file paths.
+      placeholder: |
+        1. Run `...`
+        2. See `...`
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Paste terminal output or validation errors when useful.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "macOS 15, Node 20.15.0, Codex/Claude CLI version if relevant"
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
