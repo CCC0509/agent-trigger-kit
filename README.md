@@ -76,12 +76,6 @@ text into every surface.
 - **Troubleshoot discovery:** diagnose missing Codex skills, missing Claude
   slash commands, stale caches, or `.orphaned_at`.
 
-## Working Rules
-
-- After completing any change, run the relevant verification commands, commit
-  the finished work, and push it unless the user explicitly asks to keep the
-  changes local.
-
 ## What This Provides
 
 - Codex marketplace manifest and skills.
