@@ -147,6 +147,59 @@ test('init creates a canonical playbook placeholder when it is missing', () => {
   assert.match(readFileSync(join(root, playbook), 'utf8'), /# Demo Ops Playbook/);
 });
 
+test('init upserts plugin entries into existing marketplaces without force', () => {
+  const root = makeRoot();
+  writeJson(root, '.agents/plugins/marketplace.json', {
+    name: 'project-marketplace',
+    interface: { displayName: 'Project Plugins' },
+    plugins: [
+      {
+        name: 'existing-ops',
+        version: '0.2.0',
+        source: { source: 'local', path: './plugins/existing-ops' },
+        policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+        category: 'Productivity',
+        description: 'Existing trigger skills',
+      },
+    ],
+  });
+  writeJson(root, '.claude-plugin/marketplace.json', {
+    name: 'project-marketplace',
+    owner: { name: 'Project Maintainers' },
+    metadata: { description: 'Project trigger skills' },
+    plugins: [
+      {
+        name: 'existing-ops',
+        source: './plugins/existing-ops',
+        description: 'Existing trigger skills',
+        version: '0.2.0',
+        author: { name: 'Project Maintainers' },
+        category: 'workflow',
+        strict: false,
+      },
+    ],
+  });
+
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const codex = JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8'));
+  const claude = JSON.parse(readFileSync(join(root, '.claude-plugin/marketplace.json'), 'utf8'));
+  assert.deepEqual(codex.plugins.map((plugin) => plugin.name), ['existing-ops', 'demo-ops']);
+  assert.deepEqual(claude.plugins.map((plugin) => plugin.name), ['existing-ops', 'demo-ops']);
+  assert.equal(codex.plugins[0].version, '0.2.0');
+  assert.equal(claude.plugins[0].version, '0.2.0');
+});
+
 test('validator fails when a skill delegates to a missing playbook', () => {
   const root = makeRoot();
   const { pluginDir } = createMinimalPlugin(root);

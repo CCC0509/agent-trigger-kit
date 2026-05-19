@@ -63,6 +63,14 @@ function writeJson(path, value) {
   write(path, JSON.stringify(value, null, 2));
 }
 
+function writeJsonAlways(path, value) {
+  const full = pathOf(path);
+  const existed = existsSync(full);
+  mkdirSync(join(full, '..'), { recursive: true });
+  writeFileSync(full, `${JSON.stringify(value, null, 2)}\n`);
+  console.log(`${existed ? 'updated' : 'wrote'} ${path}`);
+}
+
 function writeIfMissing(path, content) {
   const full = pathOf(path);
   if (existsSync(full)) {
@@ -92,7 +100,7 @@ function upsertCodexMarketplace() {
   };
   marketplace.plugins = marketplace.plugins.filter((item) => item.name !== pluginName);
   marketplace.plugins.push(entry);
-  writeJson(path, marketplace);
+  writeJsonAlways(path, marketplace);
 }
 
 function upsertClaudeMarketplace() {
@@ -115,7 +123,7 @@ function upsertClaudeMarketplace() {
   };
   marketplace.plugins = marketplace.plugins.filter((item) => item.name !== pluginName);
   marketplace.plugins.push(entry);
-  writeJson(path, marketplace);
+  writeJsonAlways(path, marketplace);
 }
 
 function writePlaybookPlaceholder() {
