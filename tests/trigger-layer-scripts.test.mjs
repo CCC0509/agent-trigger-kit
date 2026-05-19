@@ -3602,6 +3602,19 @@ test('agent-trigger-kit exposes version-check skill and Claude command', () => {
   assert.match(commandText, /--surface claude/);
 });
 
+test('agent-trigger-kit exposes trigger-layer clean command', () => {
+  const commandPath = join(repoRoot, 'plugins/agent-trigger-kit/commands/trigger-layer-clean.md');
+
+  assert.equal(existsSync(commandPath), true);
+
+  const commandText = readFileSync(commandPath, 'utf8');
+
+  assert.match(commandText, /agent-trigger-kit:cross-agent-trigger-layer/);
+  assert.match(commandText, /agent-trigger-kit clean/);
+  assert.match(commandText, /--plugin/);
+  assert.match(commandText, /--apply/);
+});
+
 test('local agent trigger refresh syncs stale Codex cache and updates Claude when available', () => {
   const root = makeRoot();
   const codexHome = makeRoot();

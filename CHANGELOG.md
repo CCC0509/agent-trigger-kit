@@ -6,6 +6,15 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.5 - Generated Trigger Layer Cleanup
+
+- Added schema v2 generated manifests that can track multiple project-local
+  plugins in one `.agent-trigger-kit/generated.json`.
+- Added `agent-trigger-kit clean` dry-run and `--apply` cleanup for orphan
+  generated trigger-layer skill wrappers.
+- Added `/trigger-layer-clean` so external project agents can route cleanup
+  through the same plugin command surface as init and validate.
+
 ## 0.1.4 - Project Trigger Layer Maintainability
 
 - Generated project trigger layers now preserve existing plugin versions on

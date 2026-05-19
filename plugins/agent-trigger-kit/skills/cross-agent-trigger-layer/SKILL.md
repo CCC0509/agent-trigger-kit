@@ -28,6 +28,8 @@ Do not copy long SOP bodies into trigger layers.
 6. For Cursor, create `.cursor/rules/*.mdc` only when task-specific globs are known.
 7. Add or update a validator that checks all trigger surfaces.
 8. Document install and fallback behavior in pointer docs.
+9. When tasks are removed, run a clean dry-run for the project and plugin before
+   applying orphan cleanup.
 
 ## Required Checks
 
@@ -43,3 +45,5 @@ Do not copy long SOP bodies into trigger layers.
 - Forgetting to bump Claude plugin version after adding `commands/`.
 - Letting Cursor globs become comma-separated strings when the repo uses YAML lists.
 - Updating playbooks without checking wrappers, commands, Cursor rules, and pointer docs.
+- Assuming removed tasks are deleted by `init --force`; use clean dry-run before
+  applying generated-wrapper cleanup.
