@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, normalize } from 'node:path';
+import { dirname, join, normalize, relative } from 'node:path';
 
 import { parseArgs, requiredArg } from './lib/args.mjs';
 import { createPathOf, readJsonFileIfExists, writeJsonFileCreatingParents } from './lib/fs-json.mjs';
@@ -38,6 +38,10 @@ function renderTemplate(template, values) {
 
 function titleize(name) {
   return name.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+}
+
+function markdownRelativePath(fromDir, toPath) {
+  return relative(fromDir, toPath).replaceAll('\\', '/');
 }
 
 function write(path, content) {
@@ -166,9 +170,10 @@ function writeTaskWrappers() {
       description,
       pluginName,
     };
-    write(`plugins/${pluginName}/skills/${task}/SKILL.md`, renderTemplate(wrapperTemplates.skill, {
+    const skillPath = `plugins/${pluginName}/skills/${task}/SKILL.md`;
+    write(skillPath, renderTemplate(wrapperTemplates.skill, {
       ...values,
-      canonicalPlaybook: `../../../../${playbook}`,
+      canonicalPlaybook: markdownRelativePath(dirname(skillPath), playbook),
     }));
 
     write(`plugins/${pluginName}/commands/${task}.md`, renderTemplate(wrapperTemplates.command, values));

@@ -205,6 +205,28 @@ test('init creates a canonical playbook placeholder when it is missing', () => {
   assert.match(readFileSync(join(root, playbook), 'utf8'), /# Demo Ops Playbook/);
 });
 
+test('init computes playbook refs relative to nested generated skill paths', () => {
+  const root = makeRoot();
+  const playbook = 'docs/agent-playbooks/team-demo-ops.md';
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'team/demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    playbook,
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const skillText = readFileSync(join(root, 'plugins/team/demo-ops/skills/docs-review/SKILL.md'), 'utf8');
+  assert.match(skillText, /`\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/docs\/agent-playbooks\/team-demo-ops\.md`/);
+
+  const validate = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(validate.status, 0, validate.stderr || validate.stdout);
+});
+
 test('init upserts plugin entries into existing marketplaces without force', () => {
   const root = makeRoot();
   writeJson(root, '.agents/plugins/marketplace.json', {

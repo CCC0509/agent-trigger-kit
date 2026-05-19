@@ -15,6 +15,8 @@ Claude marketplace, and Claude plugin versions aligned.
   release versions aligned.
 - Updated the project trigger-layer generator to render wrapper files from the
   checked-in templates.
+- Generated skill playbook references now use the actual skill path depth
+  instead of a fixed `../../../../` prefix.
 
 ## 0.1.2 - Natural Version Check Skill
 
