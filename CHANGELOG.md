@@ -11,6 +11,10 @@ Claude marketplace, and Claude plugin versions aligned.
 - Added `check-plugin-version --json` for automation.
 - Updated the local agent refresh flow to read structured version-check output
   instead of matching human-readable stdout.
+- Made `bump-plugin-version --surface` warn that partial bumps do not keep
+  release versions aligned.
+- Updated the project trigger-layer generator to render wrapper files from the
+  checked-in templates.
 
 ## 0.1.2 - Natural Version Check Skill
 

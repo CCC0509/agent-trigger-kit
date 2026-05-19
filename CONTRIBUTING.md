@@ -58,6 +58,10 @@ For now, releases keep these versions aligned:
 - `.claude-plugin/marketplace.json`
 - `plugins/agent-trigger-kit/.claude-plugin/plugin.json`
 
+Do not use `bump-plugin-version --surface` for normal releases. Surface-specific
+bumps are an advanced repair path for one plugin surface and intentionally leave
+the full release version set unaligned until a normal bump runs.
+
 README-only changes may leave versions unchanged. Script behavior, plugin
 manifest, skill, or command changes should update `CHANGELOG.md` when they are
 user-visible.

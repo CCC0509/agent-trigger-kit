@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, normalize } from 'node:path';
 
 import { parseArgs, requiredArg } from './lib/args.mjs';
@@ -13,6 +13,28 @@ const tasks = requiredArg(args, 'tasks').split(',').map((item) => item.trim()).f
 const playbook = requiredArg(args, 'playbook');
 const force = Boolean(args.force);
 const cursorGlobs = args['cursor-globs'] ? args['cursor-globs'].split(',').map((item) => item.trim()).filter(Boolean) : [];
+const templateRoot = new URL('../templates/project-trigger-layer/', import.meta.url);
+const wrapperTemplates = {
+  skill: readTemplate('skill/SKILL.md.template'),
+  command: readTemplate('command.md.template'),
+  cursorRule: readTemplate('cursor-rule.mdc.template'),
+};
+
+function readTemplate(path) {
+  return readFileSync(new URL(path, templateRoot), 'utf8');
+}
+
+function renderTemplate(template, values) {
+  let rendered = template;
+  for (const [key, value] of Object.entries(values)) {
+    rendered = rendered.replaceAll(`{{${key}}}`, value);
+  }
+  const unresolved = rendered.match(/{{[^}]+}}/g);
+  if (unresolved) {
+    throw new Error(`unresolved template placeholder(s): ${unresolved.join(', ')}`);
+  }
+  return rendered;
+}
 
 function titleize(name) {
   return name.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
@@ -138,60 +160,26 @@ function writeTaskWrappers() {
   for (const task of tasks) {
     const title = titleize(task);
     const description = `Use for ${title.toLowerCase()} work in this repo.`;
-    write(`plugins/${pluginName}/skills/${task}/SKILL.md`, `---
-name: ${task}
-description: ${description}
----
+    const values = {
+      taskName: task,
+      taskTitle: title,
+      description,
+      pluginName,
+    };
+    write(`plugins/${pluginName}/skills/${task}/SKILL.md`, renderTemplate(wrapperTemplates.skill, {
+      ...values,
+      canonicalPlaybook: `../../../../${playbook}`,
+    }));
 
-# ${title}
-
-This is a trigger layer only; canonical rules remain in repo playbooks.
-
-## Must Read
-
-- \`../../../../${playbook}\`
-
-## Checklist
-
-- State the matched playbook before acting.
-- Keep this wrapper short; do not copy long SOP bodies here.
-- Run the project trigger-layer validator when editing trigger surfaces.
-`);
-
-    write(`plugins/${pluginName}/commands/${task}.md`, `---
-description: ${description}
----
-
-# ${title} Command
-
-Use this when invoking \`/${task}\`. The maintained workflow lives in \`skills/${task}/SKILL.md\`.
-
-## Arguments
-
-\`$ARGUMENTS\`
-
-## Delegation
-
-Apply the \`${pluginName}:${task}\` skill before answering or acting.
-- Follow the canonical playbook references from the skill.
-- Keep this command as a thin Claude Code slash entry point.
-- Do not duplicate or replace canonical playbook content here.
-`);
+    write(`plugins/${pluginName}/commands/${task}.md`, renderTemplate(wrapperTemplates.command, values));
 
     if (cursorGlobs.length > 0) {
       const globs = cursorGlobs.map((glob) => `  - ${glob}`).join('\n');
-      write(`.cursor/rules/${task}.mdc`, `---
-description: ${description}
-globs:
-${globs}
----
-
-Read the canonical playbook before acting:
-
-- \`${playbook}\`
-
-This file is a trigger wrapper only. Do not duplicate long SOP content here.
-`);
+      write(`.cursor/rules/${task}.mdc`, renderTemplate(wrapperTemplates.cursorRule, {
+        ...values,
+        canonicalPlaybook: playbook,
+        globs,
+      }));
     }
   }
 }

@@ -283,6 +283,10 @@ node scripts/bump-plugin-version.mjs \
   --version 0.1.1
 ```
 
+Use `--surface codex` or `--surface claude` only as an advanced cache-repair
+escape hatch. Partial surface bumps emit a warning and do not keep release
+versions aligned.
+
 Sync a project-local Codex plugin cache snapshot after bumping or editing a
 local plugin:
 

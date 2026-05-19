@@ -258,6 +258,18 @@ test('init upserts plugin entries into existing marketplaces without force', () 
   assert.equal(claude.plugins[0].version, '0.2.0');
 });
 
+test('init script consumes project trigger layer templates for generated wrappers', () => {
+  const script = readFileSync(join(repoRoot, 'scripts/init-project-trigger-layer.mjs'), 'utf8');
+
+  assert.match(script, /templates\/project-trigger-layer/);
+  assert.match(script, /skill\/SKILL\.md\.template/);
+  assert.match(script, /command\.md\.template/);
+  assert.match(script, /cursor-rule\.mdc\.template/);
+  assert.equal(existsSync(join(repoRoot, 'templates/project-trigger-layer/AGENTS.snippet.md')), false);
+  assert.equal(existsSync(join(repoRoot, 'templates/project-trigger-layer/CLAUDE.snippet.md')), false);
+  assert.equal(existsSync(join(repoRoot, 'templates/project-trigger-layer/GEMINI.snippet.md')), false);
+});
+
 test('validator fails when a skill delegates to a missing playbook', () => {
   const root = makeRoot();
   const { pluginDir } = createMinimalPlugin(root);
@@ -530,6 +542,32 @@ test('bump plugin version validates surface before writing files', () => {
   assert.match(result.stderr, /--surface must be all, codex, or claude/);
   assert.equal(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, '0.1.0');
   assert.equal(JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0].version, '0.1.0');
+});
+
+test('bump plugin version warns when updating a partial surface', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginName } = createMinimalPlugin(root);
+
+  const result = runScript('bump-plugin-version.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    pluginName,
+    '--version',
+    '0.1.2',
+    '--surface',
+    'claude',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stderr, /--surface claude updates only Claude plugin manifests/);
+  assert.match(result.stderr, /does not keep release versions aligned/);
+  assert.equal(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, '0.1.0');
+  assert.equal(JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0].version, '0.1.0');
+  assert.equal(JSON.parse(readFileSync(join(root, '.claude-plugin/marketplace.json'), 'utf8')).plugins[0].version, '0.1.2');
+  assert.equal(JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.codex-plugin/plugin.json`), 'utf8')).version, '0.1.0');
+  assert.equal(JSON.parse(readFileSync(join(root, `plugins/${pluginName}/.claude-plugin/plugin.json`), 'utf8')).version, '0.1.2');
 });
 
 test('agent-trigger-kit exposes version-check skill and Claude command', () => {
