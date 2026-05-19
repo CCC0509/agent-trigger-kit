@@ -52,10 +52,10 @@ text into every surface.
    Agent-assisted setup: paste the prompt in the `Copy-paste prompt` section
    into the agent while it is working inside the target project.
 
-   Direct CLI setup:
+   Direct CLI setup, without cloning this repo:
 
    ```bash
-   node /path/to/agent-trigger-kit/scripts/init-project-trigger-layer.mjs \
+   npx --yes github:CCC0509/agent-trigger-kit init \
      --root /path/to/project \
      --plugin <project>-ops \
      --tasks docs-review,deploy-ops,data-debugging \
@@ -65,7 +65,7 @@ text into every surface.
 3. Validate the generated trigger layer.
 
    ```bash
-   node /path/to/agent-trigger-kit/scripts/validate-trigger-layer.mjs --root /path/to/project
+   npx --yes github:CCC0509/agent-trigger-kit validate --root /path/to/project
    ```
 
 ## Usage Modes
@@ -116,10 +116,12 @@ Claude Code after install so skills and slash commands are loaded.
 From a local checkout during development:
 
 ```bash
-codex plugin marketplace add /path/to/agent-trigger-kit
+AGENT_TRIGGER_KIT_ROOT=<agent-trigger-kit-checkout>
+
+codex plugin marketplace add "$AGENT_TRIGGER_KIT_ROOT"
 codex debug prompt-input "test"
 
-claude plugin marketplace add /path/to/agent-trigger-kit --scope user
+claude plugin marketplace add "$AGENT_TRIGGER_KIT_ROOT" --scope user
 claude plugin install agent-trigger-kit@agent-trigger-kit --scope user
 ```
 
@@ -174,7 +176,7 @@ claude plugin install agent-trigger-kit@agent-trigger-kit --scope user
 **Repo checkout users:** pull the latest scripts, README, and validator changes.
 
 ```bash
-cd /path/to/agent-trigger-kit
+cd <agent-trigger-kit-checkout>
 git pull
 npm test
 npm run validate
@@ -186,13 +188,13 @@ files do not update automatically. Validate first, then regenerate only if the
 project should adopt the newer wrapper shape.
 
 ```bash
-node /path/to/agent-trigger-kit/scripts/validate-trigger-layer.mjs --root /path/to/project
+npx --yes github:CCC0509/agent-trigger-kit validate --root /path/to/project
 ```
 
 If regeneration is needed, inspect the diff before committing:
 
 ```bash
-node /path/to/agent-trigger-kit/scripts/init-project-trigger-layer.mjs \
+npx --yes github:CCC0509/agent-trigger-kit init \
   --root /path/to/project \
   --plugin <project>-ops \
   --tasks <comma-separated-task-names> \
@@ -256,8 +258,8 @@ Claude installed/cache state is checked with:
 
 ```bash
 claude plugin list --json
-claude plugin validate /path/to/agent-trigger-kit
-claude plugin validate /path/to/agent-trigger-kit/plugins/agent-trigger-kit
+claude plugin validate <agent-trigger-kit-checkout>
+claude plugin validate <agent-trigger-kit-checkout>/plugins/agent-trigger-kit
 ```
 
 If `claude` is unavailable in the current shell, run those commands in a Claude
@@ -265,10 +267,10 @@ Code environment.
 
 ## Use In A Project
 
-Create a conservative project-local trigger layer from a checkout of this repo:
+Create a conservative project-local trigger layer without cloning this repo:
 
 ```bash
-node scripts/init-project-trigger-layer.mjs \
+npx --yes github:CCC0509/agent-trigger-kit init \
   --root /path/to/project \
   --plugin <project>-ops \
   --tasks docs-review,deploy-ops,data-debugging \
@@ -283,7 +285,7 @@ Cursor has no plugin marketplace in this toolkit. Generate repo-local rules with
 path globs:
 
 ```bash
-node scripts/init-project-trigger-layer.mjs \
+npx --yes github:CCC0509/agent-trigger-kit init \
   --root /path/to/project \
   --plugin <project>-ops \
   --tasks docs-review,deploy-ops,data-debugging \
@@ -324,7 +326,7 @@ and pointer doc as a thin delegate to the canonical playbook.
 
 After scaffolding, run:
 
-`node <path-to-agent-trigger-kit>/scripts/validate-trigger-layer.mjs --root .`
+`npx --yes github:CCC0509/agent-trigger-kit validate --root .`
 
 Report the generated files, validation result, and any follow-up needed.
 ```
@@ -332,14 +334,14 @@ Report the generated files, validation result, and any follow-up needed.
 Validate a project trigger layer:
 
 ```bash
-node scripts/validate-trigger-layer.mjs --root /path/to/project
+npx --yes github:CCC0509/agent-trigger-kit validate --root /path/to/project
 ```
 
 Bump a plugin version for a release:
 
 ```bash
 node scripts/bump-plugin-version.mjs \
-  --root /path/to/agent-trigger-kit \
+  --root <agent-trigger-kit-checkout> \
   --plugin agent-trigger-kit \
   --version 0.1.1
 ```

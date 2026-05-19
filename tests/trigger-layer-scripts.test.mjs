@@ -29,6 +29,14 @@ function runScript(scriptName, args, options = {}) {
   });
 }
 
+function runCli(args, options = {}) {
+  return spawnSync(process.execPath, [join(repoRoot, 'scripts', 'cli.mjs'), ...args], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    ...options,
+  });
+}
+
 function writeJson(root, path, value) {
   write(root, path, JSON.stringify(value, null, 2));
 }
@@ -125,6 +133,56 @@ description: Use for docs review work.
 Apply the \`demo-ops:docs-review\` skill before acting.
 `);
 }
+
+test('package exposes the agent-trigger-kit bin entry', () => {
+  const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+
+  assert.equal(packageJson.bin?.['agent-trigger-kit'], 'scripts/cli.mjs');
+});
+
+test('cli routes init and validate commands to the existing scripts', () => {
+  const root = makeRoot();
+
+  const init = runCli([
+    'init',
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+  assert.equal(init.status, 0, init.stderr || init.stdout);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), true);
+
+  const validate = runCli(['validate', '--root', root]);
+  assert.equal(validate.status, 0, validate.stderr || validate.stdout);
+  assert.match(validate.stdout, /trigger layer validation passed/);
+});
+
+test('cli routes version-check to the existing script', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+
+  const result = runCli([
+    'version-check',
+    '--root',
+    root,
+    '--codex-home',
+    codexHome,
+    pluginName,
+  ], {
+    env: { ...process.env, PATH: '' },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /expected source version: 0\.1\.2/);
+  assert.match(result.stdout, /claude: CLI unavailable/);
+});
 
 test('init creates a canonical playbook placeholder when it is missing', () => {
   const root = makeRoot();

@@ -5,6 +5,9 @@
   "type": "module",
   "description": "Cross-agent trigger layer toolkit for Codex, Claude Code, and Cursor.",
   "license": "MIT",
+  "bin": {
+    "agent-trigger-kit": "scripts/cli.mjs"
+  },
   "scripts": {
     "test": "node --test",
     "ops:plugin-cache-sync": "node scripts/sync-codex-plugin-cache.mjs",
