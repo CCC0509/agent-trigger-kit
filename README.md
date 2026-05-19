@@ -6,6 +6,15 @@ text into every surface.
 
 ## What's New
 
+### 0.1.2 - Natural Version Check Skill
+
+- Added `agent-trigger-kit:version-check` for natural-language questions such as
+  "Is Agent Trigger Kit up to date?" or "請問 kit 的版本是最新的嗎？"
+- Added `/agent-trigger-kit-version` for Claude Code users who prefer a slash
+  command.
+- Documented the old-user bootstrap path: users on versions before 0.1.2 must
+  update first before this new skill can be discovered.
+
 ### 0.1.1 - Version Confidence And Update Flow
 
 - Added a version check utility that compares `package.json`, Codex marketplace,
@@ -125,6 +134,10 @@ codex debug prompt-input "test"
 
 There are three different things a user may need to update.
 
+**Users before 0.1.2:** older installed snapshots do not include
+`agent-trigger-kit:version-check`. Run the manual update commands first, then
+ask the version question again after restarting Claude Code.
+
 **Plugin users:** update the Codex/Claude marketplace installation and cache.
 
 ```bash
@@ -175,6 +188,20 @@ Keep the canonical playbook content in the project. Do not replace it with a
 generated placeholder.
 
 ## Check Your Version
+
+After 0.1.2, you can ask the agent directly:
+
+```text
+請問 Agent Trigger Kit 是最新版本嗎？
+幫我檢查 agent-trigger-kit 是否需要更新。
+Is the kit version current?
+```
+
+Claude Code users can also run:
+
+```text
+/agent-trigger-kit-version
+```
 
 From an Agent Trigger Kit checkout, check source versions and Codex cache
 snapshots:

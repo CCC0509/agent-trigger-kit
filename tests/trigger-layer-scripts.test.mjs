@@ -383,3 +383,21 @@ test('bump plugin version validates surface before writing files', () => {
   assert.equal(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, '0.1.0');
   assert.equal(JSON.parse(readFileSync(join(root, '.agents/plugins/marketplace.json'), 'utf8')).plugins[0].version, '0.1.0');
 });
+
+test('agent-trigger-kit exposes version-check skill and Claude command', () => {
+  const skillPath = join(repoRoot, 'plugins/agent-trigger-kit/skills/version-check/SKILL.md');
+  const commandPath = join(repoRoot, 'plugins/agent-trigger-kit/commands/agent-trigger-kit-version.md');
+
+  assert.equal(existsSync(skillPath), true);
+  assert.equal(existsSync(commandPath), true);
+
+  const skillText = readFileSync(skillPath, 'utf8');
+  const commandText = readFileSync(commandPath, 'utf8');
+
+  assert.match(skillText, /^name: version-check/m);
+  assert.match(skillText, /kit version/i);
+  assert.match(skillText, /ops:plugin-version-check/);
+  assert.match(skillText, /codex plugin marketplace upgrade agent-trigger-kit/);
+  assert.match(skillText, /claude plugin update agent-trigger-kit@agent-trigger-kit --scope user/);
+  assert.match(commandText, /agent-trigger-kit:version-check/);
+});
