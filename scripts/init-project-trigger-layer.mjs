@@ -39,6 +39,29 @@ const wrapperTemplates = {
   cursorRule: readTemplate('cursor-rule.mdc.template'),
 };
 
+const previousGeneratedManifest = readJsonFileIfExists(
+  pathOf('.agent-trigger-kit/generated.json'),
+  null,
+);
+const generatedTargets = buildGeneratedTargets();
+
+function buildGeneratedTargets() {
+  const targets = [
+    { path: `${pluginDir}/.codex-plugin/plugin.json`, kind: 'plugin-manifest' },
+    { path: `${pluginDir}/.claude-plugin/plugin.json`, kind: 'plugin-manifest' },
+  ];
+
+  for (const task of tasks) {
+    targets.push({ path: `${pluginDir}/skills/${task}/SKILL.md`, kind: 'skill' });
+    targets.push({ path: `${pluginDir}/commands/${task}.md`, kind: 'command' });
+    if (cursorGlobs.length > 0) {
+      targets.push({ path: `.cursor/rules/${task}.mdc`, kind: 'cursor-rule' });
+    }
+  }
+
+  return targets;
+}
+
 function readTemplate(path) {
   return readFileSync(new URL(path, templateRoot), 'utf8');
 }
@@ -118,10 +141,12 @@ try {
   process.exit(1);
 }
 
+function sha256Bytes(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
 function sha256(path) {
-  return createHash('sha256')
-    .update(readFileSync(pathOf(path)))
-    .digest('hex');
+  return sha256Bytes(readFileSync(pathOf(path)));
 }
 
 function trackGeneratedFile(path, kind) {
@@ -132,11 +157,50 @@ function trackGeneratedFile(path, kind) {
   });
 }
 
+function verifyForceOverwrite(path, kind, full) {
+  if (!force || !kind || !existsSync(full)) {
+    return;
+  }
+
+  if (!previousGeneratedManifest) {
+    throw new Error(
+      `${path} exists but .agent-trigger-kit/generated.json is missing; refusing overwrite with --force`,
+    );
+  }
+
+  if (previousGeneratedManifest.pluginName !== pluginName) {
+    throw new Error(
+      `${path} exists but .agent-trigger-kit/generated.json belongs to ${previousGeneratedManifest.pluginName || 'an unknown plugin'}; refusing overwrite with --force for ${pluginName}`,
+    );
+  }
+
+  const previousEntry = previousGeneratedManifest.files?.find((file) => file.path === path);
+  if (!previousEntry) {
+    throw new Error(
+      `${path} exists but is not listed in .agent-trigger-kit/generated.json; refusing overwrite with --force`,
+    );
+  }
+
+  if (previousEntry.kind !== kind) {
+    throw new Error(
+      `${path} exists with generated kind ${previousEntry.kind || 'unknown'} but init wants ${kind}; refusing overwrite with --force`,
+    );
+  }
+
+  const currentSha256 = sha256Bytes(readFileSync(full));
+  if (currentSha256 !== previousEntry.sha256) {
+    throw new Error(
+      `${path} has checksum mismatch or local changes; refusing overwrite with --force`,
+    );
+  }
+}
+
 function write(path, content, kind = null) {
   const full = pathOf(path);
   if (existsSync(full) && !force) {
     throw new Error(`${path} already exists; rerun with --force to overwrite generated files`);
   }
+  verifyForceOverwrite(path, kind, full);
   mkdirSync(join(full, '..'), { recursive: true });
   writeFileSync(full, `${content.trimEnd()}\n`);
   if (kind) trackGeneratedFile(path, kind);
@@ -163,6 +227,16 @@ function writeIfMissing(path, content) {
   mkdirSync(join(full, '..'), { recursive: true });
   writeFileSync(full, `${content.trimEnd()}\n`);
   console.log(`wrote ${path}`);
+}
+
+function preflightForceOverwrites() {
+  if (!force) {
+    return;
+  }
+
+  for (const target of generatedTargets) {
+    verifyForceOverwrite(target.path, target.kind, pathOf(target.path));
+  }
 }
 
 function upsertCodexMarketplace() {
@@ -333,6 +407,13 @@ function writeGeneratedManifest() {
     files: generatedFiles,
   });
   console.log('wrote .agent-trigger-kit/generated.json');
+}
+
+try {
+  preflightForceOverwrites();
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
 }
 
 upsertCodexMarketplace();

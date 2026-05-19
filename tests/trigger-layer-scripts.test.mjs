@@ -210,6 +210,32 @@ function readJson(root, path) {
   return JSON.parse(readFileSync(join(root, path), 'utf8'));
 }
 
+function writeGeneratedManifest(root, pluginName, pluginVersion, files) {
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 1,
+    kitVersion: '0.1.4',
+    templateVersion: 1,
+    pluginName,
+    pluginVersion,
+    playbook: 'docs/agent-playbooks/demo-ops.md',
+    maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+    tasks: ['docs-review'],
+    files: files.map((file) => ({
+      ...file,
+      sha256: sha256(join(root, file.path)),
+    })),
+  });
+}
+
+function writeGeneratedManifestForDemoPlugin(root, pluginDir, pluginName, pluginVersion) {
+  writeGeneratedManifest(root, pluginName, pluginVersion, [
+    { kind: 'plugin-manifest', path: `${pluginDir}/.codex-plugin/plugin.json` },
+    { kind: 'plugin-manifest', path: `${pluginDir}/.claude-plugin/plugin.json` },
+    { kind: 'skill', path: `${pluginDir}/skills/docs-review/SKILL.md` },
+    { kind: 'command', path: `${pluginDir}/commands/docs-review.md` },
+  ]);
+}
+
 function initGitFixture(root) {
   for (const args of [
     ['init'],
@@ -419,6 +445,238 @@ test('init records generated trigger-layer files without claiming user-owned fil
   );
 });
 
+test('init force overwrites unchanged managed skills and updates generated checksums', () => {
+  const root = makeRoot();
+  const skillPath = 'plugins/demo-ops/skills/docs-review/SKILL.md';
+  const first = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+  assert.equal(first.status, 0, first.stderr || first.stdout);
+  const previousChecksum = readJson(root, '.agent-trigger-kit/generated.json').files.find(
+    (file) => file.path === skillPath,
+  ).sha256;
+
+  const second = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/renamed-demo-ops.md',
+    '--force',
+  ]);
+
+  assert.equal(second.status, 0, second.stderr || second.stdout);
+  const skillText = readFileSync(join(root, skillPath), 'utf8');
+  const nextManifest = readJson(root, '.agent-trigger-kit/generated.json');
+  const nextEntry = nextManifest.files.find((file) => file.path === skillPath);
+  assert.match(skillText, /docs\/agent-playbooks\/renamed-demo-ops\.md/);
+  assert.notEqual(nextEntry.sha256, previousChecksum);
+  assert.equal(nextEntry.sha256, sha256(join(root, skillPath)));
+});
+
+test('init force rejects overwriting a managed skill with local checksum changes', () => {
+  const root = makeRoot();
+  const skillPath = 'plugins/demo-ops/skills/docs-review/SKILL.md';
+  const first = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+  assert.equal(first.status, 0, first.stderr || first.stdout);
+  const manualContent = `${readFileSync(join(root, skillPath), 'utf8')}\nManual local change.\n`;
+  writeFileSync(join(root, skillPath), manualContent);
+
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/renamed-demo-ops.md',
+    '--force',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /checksum|local changes|refusing overwrite/i);
+  assert.equal(readFileSync(join(root, skillPath), 'utf8'), manualContent);
+});
+
+test('init force preflights generated targets before creating any files', () => {
+  const root = makeRoot();
+  const skillPath = 'plugins/demo-ops/skills/docs-review/SKILL.md';
+  const manualContent = `---
+name: docs-review
+description: User owned skill.
+---
+
+# User Owned
+`;
+  write(root, skillPath, manualContent);
+
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--cursor-globs',
+    'docs/**',
+    '--force',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /generated\.json|refusing overwrite/i);
+  assert.equal(readFileSync(join(root, skillPath), 'utf8'), manualContent);
+  assert.equal(existsSync(join(root, '.agents/plugins/marketplace.json')), false);
+  assert.equal(existsSync(join(root, '.claude-plugin/marketplace.json')), false);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/.codex-plugin/plugin.json')), false);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/.claude-plugin/plugin.json')), false);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/commands/docs-review.md')), false);
+  assert.equal(existsSync(join(root, '.cursor/rules/docs-review.mdc')), false);
+  assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
+  assert.equal(existsSync(join(root, '.agent-trigger-kit/MAINTENANCE.md')), false);
+  assert.equal(existsSync(join(root, '.agent-trigger-kit/generated.json')), false);
+});
+
+test('init force rejects existing skill targets without matching previous generated manifest ownership', () => {
+  const cases = [
+    { name: 'missing manifest', manifest: null },
+    {
+      name: 'different plugin',
+      manifest: {
+        schemaVersion: 1,
+        pluginName: 'other-ops',
+        files: [
+          {
+            kind: 'skill',
+            path: 'plugins/demo-ops/skills/docs-review/SKILL.md',
+            sha256: null,
+          },
+        ],
+      },
+    },
+  ];
+
+  for (const { name, manifest } of cases) {
+    const root = makeRoot();
+    const skillPath = 'plugins/demo-ops/skills/docs-review/SKILL.md';
+    const manualContent = `---
+name: docs-review
+description: User owned skill.
+---
+
+# User Owned
+`;
+    write(root, skillPath, manualContent);
+    if (manifest) {
+      writeJson(root, '.agent-trigger-kit/generated.json', manifest);
+    }
+
+    const result = runScript('init-project-trigger-layer.mjs', [
+      '--root',
+      root,
+      '--plugin',
+      'demo-ops',
+      '--tasks',
+      'docs-review',
+      '--playbook',
+      'docs/agent-playbooks/demo-ops.md',
+      '--force',
+    ]);
+
+    assert.notEqual(result.status, 0, name);
+    assert.match(result.stderr, /generated\.json|plugin|refusing overwrite/i, name);
+    assert.equal(readFileSync(join(root, skillPath), 'utf8'), manualContent, name);
+  }
+});
+
+test('init force leaves orphaned managed files on disk and removes them from generated manifest', () => {
+  const root = makeRoot();
+  const orphanSkill = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
+  const orphanCommand = 'plugins/demo-ops/commands/deploy-ops.md';
+  const first = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review,deploy-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+  assert.equal(first.status, 0, first.stderr || first.stdout);
+
+  const second = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--force',
+  ]);
+
+  assert.equal(second.status, 0, second.stderr || second.stdout);
+  assert.equal(existsSync(join(root, orphanSkill)), true);
+  assert.equal(existsSync(join(root, orphanCommand)), true);
+  const trackedPaths = readJson(root, '.agent-trigger-kit/generated.json').files.map(
+    (file) => file.path,
+  );
+  assert.equal(trackedPaths.includes(orphanSkill), false);
+  assert.equal(trackedPaths.includes(orphanCommand), false);
+});
+
+test('init without force still rejects existing generated target files', () => {
+  const root = makeRoot();
+  const first = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+  assert.equal(first.status, 0, first.stderr || first.stdout);
+
+  const second = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.notEqual(second.status, 0);
+  assert.match(second.stderr, /already exists; rerun with --force/);
+});
+
 test('init computes playbook refs relative to nested generated skill paths', () => {
   const root = makeRoot();
   const playbook = 'docs/agent-playbooks/team-demo-ops.md';
@@ -510,6 +768,7 @@ test('init force preserves existing plugin version instead of downgrading', () =
   const root = makeRoot();
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.2.0' });
   writeValidSkillAndCommand(root, pluginDir);
+  writeGeneratedManifestForDemoPlugin(root, pluginDir, pluginName, '0.2.0');
 
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
@@ -535,6 +794,7 @@ test('init ignores initial version when an existing plugin version is present', 
   const root = makeRoot();
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.2.0' });
   writeValidSkillAndCommand(root, pluginDir);
+  writeGeneratedManifestForDemoPlugin(root, pluginDir, pluginName, '0.2.0');
 
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
