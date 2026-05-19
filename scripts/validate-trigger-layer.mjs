@@ -296,6 +296,22 @@ function validateCursorRules() {
   }
 }
 
+function validateMaintenanceContractPointers() {
+  const generatedPath = '.agent-trigger-kit/generated.json';
+  if (!existsSync(pathOf(generatedPath))) return;
+
+  const generated = parseJson(generatedPath);
+  if (!generated) return;
+
+  for (const entry of generated.files || []) {
+    if (entry?.kind !== 'skill' || typeof entry.path !== 'string') continue;
+    if (!existsSync(pathOf(entry.path))) continue;
+    if (!/Maintenance contract:\s*`[^`]+`/.test(read(entry.path))) {
+      fail(`${entry.path}: missing maintenance contract pointer`);
+    }
+  }
+}
+
 const plugins = parsePluginEntries();
 if (plugins.length === 0) {
   fail(
@@ -309,6 +325,7 @@ for (const plugin of plugins) {
 validateNameCollisions(skillNames, 'skill');
 validateNameCollisions(commandNames, 'command');
 validateCursorRules();
+validateMaintenanceContractPointers();
 
 if (failures.length > 0) {
   console.error(failures.join('\n'));

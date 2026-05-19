@@ -1209,6 +1209,87 @@ test('validator fails when Claude marketplace and plugin manifest versions diffe
   assert.match(result.stderr, /version must match Claude marketplace 0\.1\.0/);
 });
 
+test('validator fails when a managed skill lacks a maintenance contract pointer', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
+  writeValidSkillAndCommand(root, pluginDir);
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 1,
+    files: [{ kind: 'skill', path: skillPath }],
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(result.stderr, /maintenance contract pointer/i);
+});
+
+test('validator accepts a managed skill with a loose maintenance contract pointer path', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
+  writeValidSkillAndCommand(root, pluginDir);
+  write(
+    root,
+    skillPath,
+    `---
+name: docs-review
+description: Use for docs review work.
+---
+
+# Docs Review
+
+Maintenance contract: \`some/other/path.md\`
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+  );
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 1,
+    maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+    files: [{ kind: 'skill', path: skillPath }],
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator accepts a hand-rolled skill without a maintenance contract pointer', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 1,
+    files: [],
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator accepts a generated command without a maintenance contract pointer', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 1,
+    files: [{ kind: 'command', path: `${pluginDir}/commands/docs-review.md` }],
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
 test('Codex plugin cache sync snapshots the marketplace plugin version and backs up stale cache', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
