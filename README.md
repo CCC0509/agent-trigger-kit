@@ -82,6 +82,8 @@ text into every surface.
   release.
 - **Sync Codex local cache:** replace a stale local Codex cache snapshot with a
   fresh copy from a local marketplace source.
+- **Refresh local agent triggers:** run the fixed Codex, Claude, and Cursor
+  checks for a local plugin checkout without re-deciding the flow each time.
 - **Troubleshoot discovery:** diagnose missing Codex skills, missing Claude
   slash commands, stale caches, or `.orphaned_at`.
 
@@ -130,6 +132,19 @@ npm run ops:plugin-cache-sync -- agent-trigger-kit
 codex debug prompt-input "test"
 ```
 
+For the full local refresh flow, use the orchestrator from the checkout:
+
+```bash
+npm run ops:local-agent-sync -- agent-trigger-kit
+```
+
+That command validates the trigger layer, checks source and installed versions,
+syncs the Codex local cache when the expected cache snapshot is missing or
+differs from the local plugin source, runs
+`codex debug prompt-input "test"` unless `--no-codex-debug` is passed, updates
+Claude through `marketplace update` and `plugin update` when the `claude` CLI is
+available, and treats Cursor as repo-local rules covered by the validator.
+
 ## Update Existing Users
 
 There are three different things a user may need to update.
@@ -163,7 +178,7 @@ cd /path/to/agent-trigger-kit
 git pull
 npm test
 npm run validate
-npm run ops:plugin-version-check -- agent-trigger-kit
+npm run ops:local-agent-sync -- agent-trigger-kit
 ```
 
 **Projects that already generated a trigger layer:** generated project-local

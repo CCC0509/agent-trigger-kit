@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
+  chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -35,6 +37,11 @@ function write(root, path, text) {
   const fullPath = join(root, path);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, `${text.trimEnd()}\n`);
+}
+
+function writeExecutable(root, path, text) {
+  write(root, path, text);
+  chmodSync(join(root, path), 0o755);
 }
 
 function createMinimalPlugin(root, overrides = {}) {
@@ -396,8 +403,80 @@ test('agent-trigger-kit exposes version-check skill and Claude command', () => {
 
   assert.match(skillText, /^name: version-check/m);
   assert.match(skillText, /kit version/i);
-  assert.match(skillText, /ops:plugin-version-check/);
+  assert.match(skillText, /ops:local-agent-sync/);
   assert.match(skillText, /codex plugin marketplace upgrade agent-trigger-kit/);
   assert.match(skillText, /claude plugin update agent-trigger-kit@agent-trigger-kit --scope user/);
   assert.match(commandText, /agent-trigger-kit:version-check/);
+});
+
+test('local agent trigger refresh syncs stale Codex cache and updates Claude when available', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const fakeBin = makeRoot();
+  const commandLog = join(fakeBin, 'commands.log');
+  createPackage(root, '0.1.2');
+  const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeValidSkillAndCommand(root, pluginDir);
+  write(root, `${pluginDir}/fresh.txt`, 'fresh local plugin snapshot');
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/old.txt', 'stale same-version cache');
+  writeExecutable(fakeBin, 'claude', `#!/bin/sh
+printf 'claude %s\\n' "$*" >> "${commandLog}"
+if [ "$1" = "plugin" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  printf '[{"id":"demo-ops@demo-ops","version":"0.1.2"}]\\n'
+fi
+`);
+  writeExecutable(fakeBin, 'cursor', `#!/bin/sh
+printf 'cursor should not be called\\n' >> "${commandLog}"
+exit 99
+`);
+
+  const result = runScript('update-local-agent-triggers.mjs', [
+    '--root',
+    root,
+    '--codex-home',
+    codexHome,
+    '--no-codex-debug',
+    pluginName,
+  ], {
+    env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Codex cache is missing or stale; syncing local cache/);
+  assert.match(result.stdout, /Cursor: repo-local rules are covered by trigger-layer validation/);
+  assert.equal(readFileSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/fresh.txt'), 'utf8').trim(), 'fresh local plugin snapshot');
+  assert.equal(existsSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/old.txt')), false);
+  const backups = readdirSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops')).filter((name) => name.startsWith('0.1.2.backup-'));
+  assert.equal(backups.length, 1);
+  assert.equal(existsSync(join(codexHome, 'plugins/cache/demo-ops/demo-ops', backups[0], 'old.txt')), true);
+  const log = readFileSync(commandLog, 'utf8');
+  assert.match(log, new RegExp(`claude plugin validate ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(log, new RegExp(`claude plugin validate ${join(root, pluginDir).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(log, /claude plugin marketplace update demo-ops/);
+  assert.match(log, /claude plugin update demo-ops@demo-ops --scope user/);
+  assert.match(log, /claude plugin list --json/);
+  assert.doesNotMatch(log, /cursor/);
+});
+
+test('local agent trigger refresh skips Claude update when CLI is unavailable', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeValidSkillAndCommand(root, pluginDir);
+  cpSync(join(root, pluginDir), join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2'), { recursive: true });
+
+  const result = runScript('update-local-agent-triggers.mjs', [
+    '--root',
+    root,
+    '--codex-home',
+    codexHome,
+    '--no-codex-debug',
+    pluginName,
+  ], {
+    env: { ...process.env, PATH: '' },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /claude: CLI unavailable; skipped Claude update commands/);
 });

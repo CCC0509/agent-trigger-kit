@@ -21,8 +21,11 @@ latest, stale, needs an update, or whether the kit version is correct.
 1. If the current working directory is an Agent Trigger Kit checkout, run:
 
    ```bash
-   npm run ops:plugin-version-check -- --strict-installed agent-trigger-kit
+   npm run ops:local-agent-sync -- agent-trigger-kit
    ```
+
+   Use `--no-codex-debug` when prompt-input output would be too noisy for the
+   current task.
 
 2. If not in a checkout, inspect installed state when possible:
 
@@ -46,8 +49,8 @@ latest, stale, needs an update, or whether the kit version is correct.
 
 4. Tell Claude Code users to restart Claude Code after install or update.
 
-5. If a local Codex marketplace points at a checkout and cache is stale, run or
-   suggest:
+5. If only a local Codex cache repair is needed, run or suggest the narrower
+   cache sync command:
 
    ```bash
    npm run ops:plugin-cache-sync -- agent-trigger-kit
