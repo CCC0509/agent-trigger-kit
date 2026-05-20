@@ -5187,6 +5187,47 @@ test('plugin state probe separates Claude marketplace dirty state from installed
   assert.equal(state.marketplace.warnings.includes('head-differs-from-installed-sha'), true);
 });
 
+test('plugin state probe reports untracked marketplace files as dirty clone state', async () => {
+  const claudeHome = makeRoot();
+  const marketplace = join(claudeHome, 'plugins/marketplaces/demo-ops');
+  mkdirSync(marketplace, { recursive: true });
+  initGitFixture(marketplace);
+  write(marketplace, 'README.md', 'clean');
+  commitAll(marketplace, 'initial');
+  write(marketplace, 'NEW.md', 'untracked');
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: marketplace,
+      lastUpdated: '2026-05-21T00:00:00.000Z',
+    },
+  });
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath: join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2'),
+          version: '0.1.2',
+        },
+      ],
+    },
+  });
+
+  const { probeClaudeState } = await import('../scripts/lib/plugin-state-probe.mjs');
+  const state = probeClaudeState({
+    claudeHome,
+    envPath: '',
+    expectedVersion: '0.1.2',
+    marketplaceName: 'demo-ops',
+    pluginName: 'demo-ops',
+  });
+
+  assert.equal(state.marketplace.dirtyFiles.includes('?? NEW.md'), true);
+  assert.equal(state.marketplace.warnings.includes('dirty-clone'), true);
+});
+
 test('plugin state probe treats any installed SHA matching marketplace HEAD as not divergent', async () => {
   const claudeHome = makeRoot();
   const marketplace = join(claudeHome, 'plugins/marketplaces/demo-ops');

@@ -78,6 +78,14 @@ function formatNameStatus(stdout, prefix) {
     });
 }
 
+function formatUntrackedFiles(stdout) {
+  return stdout
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map((path) => `?? ${path}`);
+}
+
 function probeMarketplace({ claudeHome, marketplaceName, installedEntries }) {
   const known = readJsonStatus(join(claudeHome, 'plugins/known_marketplaces.json'), {});
   const record = known.ok ? known.value?.[marketplaceName] : null;
@@ -118,7 +126,8 @@ function probeMarketplace({ claudeHome, marketplaceName, installedEntries }) {
   const head = gitOutput(installLocation, ['rev-parse', 'HEAD']);
   const unstaged = gitOutput(installLocation, ['diff', '--name-status', '--no-renames']);
   const staged = gitOutput(installLocation, ['diff', '--cached', '--name-status', '--no-renames']);
-  if (!head.ok || !unstaged.ok || !staged.ok) {
+  const untracked = gitOutput(installLocation, ['ls-files', '--others', '--exclude-standard']);
+  if (!head.ok || !unstaged.ok || !staged.ok || !untracked.ok) {
     marketplace.status = 'git-state-unavailable';
     marketplace.warnings.push('git-state-unavailable');
     return marketplace;
@@ -128,6 +137,7 @@ function probeMarketplace({ claudeHome, marketplaceName, installedEntries }) {
   marketplace.dirtyFiles = [
     ...formatNameStatus(unstaged.stdout, ' '),
     ...formatNameStatus(staged.stdout, ''),
+    ...formatUntrackedFiles(untracked.stdout),
   ];
   if (marketplace.dirtyFiles.length > 0) {
     marketplace.warnings.push('dirty-clone');
