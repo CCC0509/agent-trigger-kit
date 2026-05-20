@@ -66,3 +66,9 @@ test('completion workflow documents plugin-visible version bump gate', () => {
   assert.match(readme, /plugin-visible/i);
   assert.match(readme, /bump.*aligned version/i);
 });
+
+test('README documents playbook-first task descriptions', () => {
+  const readme = read('README.md');
+  assert.match(readme, /playbook-first guidance/i);
+  assert.match(readme, /--task-descriptions/);
+});

@@ -14,6 +14,9 @@ Use this skill when a project needs the same operating rules to be discoverable 
 - Claude commands are slash-menu shims that delegate to skills.
 - Cursor rules are path-trigger wrappers.
 - AGENTS.md, CLAUDE.md, and GEMINI.md are short pointers.
+- Generated project skills carry playbook-first guidance: for covered tasks,
+  the project playbook is the source of truth and generic helper guidance should
+  align with it rather than override it.
 - For existing Claude Code skills, prefer `agent-trigger-kit import-claude-skills`;
   it moves skill bodies into the canonical playbook, keeps descriptions on
   generated wrappers, and deletes source skills after a successful import unless
@@ -36,10 +39,11 @@ cleanup.
    `.agent-trigger-kit/generated.json`; keep `generated.json` committed.
 4. Create one thin skill per task.
 5. For Claude Code discoverability, create one command shim per task and declare `commands` in `.claude-plugin/plugin.json`.
-6. For Cursor, create `.cursor/rules/*.mdc` only when task-specific globs are known.
-7. Add or update a validator that checks all trigger surfaces.
-8. Document install scope, verification, cleanup, and fallback behavior in pointer docs.
-9. When tasks are removed, run a clean dry-run for the project and plugin before
+6. Use task-specific skill descriptions when task names alone are too sparse for discovery.
+7. For Cursor, create `.cursor/rules/*.mdc` only when task-specific globs are known.
+8. Add or update a validator that checks all trigger surfaces.
+9. Document install scope, verification, cleanup, and fallback behavior in pointer docs.
+10. When tasks are removed, run a clean dry-run for the project and plugin before
    applying orphan cleanup.
 
 ## Required Checks

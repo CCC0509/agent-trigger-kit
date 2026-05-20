@@ -150,6 +150,30 @@ npx --yes github:CCC0509/agent-trigger-kit init \
   --playbook docs/agent-playbooks/<project>-ops.md
 ```
 
+### Playbook-First Guidance
+
+Generated skills include playbook-first guidance. For tasks covered by the
+project trigger layer, the project playbook is the source of truth and generic
+helper guidance should align with it instead of overriding it.
+
+That signal is added to generated skill descriptions and skill checklists only.
+Claude command shims and Cursor path rules remain thin routing surfaces.
+
+Use task descriptions when task names alone are too sparse for reliable
+discovery:
+
+```bash
+npx --yes github:CCC0509/agent-trigger-kit init \
+  --root /path/to/project \
+  --plugin <project>-ops \
+  --tasks docs-review,deploy-ops \
+  --playbook docs/agent-playbooks/<project>-ops.md \
+  --task-descriptions '{"docs-review":"Use for docs, playbooks, todo, done-log, review-log, and docs-only closeout."}'
+```
+
+Task descriptions with punctuation are rendered as quoted frontmatter strings
+in generated `SKILL.md` files; that is expected and keeps YAML valid.
+
 If the playbook file is missing, the generator creates a short canonical
 placeholder at that path. Edit that playbook with the real project rules;
 generated skills, commands, Cursor rules, and pointer docs should remain thin.

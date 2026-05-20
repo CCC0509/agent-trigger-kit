@@ -6,6 +6,21 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.8 - Playbook-First Guidance
+
+- Added playbook-first guidance to generated project trigger-layer skill
+  descriptions and checklists so project playbooks stay visible when generic
+  helper skills also match a task.
+- Added `init --task-descriptions` for richer task-specific generated skill
+  descriptions.
+- Added flag-gated validation for generated skill guidance drift.
+
+## 0.1.7 - Claude Skill Importer
+
+- Added `agent-trigger-kit import-claude-skills` for migrating existing Claude
+  Code skills into project-local cross-agent trigger layers while preserving
+  descriptions.
+
 ## 0.1.6 - Install Scope Guidance
 
 - Documented the install-scope split between user-scoped Agent Trigger Kit
