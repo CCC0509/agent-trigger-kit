@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { parseArgs } from './lib/args.mjs';
 import { createPathOf, readJsonFileOrExit } from './lib/fs-json.mjs';
+import { probeClaudeState } from './lib/plugin-state-probe.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const args = parseArgs(process.argv.slice(2), {
@@ -18,13 +19,14 @@ const pathOf = createPathOf(root);
 const codexHome = normalize(
   args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'),
 );
+const claudeHome = normalize(args['claude-home'] || join(homedir(), '.claude'));
 const pluginName = args.plugin || args._[0];
 
 if (!pluginName) {
   console.error(
     [
       'Missing plugin name.',
-      'Usage: update-local-agent-triggers.mjs [--root <path>] [--codex-home <path>] [--no-codex-debug] <plugin-name>',
+      'Usage: update-local-agent-triggers.mjs [--root <path>] [--codex-home <path>] [--claude-home <path>] [--no-codex-debug] <plugin-name>',
     ].join(' '),
   );
   process.exit(2);
@@ -71,8 +73,8 @@ function run(command, commandArgs, options = {}) {
   return result;
 }
 
-function runNodeScript(scriptName, scriptArgs) {
-  return run(process.execPath, [join(scriptDir, scriptName), ...scriptArgs]);
+function runNodeScript(scriptName, scriptArgs, options = {}) {
+  return run(process.execPath, [join(scriptDir, scriptName), ...scriptArgs], options);
 }
 
 function requireSuccess(label, result) {
@@ -95,6 +97,54 @@ function runClaude(commandArgs) {
   }
   requireSuccess(`claude ${commandArgs.join(' ')}`, result);
   return { unavailable: false };
+}
+
+function printClaudeCacheWarnings(claudeState) {
+  for (const entry of claudeState.entries || []) {
+    if (!entry.warnings || entry.warnings.length === 0) continue;
+    const scope = entry.scope || 'unknown';
+    const installPath = entry.installPath || 'missing';
+    console.log(
+      `claude cache health warning: ${claudeState.pluginId} (${scope} scope, ${installPath}): ${entry.warnings.join(', ')}`,
+    );
+  }
+}
+
+function printClaudeFallbackStatus(claudeState) {
+  console.log('claude: CLI unavailable; reporting filesystem metadata only');
+  console.log(`claude: ${claudeState.status} (${claudeState.cli.status})`);
+  for (const entry of claudeState.entries || []) {
+    console.log(
+      `claude installed version: ${entry.version || 'missing'} (${entry.scope || 'unknown'} scope)`,
+    );
+    console.log(
+      `claude install path: ${entry.installPath || 'missing'} (${entry.installPathExists ? 'exists' : 'missing'}, ${entry.installPathHasFiles ? 'has files' : 'empty'})`,
+    );
+    console.log(
+      `claude installed expected version: ${entry.usableExpectedInstall ? 'present' : 'stale'}`,
+    );
+  }
+  printClaudeCacheWarnings(claudeState);
+  for (const action of claudeState.actions || []) {
+    if (action.kind === 'command') {
+      console.log(`recommendation: ${action.command.join(' ')}`);
+    } else if (action.message) {
+      console.log(`recommendation: ${action.message}`);
+    }
+  }
+}
+
+function runClaudeAction(action) {
+  if (action.kind !== 'command') {
+    if (action.message) console.log(`claude action: ${action.message}`);
+    return;
+  }
+  const [command, ...commandArgs] = action.command;
+  if (command !== 'claude') {
+    console.error(`claude action: unsupported command ${action.command.join(' ')}`);
+    process.exit(1);
+  }
+  runClaude(commandArgs);
 }
 
 const codexMarketplacePath = pathOf('.agents/plugins/marketplace.json');
@@ -149,7 +199,7 @@ requireSuccess('trigger layer validation', validate);
 
 const versionCheck = runNodeScript(
   'check-plugin-version.mjs',
-  ['--root', root, '--codex-home', codexHome, '--json', pluginName],
+  ['--root', root, '--codex-home', codexHome, '--claude-home', claudeHome, '--json', pluginName],
   { silent: true },
 );
 requireSuccess('plugin version check', versionCheck);
@@ -187,25 +237,25 @@ if (args['no-codex-debug']) {
   }
 }
 
-const firstClaude = runClaude(['plugin', 'validate', root]);
-if (firstClaude.unavailable) {
-  console.log('claude: CLI unavailable; skipped Claude update commands');
+const marketplaceName = claudeMarketplace?.name || codexMarketplace.name || pluginName;
+const claudeState = probeClaudeState({
+  claudeHome,
+  envPath: process.env.PATH || '',
+  expectedVersion: codexEntry.version,
+  marketplaceName,
+  pluginName,
+});
+
+if (claudeState.cli.status !== 'available') {
+  printClaudeFallbackStatus(claudeState);
 } else {
   const pluginDirAbsolute = resolve(root, pluginDir);
+  printClaudeCacheWarnings(claudeState);
+  runClaude(['plugin', 'validate', root]);
   runClaude(['plugin', 'validate', pluginDirAbsolute]);
-  runClaude([
-    'plugin',
-    'marketplace',
-    'update',
-    claudeMarketplace?.name || codexMarketplace.name || pluginName,
-  ]);
-  runClaude([
-    'plugin',
-    'update',
-    `${pluginName}@${claudeMarketplace?.name || codexMarketplace.name || pluginName}`,
-    '--scope',
-    'user',
-  ]);
+  for (const action of claudeState.actions || []) {
+    runClaudeAction(action);
+  }
   runClaude(['plugin', 'list', '--json']);
 }
 

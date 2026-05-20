@@ -6324,6 +6324,7 @@ test('agent-trigger-kit exposes trigger-layer clean command', () => {
 test('local agent trigger refresh syncs stale Codex cache and updates Claude when available', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
+  const claudeHome = makeRoot();
   const fakeBin = makeRoot();
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
@@ -6331,6 +6332,26 @@ test('local agent trigger refresh syncs stale Codex cache and updates Claude whe
   writeValidSkillAndCommand(root, pluginDir);
   write(root, `${pluginDir}/fresh.txt`, 'fresh local plugin snapshot');
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/old.txt', 'stale same-version cache');
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath,
+          version: '0.1.2',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
   writeExecutable(
     fakeBin,
     'claude',
@@ -6352,7 +6373,16 @@ exit 99
 
   const result = runScript(
     'update-local-agent-triggers.mjs',
-    ['--root', root, '--codex-home', codexHome, '--no-codex-debug', pluginName],
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--no-codex-debug',
+      pluginName,
+    ],
     {
       env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
     },
@@ -6394,6 +6424,7 @@ exit 99
 test('local agent trigger refresh syncs when structured version check reports missing expected cache', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
+  const claudeHome = makeRoot();
   const fakeBin = makeRoot();
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
@@ -6401,6 +6432,26 @@ test('local agent trigger refresh syncs when structured version check reports mi
   writeValidSkillAndCommand(root, pluginDir);
   write(root, `${pluginDir}/fresh.txt`, 'fresh local plugin snapshot');
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache only');
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath,
+          version: '0.1.2',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
   writeExecutable(
     fakeBin,
     'claude',
@@ -6414,7 +6465,16 @@ fi
 
   const result = runScript(
     'update-local-agent-triggers.mjs',
-    ['--root', root, '--codex-home', codexHome, '--no-codex-debug', pluginName],
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--no-codex-debug',
+      pluginName,
+    ],
     {
       env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
     },
@@ -6432,27 +6492,273 @@ test('local agent trigger refresh uses structured version check output', () => {
   const script = readFileSync(join(repoRoot, 'scripts/update-local-agent-triggers.mjs'), 'utf8');
 
   assert.match(script, /'--json'/);
+  assert.match(script, /'--claude-home'/);
   assert.doesNotMatch(script, /codex cache expected version/);
 });
 
-test('local agent trigger refresh skips Claude update when CLI is unavailable', () => {
+test('local agent trigger refresh reports Claude fallback without writing Claude metadata when CLI is unavailable', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
+  const claudeHome = makeRoot();
   createPackage(root, '0.1.2');
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   writeValidSkillAndCommand(root, pluginDir);
   cpSync(join(root, pluginDir), join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2'), {
     recursive: true,
   });
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath,
+          version: '0.1.2',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
+  const metadataPath = join(claudeHome, 'plugins/installed_plugins.json');
+  const beforeMetadata = readFileSync(metadataPath, 'utf8');
 
   const result = runScript(
     'update-local-agent-triggers.mjs',
-    ['--root', root, '--codex-home', codexHome, '--no-codex-debug', pluginName],
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--no-codex-debug',
+      pluginName,
+    ],
     {
       env: { ...process.env, PATH: '' },
     },
   );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /claude: CLI unavailable; skipped Claude update commands/);
+  assert.match(result.stdout, /claude: CLI unavailable; reporting filesystem metadata only/);
+  assert.match(result.stdout, /claude plugin marketplace update demo-ops/);
+  assert.equal(readFileSync(metadataPath, 'utf8'), beforeMetadata);
+});
+
+test('local agent trigger refresh installs user scope when Claude has only project scope', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const claudeHome = makeRoot();
+  const fakeBin = makeRoot();
+  const commandLog = join(fakeBin, 'commands.log');
+  createPackage(root, '0.1.2');
+  const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeValidSkillAndCommand(root, pluginDir);
+  cpSync(join(root, pluginDir), join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2'), {
+    recursive: true,
+  });
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'project',
+          projectPath: root,
+          installPath,
+          version: '0.1.2',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/bin/sh
+printf 'claude %s\\n' "$*" >> "${commandLog}"
+if [ "$1" = "plugin" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  printf '[{"id":"demo-ops@demo-ops","version":"0.1.2","scope":"local"}]\\n'
+fi
+`,
+  );
+
+  const result = runScript(
+    'update-local-agent-triggers.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--no-codex-debug',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const log = readFileSync(commandLog, 'utf8');
+  assert.match(log, /claude plugin install demo-ops@demo-ops --scope user/);
+  assert.doesNotMatch(log, /claude plugin update demo-ops@demo-ops --scope local/);
+});
+
+test('local agent trigger refresh reports Claude cache health markers without blocking CLI update', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const claudeHome = makeRoot();
+  const fakeBin = makeRoot();
+  const commandLog = join(fakeBin, 'commands.log');
+  createPackage(root, '0.1.2');
+  const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeValidSkillAndCommand(root, pluginDir);
+  cpSync(join(root, pluginDir), join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2'), {
+    recursive: true,
+  });
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/.orphaned_at', '2026-05-21T00:00:00.000Z');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/.in_use/12345', 'running');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath,
+          version: '0.1.2',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/bin/sh
+printf 'claude %s\\n' "$*" >> "${commandLog}"
+if [ "$1" = "plugin" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  printf '[{"id":"demo-ops@demo-ops","version":"0.1.2","scope":"user"}]\\n'
+fi
+`,
+  );
+
+  const result = runScript(
+    'update-local-agent-triggers.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--no-codex-debug',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /orphaned/);
+  assert.match(result.stdout, /in-use/);
+  const log = readFileSync(commandLog, 'utf8');
+  assert.match(log, /claude plugin uninstall demo-ops@demo-ops --scope user/);
+  assert.match(log, /claude plugin install demo-ops@demo-ops --scope user/);
+});
+
+test('local agent trigger refresh skips Codex prompt debug when requested after validation', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const claudeHome = makeRoot();
+  const fakeBin = makeRoot();
+  const commandLog = join(fakeBin, 'commands.log');
+  createPackage(root, '0.1.2');
+  const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeValidSkillAndCommand(root, pluginDir);
+  cpSync(join(root, pluginDir), join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2'), {
+    recursive: true,
+  });
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath,
+          version: '0.1.2',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/bin/sh
+printf 'claude %s\\n' "$*" >> "${commandLog}"
+if [ "$1" = "plugin" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  printf '[{"id":"demo-ops@demo-ops","version":"0.1.2"}]\\n'
+fi
+`,
+  );
+  writeExecutable(
+    fakeBin,
+    'codex',
+    `#!/bin/sh
+printf 'codex should not be called\\n' >> "${commandLog}"
+exit 41
+`,
+  );
+
+  const result = runScript(
+    'update-local-agent-triggers.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--no-codex-debug',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+  assert.match(result.stdout, /codex: skipped prompt-input verification/);
+  assert.doesNotMatch(readFileSync(commandLog, 'utf8'), /codex/);
 });
