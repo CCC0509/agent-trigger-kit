@@ -92,11 +92,7 @@ function requireSuccess(label, result) {
 
 function runClaude(commandArgs) {
   const result = run('claude', commandArgs);
-  if (result.error?.code === 'ENOENT') {
-    return { unavailable: true };
-  }
   requireSuccess(`claude ${commandArgs.join(' ')}`, result);
-  return { unavailable: false };
 }
 
 function printClaudeCacheWarnings(claudeState) {

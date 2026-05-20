@@ -6559,6 +6559,69 @@ test('local agent trigger refresh reports Claude fallback without writing Claude
   assert.equal(readFileSync(metadataPath, 'utf8'), beforeMetadata);
 });
 
+test('local agent trigger refresh fails when probed Claude CLI cannot be spawned', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const claudeHome = makeRoot();
+  const fakeBin = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeValidSkillAndCommand(root, pluginDir);
+  cpSync(join(root, pluginDir), join(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2'), {
+    recursive: true,
+  });
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath,
+          version: '0.1.2',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/path/to/nonexistent/claude-interpreter
+exit 0
+`,
+  );
+
+  const result = runScript(
+    'update-local-agent-triggers.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--no-codex-debug',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(
+    `${result.stderr}\n${result.stdout}`,
+    /claude plugin validate .*failed to start/,
+  );
+});
+
 test('local agent trigger refresh installs user scope when Claude has only project scope', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
