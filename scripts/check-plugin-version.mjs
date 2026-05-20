@@ -26,7 +26,7 @@ if (!pluginName) {
   console.error(
     [
       'Missing plugin name.',
-      'Usage: check-plugin-version.mjs [--root <path>] [--codex-home <path>] [--surface all|codex|claude|source] <plugin-name>',
+      'Usage: check-plugin-version.mjs [--root <path>] [--codex-home <path>] [--claude-home <path>] [--surface all|codex|claude|source] <plugin-name>',
     ].join(' '),
   );
   process.exit(2);

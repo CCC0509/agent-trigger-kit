@@ -4953,6 +4953,62 @@ test('version check emits structured JSON when requested', () => {
   assert.equal(payload.versionMismatch, true);
 });
 
+test('version check usage mentions Claude home option', () => {
+  const result = runScript('check-plugin-version.mjs', []);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /--claude-home <path>/);
+});
+
+test('version check uses official Claude CLI when available', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const claudeHome = join(makeRoot(), 'missing-claude-home');
+  const fakeBin = makeRoot();
+  const fakeClaude = join(fakeBin, 'claude');
+  const commandLog = join(fakeBin, 'commands.log');
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeExecutable(
+    fakeBin,
+    'claude',
+    `#!/bin/sh
+printf 'claude %s\\n' "$*" >> "${commandLog}"
+if [ "$1" = "plugin" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  printf '[{"id":"demo-ops@demo-ops","version":"0.1.2"}]\\n'
+fi
+`,
+  );
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--surface',
+      'claude',
+      '--json',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: fakeBin },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(readFileSync(commandLog, 'utf8'), /claude plugin list --json/);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.claude.status, 'present');
+  assert.equal(payload.claude.cli.status, 'available');
+  assert.equal(payload.claude.cli.path, fakeClaude);
+  assert.equal(payload.versionMismatch, false);
+  assert.equal(Array.isArray(payload.actions), true);
+});
+
 test('version check falls back to Claude metadata when CLI is unavailable', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
