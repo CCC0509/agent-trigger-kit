@@ -199,7 +199,18 @@ requireSuccess('trigger layer validation', validate);
 
 const versionCheck = runNodeScript(
   'check-plugin-version.mjs',
-  ['--root', root, '--codex-home', codexHome, '--claude-home', claudeHome, '--json', pluginName],
+  [
+    '--root',
+    root,
+    '--codex-home',
+    codexHome,
+    '--claude-home',
+    claudeHome,
+    '--surface',
+    'codex',
+    '--json',
+    pluginName,
+  ],
   { silent: true },
 );
 requireSuccess('plugin version check', versionCheck);

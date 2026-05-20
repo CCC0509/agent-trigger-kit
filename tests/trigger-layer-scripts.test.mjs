@@ -6405,6 +6405,13 @@ exit 99
     true,
   );
   const log = readFileSync(commandLog, 'utf8');
+  assert.deepEqual(log.trim().split('\n'), [
+    `claude plugin validate ${root}`,
+    `claude plugin validate ${join(root, pluginDir)}`,
+    'claude plugin marketplace update demo-ops',
+    'claude plugin update demo-ops@demo-ops --scope user',
+    'claude plugin list --json',
+  ]);
   assert.match(
     log,
     new RegExp(`claude plugin validate ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
