@@ -1,3 +1,5 @@
+import { PLAYBOOK_FIRST_GUIDANCE } from './playbook-first-guidance.mjs';
+
 function copyFiles(files) {
   return Array.isArray(files) ? files.map((file) => ({ ...file })) : [];
 }
@@ -6,14 +8,23 @@ function copyTasks(tasks) {
   return Array.isArray(tasks) ? [...tasks] : [];
 }
 
+function copyPlaybookFirstGuidance(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  if (value.version !== PLAYBOOK_FIRST_GUIDANCE.version) return undefined;
+  return { version: value.version };
+}
+
 function copyPluginEntry(entry = {}) {
-  return {
+  const copied = {
     pluginVersion: entry.pluginVersion,
     playbook: entry.playbook,
     maintenanceContract: entry.maintenanceContract,
     tasks: copyTasks(entry.tasks),
     files: copyFiles(entry.files),
   };
+  const playbookFirstGuidance = copyPlaybookFirstGuidance(entry.playbookFirstGuidance);
+  if (playbookFirstGuidance) copied.playbookFirstGuidance = playbookFirstGuidance;
+  return copied;
 }
 
 export function normalizeGeneratedManifest(manifest) {

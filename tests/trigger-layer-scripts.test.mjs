@@ -27,6 +27,10 @@ import {
   upsertPlaybookSection,
   validateImportedTaskName,
 } from '../scripts/import-claude-skills.mjs';
+import {
+  normalizeGeneratedManifest,
+  upsertGeneratedPluginEntry,
+} from '../scripts/lib/generated-manifest.mjs';
 import { writeTriggerLayer } from '../scripts/lib/trigger-layer.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -521,6 +525,104 @@ test('validateImportedTaskName accepts clean kebab slugs only', () => {
     () => validateImportedTaskName('docs_review', 'skill name'),
     /must be a clean kebab slug/i,
   );
+});
+
+test('playbook-first guidance helpers append signal idempotently', async () => {
+  const {
+    PLAYBOOK_FIRST_GUIDANCE,
+    appendPlaybookFirstSignal,
+    hasPlaybookFirstGuidance,
+    hasPlaybookFirstSignal,
+  } = await import('../scripts/lib/playbook-first-guidance.mjs');
+
+  assert.equal(
+    appendPlaybookFirstSignal('Use for docs review work.'),
+    'Use for docs review work. Project playbook is source of truth.',
+  );
+  assert.equal(
+    appendPlaybookFirstSignal(
+      'Use for docs review work. Project playbook is source of truth.',
+    ),
+    'Use for docs review work. Project playbook is source of truth.',
+  );
+  assert.equal(hasPlaybookFirstSignal('Project playbook is source of truth.'), true);
+  assert.equal(hasPlaybookFirstGuidance(PLAYBOOK_FIRST_GUIDANCE.guidance), true);
+});
+
+test('generated manifest round-trips playbook-first guidance flag', () => {
+  const manifest = {
+    schemaVersion: 2,
+    kitVersion: '0.1.7',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbookFirstGuidance: { version: 1 },
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+      },
+    },
+  };
+
+  const normalized = normalizeGeneratedManifest(manifest);
+  assert.deepEqual(normalized.plugins['demo-ops'].playbookFirstGuidance, { version: 1 });
+
+  const updated = upsertGeneratedPluginEntry(
+    manifest,
+    'demo-ops',
+    {
+      pluginVersion: '0.1.1',
+      playbookFirstGuidance: { version: 1 },
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review', 'deploy-ops'],
+      files: [],
+    },
+    { kitVersion: '0.1.8', templateVersion: 1 },
+  );
+
+  assert.deepEqual(updated.plugins['demo-ops'].playbookFirstGuidance, { version: 1 });
+});
+
+test('generated manifest drops malformed playbook-first guidance flags', () => {
+  for (const playbookFirstGuidance of [{}, { version: '1' }, [], true]) {
+    const manifest = {
+      schemaVersion: 2,
+      kitVersion: '0.1.7',
+      templateVersion: 1,
+      plugins: {
+        'demo-ops': {
+          pluginVersion: '0.1.0',
+          playbookFirstGuidance,
+          playbook: 'docs/agent-playbooks/demo-ops.md',
+          maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+          tasks: ['docs-review'],
+          files: [],
+        },
+      },
+    };
+
+    const normalized = normalizeGeneratedManifest(manifest);
+    assert.equal(normalized.plugins['demo-ops'].playbookFirstGuidance, undefined);
+
+    const updated = upsertGeneratedPluginEntry(
+      manifest,
+      'demo-ops',
+      {
+        pluginVersion: '0.1.1',
+        playbookFirstGuidance,
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review', 'deploy-ops'],
+        files: [],
+      },
+      { kitVersion: '0.1.8', templateVersion: 1 },
+    );
+
+    assert.equal(updated.plugins['demo-ops'].playbookFirstGuidance, undefined);
+  }
 });
 
 test('normalizeSkillBodyForPlaybook strips leading h1 and demotes headings outside fences', () => {
