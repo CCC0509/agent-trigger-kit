@@ -1,12 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import {
-  accessSync,
-  constants,
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-} from 'node:fs';
+import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 
 function readJsonStatus(path, fallback = null) {
@@ -144,8 +137,8 @@ function probeMarketplace({ claudeHome, marketplaceName, installedEntries }) {
   }
   marketplace.headDiffersFromInstalledSha = Boolean(
     marketplace.installedShas.length > 0 &&
-      marketplace.headSha &&
-      !marketplace.installedShas.includes(marketplace.headSha),
+    marketplace.headSha &&
+    !marketplace.installedShas.includes(marketplace.headSha),
   );
   if (marketplace.headDiffersFromInstalledSha) {
     marketplace.warnings.push('head-differs-from-installed-sha');
@@ -384,14 +377,7 @@ export function buildClaudeActions({
   actions.push({
     surface: 'claude',
     kind: 'command',
-    command: [
-      'claude',
-      'plugin',
-      hasUserScope ? 'update' : 'install',
-      pluginId,
-      '--scope',
-      'user',
-    ],
+    command: ['claude', 'plugin', hasUserScope ? 'update' : 'install', pluginId, '--scope', 'user'],
     reason: hasUserScope ? 'update-claude-plugin' : 'install-claude-plugin',
     requiresCli: 'claude',
   });

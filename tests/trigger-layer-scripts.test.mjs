@@ -4920,16 +4920,7 @@ test('version check emits structured JSON when requested', () => {
 
   const result = runScript(
     'check-plugin-version.mjs',
-    [
-      '--root',
-      root,
-      '--codex-home',
-      codexHome,
-      '--claude-home',
-      claudeHome,
-      '--json',
-      pluginName,
-    ],
+    ['--root', root, '--codex-home', codexHome, '--claude-home', claudeHome, '--json', pluginName],
     {
       env: { ...process.env, PATH: '' },
     },
@@ -6638,10 +6629,7 @@ exit 0
   );
 
   assert.notEqual(result.status, 0);
-  assert.match(
-    `${result.stderr}\n${result.stdout}`,
-    /claude plugin validate .*failed to start/,
-  );
+  assert.match(`${result.stderr}\n${result.stdout}`, /claude plugin validate .*failed to start/);
 });
 
 test('local agent trigger refresh installs user scope when Claude has only project scope', () => {
@@ -6725,7 +6713,11 @@ test('local agent trigger refresh reports Claude cache health markers without bl
   });
   const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
   write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
-  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/.orphaned_at', '2026-05-21T00:00:00.000Z');
+  write(
+    claudeHome,
+    'plugins/cache/demo-ops/demo-ops/0.1.2/.orphaned_at',
+    '2026-05-21T00:00:00.000Z',
+  );
   write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/.in_use/12345', 'running');
   writeJson(claudeHome, 'plugins/installed_plugins.json', {
     version: 2,
