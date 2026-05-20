@@ -5191,6 +5191,75 @@ test('version check strict mode fails when Claude metadata points at an empty in
   assert.equal(payload.versionMismatch, true);
 });
 
+test('version check strict mode fails when Claude expected install is orphaned', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const claudeHome = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/.orphaned_at', '2026-05-21');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath,
+          version: '0.1.2',
+          gitCommitSha: 'abc123',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--surface',
+      'claude',
+      '--strict-installed',
+      '--json',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
+
+  assert.equal(result.status, 1);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.claude.entries[0].warnings.includes('orphaned'), true);
+  assert.equal(payload.claude.entries[0].usableExpectedInstall, false);
+  assert.equal(payload.versionMismatch, true);
+  assert.equal(
+    payload.actions.some(
+      (action) =>
+        action.reason === 'repair-orphaned-claude-install' && action.command?.includes('uninstall'),
+    ),
+    true,
+  );
+  assert.equal(
+    payload.actions.some(
+      (action) =>
+        action.reason === 'repair-orphaned-claude-install' && action.command?.includes('install'),
+    ),
+    true,
+  );
+});
+
 test('version check emits well-formed Claude action entries', () => {
   const root = makeRoot();
   const codexHome = makeRoot();

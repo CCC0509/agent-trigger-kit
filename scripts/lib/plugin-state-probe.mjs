@@ -291,7 +291,8 @@ export function probeClaudeState({
       installPath,
       installPathExists,
       installPathHasFiles,
-      usableExpectedInstall: hasExpectedVersion && installPathExists && installPathHasFiles,
+      usableExpectedInstall:
+        hasExpectedVersion && installPathExists && installPathHasFiles && !orphaned,
       gitCommitSha: entry.gitCommitSha,
       enabled: typeof enabled === 'boolean' ? enabled : null,
       warnings,
