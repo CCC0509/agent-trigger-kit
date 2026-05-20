@@ -227,6 +227,11 @@ function readJson(root, path) {
   return JSON.parse(readFileSync(join(root, path), 'utf8'));
 }
 
+function frontmatterText(root, path) {
+  const text = readFileSync(join(root, path), 'utf8');
+  return text.match(/^---\n([\s\S]*?)\n---/)?.[1] || '';
+}
+
 function readPluginVersionSources(root, pluginName) {
   return {
     package: readJson(root, 'package.json').version,
@@ -903,6 +908,11 @@ Read README changes.
     /description: Review docs before release\. Project playbook is source of truth\./,
   );
   assert.match(wrapper, /For tasks covered by this project trigger layer/);
+
+  const commandFrontmatter = frontmatterText(root, 'plugins/demo-ops/commands/docs-review.md');
+  assert.match(commandFrontmatter, /^description: Review docs before release\.$/m);
+  assert.doesNotMatch(commandFrontmatter, /Project playbook is source of truth\./);
+
   assert.match(
     readFileSync(join(root, 'docs/agent-playbooks/demo-ops.md'), 'utf8'),
     /## Playbook-First Guidance/,
@@ -2599,6 +2609,42 @@ test('init emits playbook-first guidance flag and generated skill guidance', () 
 
   const maintenance = readFileSync(join(root, '.agent-trigger-kit/MAINTENANCE.md'), 'utf8');
   assert.match(maintenance, /third-party plugin or global config/i);
+});
+
+test('init keeps playbook-first signal out of command and Cursor routing descriptions', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--cursor-globs',
+    'docs/**,README.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const skill = readFileSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'), 'utf8');
+  assert.match(
+    frontmatterText(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
+    /description: Use for docs review work in this repo\. Project playbook is source of truth\./,
+  );
+  assert.match(
+    skill,
+    /For tasks covered by this project trigger layer, the project playbook is the source of truth; generic helper guidance should align with it, not override it\./,
+  );
+
+  const commandFrontmatter = frontmatterText(root, 'plugins/demo-ops/commands/docs-review.md');
+  assert.match(commandFrontmatter, /^description: Use for docs review work in this repo\.$/m);
+  assert.doesNotMatch(commandFrontmatter, /Project playbook is source of truth\./);
+
+  const cursorFrontmatter = frontmatterText(root, '.cursor/rules/docs-review.mdc');
+  assert.match(cursorFrontmatter, /^description: Use for docs review work in this repo\.$/m);
+  assert.doesNotMatch(cursorFrontmatter, /Project playbook is source of truth\./);
 });
 
 test('init uses task-specific descriptions and appends playbook-first signal', () => {

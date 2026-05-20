@@ -401,14 +401,15 @@ ${playbookFirstGuidance ? '- Treat third-party plugin or global config changes a
     for (const task of tasks) {
       const title = titleize(task);
       const baseDescription = taskDescriptions.get(task) || taskDescriptionFor(task);
-      const descriptionText = playbookFirstGuidance
+      const routingDescription = renderFrontmatterDescription(baseDescription);
+      const skillDescriptionText = playbookFirstGuidance
         ? appendPlaybookFirstSignal(baseDescription)
         : baseDescription;
-      const description = renderFrontmatterDescription(descriptionText);
+      const skillDescription = renderFrontmatterDescription(skillDescriptionText);
       const values = {
         taskName: task,
         taskTitle: title,
-        description,
+        description: routingDescription,
         pluginName,
       };
       const skillPath = `${pluginDir}/skills/${task}/SKILL.md`;
@@ -416,6 +417,7 @@ ${playbookFirstGuidance ? '- Treat third-party plugin or global config changes a
         skillPath,
         renderTemplate(wrapperTemplates.skill, {
           ...values,
+          description: skillDescription,
           canonicalPlaybook: markdownRelativePath(dirname(skillPath), playbook),
           maintenanceContract: markdownRelativePath(
             dirname(skillPath),
