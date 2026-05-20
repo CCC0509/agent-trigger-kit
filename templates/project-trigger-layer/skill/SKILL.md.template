@@ -13,7 +13,7 @@ This is a trigger layer only; canonical rules remain in repo playbooks.
 
 ## Checklist
 
-- State the matched playbook before acting.
+{{playbookFirstGuidanceChecklistItem}}- State the matched playbook before acting.
 - Maintenance contract: `{{maintenanceContract}}`
 - Keep this wrapper short; do not copy long SOP bodies here.
 - Run the project trigger-layer validator when editing trigger surfaces.

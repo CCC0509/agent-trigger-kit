@@ -29,6 +29,7 @@ try {
     force: Boolean(args.force),
     initialVersion: args['initial-version'] || '0.1.0',
     writePlaybookPlaceholder: true,
+    playbookFirstGuidance: true,
   });
 } catch (error) {
   console.error(error.message);

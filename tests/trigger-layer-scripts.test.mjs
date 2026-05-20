@@ -2112,6 +2112,45 @@ test('init creates a canonical playbook placeholder when it is missing', () => {
   assert.match(readFileSync(join(root, playbook), 'utf8'), /# Demo Ops Playbook/);
 });
 
+test('init emits playbook-first guidance flag and generated skill guidance', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const entry = generatedPluginEntry(root);
+  assert.deepEqual(entry.playbookFirstGuidance, { version: 1 });
+
+  const skill = readFileSync(
+    join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
+    'utf8',
+  );
+  assert.match(
+    skill,
+    /description: Use for docs review work in this repo\. Project playbook is source of truth\./,
+  );
+  assert.match(
+    skill,
+    /For tasks covered by this project trigger layer, the project playbook is the source of truth; generic helper guidance should align with it, not override it\./,
+  );
+
+  const playbook = readFileSync(join(root, 'docs/agent-playbooks/demo-ops.md'), 'utf8');
+  assert.match(playbook, /## Playbook-First Guidance/);
+  assert.doesNotMatch(playbook, /\n{3,}## /);
+
+  const maintenance = readFileSync(join(root, '.agent-trigger-kit/MAINTENANCE.md'), 'utf8');
+  assert.match(maintenance, /third-party plugin or global config/i);
+});
+
 test('init records generated trigger-layer files without claiming user-owned files', () => {
   const root = makeRoot();
   const result = runScript('init-project-trigger-layer.mjs', [
@@ -2794,6 +2833,33 @@ test('shared trigger layer generator consumes project trigger layer templates fo
     existsSync(join(repoRoot, 'templates/project-trigger-layer/GEMINI.snippet.md')),
     false,
   );
+});
+
+test('writeTriggerLayer omits playbook-first guidance by default', () => {
+  const root = makeRoot();
+  writeTriggerLayer({
+    root,
+    pluginName: 'demo-ops',
+    tasks: ['docs-review'],
+    playbook: 'docs/agent-playbooks/demo-ops.md',
+  });
+
+  const entry = generatedPluginEntry(root);
+  assert.equal(Object.hasOwn(entry, 'playbookFirstGuidance'), false);
+
+  const skill = readFileSync(
+    join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
+    'utf8',
+  );
+  assert.doesNotMatch(skill, /Project playbook is source of truth\./);
+  assert.doesNotMatch(
+    skill,
+    /For tasks covered by this project trigger layer, the project playbook is the source of truth; generic helper guidance should align with it, not override it\./,
+  );
+
+  const playbook = readFileSync(join(root, 'docs/agent-playbooks/demo-ops.md'), 'utf8');
+  assert.doesNotMatch(playbook, /## Playbook-First Guidance/);
+  assert.doesNotMatch(playbook, /\n{3,}## /);
 });
 
 test('writeTriggerLayer renders imported task descriptions as safe frontmatter scalars', () => {

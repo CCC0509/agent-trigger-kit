@@ -8,6 +8,10 @@ import {
   generatedPluginNames,
   upsertGeneratedPluginEntry,
 } from './generated-manifest.mjs';
+import {
+  appendPlaybookFirstSignal,
+  PLAYBOOK_FIRST_GUIDANCE,
+} from './playbook-first-guidance.mjs';
 
 export const DEFAULT_MAINTENANCE_CONTRACT = '.agent-trigger-kit/MAINTENANCE.md';
 export const TEMPLATE_VERSION = 1;
@@ -75,6 +79,7 @@ function createWriteContext(options) {
   const cursorGlobs = options.cursorGlobs || [];
   const taskDescriptions = options.taskDescriptions || new Map();
   const writePlaybookPlaceholder = options.writePlaybookPlaceholder ?? true;
+  const playbookFirstGuidance = Boolean(options.playbookFirstGuidance);
   const generatedFiles = [];
   const previousGeneratedManifest = readJsonFileIfExists(
     pathOf('.agent-trigger-kit/generated.json'),
@@ -293,20 +298,26 @@ function createWriteContext(options) {
 
   function writePlaybookPlaceholderFile() {
     const taskList = tasks.map((task) => `- ${task}`).join('\n');
-    writeIfMissing(
-      playbook,
+    const sections = [
       `# ${titleize(pluginName)} Playbook
 
-This is the canonical playbook for the ${pluginName} trigger layer.
+This is the canonical playbook for the ${pluginName} trigger layer.`,
+    ];
+    if (playbookFirstGuidance) {
+      sections.push(`## Playbook-First Guidance
 
-## Tasks
+${PLAYBOOK_FIRST_GUIDANCE.guidance}`);
+    }
+    sections.push(
+      `## Tasks
 
-${taskList}
-
-Keep project operating rules here. Codex skills, Claude commands, Cursor rules, and pointer docs should stay thin references to this file.
-
-Maintenance contract: \`${markdownRelativePath(dirname(playbook), DEFAULT_MAINTENANCE_CONTRACT)}\`
-`,
+${taskList}`,
+      'Keep project operating rules here. Codex skills, Claude commands, Cursor rules, and pointer docs should stay thin references to this file.',
+      `Maintenance contract: \`${markdownRelativePath(dirname(playbook), DEFAULT_MAINTENANCE_CONTRACT)}\``,
+    );
+    writeIfMissing(
+      playbook,
+      sections.join('\n\n'),
     );
   }
 
@@ -324,7 +335,7 @@ This file is the maintenance contract for the project-local trigger layer.
 - Keep install scope explicit: Agent Trigger Kit itself belongs at user scope, while this generated project ops plugin belongs to this project.
 - For Claude Code, generated in-repo marketplaces are not auto-discovered; when explicit plugin loading is needed, add the marketplace and install this plugin with project scope.
 - For Codex, there is no project plugin scope; add the project marketplace only for temporary verification, then remove the global config entry.
-- Run the project trigger-layer validator after editing trigger surfaces.
+${playbookFirstGuidance ? '- Treat third-party plugin or global config changes as explicit fixes, not the default response to trigger collisions.\n' : ''}- Run the project trigger-layer validator after editing trigger surfaces.
 `,
     );
   }
@@ -366,9 +377,11 @@ This file is the maintenance contract for the project-local trigger layer.
   function writeTaskWrappers() {
     for (const task of tasks) {
       const title = titleize(task);
-      const description = renderFrontmatterDescription(
-        taskDescriptions.get(task) || taskDescriptionFor(task),
-      );
+      const baseDescription = taskDescriptions.get(task) || taskDescriptionFor(task);
+      const descriptionText = playbookFirstGuidance
+        ? appendPlaybookFirstSignal(baseDescription)
+        : baseDescription;
+      const description = renderFrontmatterDescription(descriptionText);
       const values = {
         taskName: task,
         taskTitle: title,
@@ -385,6 +398,9 @@ This file is the maintenance contract for the project-local trigger layer.
             dirname(skillPath),
             DEFAULT_MAINTENANCE_CONTRACT,
           ),
+          playbookFirstGuidanceChecklistItem: playbookFirstGuidance
+            ? `- ${PLAYBOOK_FIRST_GUIDANCE.guidance}\n`
+            : '',
         }),
         'skill',
       );
@@ -422,6 +438,9 @@ This file is the maintenance contract for the project-local trigger layer.
           maintenanceContract: DEFAULT_MAINTENANCE_CONTRACT,
           tasks,
           files: generatedFiles,
+          ...(playbookFirstGuidance
+            ? { playbookFirstGuidance: { version: PLAYBOOK_FIRST_GUIDANCE.version } }
+            : {}),
         },
         {
           kitVersion: kitPackage.version,
@@ -451,6 +470,7 @@ This file is the maintenance contract for the project-local trigger layer.
     cursorGlobs,
     taskDescriptions,
     writePlaybookPlaceholder,
+    playbookFirstGuidance,
     generatedFiles,
     previousGeneratedManifest,
     generatedTargets,
