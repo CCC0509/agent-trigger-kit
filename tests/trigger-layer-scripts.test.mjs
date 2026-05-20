@@ -1939,16 +1939,29 @@ test('cli forwards init task descriptions', () => {
 test('cli routes version-check to the existing script', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
+  const claudeHome = join(makeRoot(), 'missing-claude-home');
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
-  const result = runCli(['version-check', '--root', root, '--codex-home', codexHome, pluginName], {
-    env: { ...process.env, PATH: '' },
-  });
+  const result = runCli(
+    [
+      'version-check',
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /expected source version: 0\.1\.2/);
-  assert.match(result.stdout, /claude: CLI unavailable/);
+  assert.match(result.stdout, /claude: not initialized/);
 });
 
 test('cli routes clean command to the generated trigger layer cleaner', () => {
@@ -4864,6 +4877,7 @@ test('Codex plugin cache sync snapshots the marketplace plugin version and backs
 test('version check reports matching source versions and Codex cache versions', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
+  const claudeHome = join(makeRoot(), 'missing-claude-home');
   createPackage(root, '5.8.0');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
@@ -4871,7 +4885,16 @@ test('version check reports matching source versions and Codex cache versions', 
 
   const result = runScript(
     'check-plugin-version.mjs',
-    ['--root', root, '--codex-home', codexHome, '--strict-installed', pluginName],
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--strict-installed',
+      pluginName,
+    ],
     {
       env: { ...process.env, PATH: '' },
     },
@@ -4884,19 +4907,29 @@ test('version check reports matching source versions and Codex cache versions', 
   assert.match(result.stdout, /claude plugin: 0\.1\.2/);
   assert.match(result.stdout, /codex cache versions: 0\.1\.1, 0\.1\.2/);
   assert.match(result.stdout, /codex cache expected version: present/);
-  assert.match(result.stdout, /claude: CLI unavailable/);
+  assert.match(result.stdout, /claude: not initialized/);
 });
 
 test('version check emits structured JSON when requested', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
+  const claudeHome = join(makeRoot(), 'missing-claude-home');
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
 
   const result = runScript(
     'check-plugin-version.mjs',
-    ['--root', root, '--codex-home', codexHome, '--json', pluginName],
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--json',
+      pluginName,
+    ],
     {
       env: { ...process.env, PATH: '' },
     },
@@ -4914,8 +4947,248 @@ test('version check emits structured JSON when requested', () => {
   assert.deepEqual(payload.codexCache.versions, ['0.1.1']);
   assert.equal(payload.codexCache.hasExpected, false);
   assert.equal(payload.codexCache.status, 'missing');
-  assert.equal(payload.claude.status, 'cli-unavailable');
+  assert.equal(payload.claude.status, 'not-initialized');
+  assert.equal(payload.claude.cli.status, 'not-initialized');
+  assert.equal(Array.isArray(payload.actions), true);
   assert.equal(payload.versionMismatch, true);
+});
+
+test('version check falls back to Claude metadata when CLI is unavailable', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const claudeHome = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/skills/docs-review/SKILL.md', '# Docs');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath,
+          version: '0.1.2',
+          gitCommitSha: 'abc123',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
+  writeJson(claudeHome, 'settings.json', {
+    enabledPlugins: {
+      'demo-ops@demo-ops': true,
+    },
+  });
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--surface',
+      'claude',
+      '--json',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.claude.status, 'cli-unavailable-metadata-present');
+  assert.equal(payload.claude.cli.status, 'path-missing-with-home');
+  assert.equal(payload.claude.entries[0].usableExpectedInstall, true);
+  assert.equal(payload.claude.entries[0].enabled, true);
+  assert.equal(payload.versionMismatch, false);
+  assert.deepEqual(payload.actions[0].command, [
+    'claude',
+    'plugin',
+    'marketplace',
+    'update',
+    'demo-ops',
+  ]);
+  assert.deepEqual(payload.actions[1].command, [
+    'claude',
+    'plugin',
+    'update',
+    'demo-ops@demo-ops',
+    '--scope',
+    'user',
+  ]);
+});
+
+test('version check reports missing Claude plugin entry even when metadata exists', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const claudeHome = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'other@other': [
+        {
+          scope: 'user',
+          installPath: join(claudeHome, 'plugins/cache/other/other/1.0.0'),
+          version: '1.0.0',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--surface',
+      'claude',
+      '--json',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.claude.status, 'missing');
+  assert.equal(payload.claude.cli.status, 'path-missing-with-home');
+  assert.deepEqual(payload.claude.entries, []);
+  assert.equal(payload.versionMismatch, true);
+  assert.deepEqual(payload.actions[1].command, [
+    'claude',
+    'plugin',
+    'install',
+    'demo-ops@demo-ops',
+    '--scope',
+    'user',
+  ]);
+});
+
+test('version check strict mode fails when Claude metadata points at an empty install path', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const claudeHome = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  mkdirSync(installPath, { recursive: true });
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath,
+          version: '0.1.2',
+          gitCommitSha: 'abc123',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--surface',
+      'claude',
+      '--strict-installed',
+      '--json',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
+
+  assert.equal(result.status, 1);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.claude.entries[0].installPathExists, true);
+  assert.equal(payload.claude.entries[0].installPathHasFiles, false);
+  assert.equal(payload.versionMismatch, true);
+});
+
+test('version check emits well-formed Claude action entries', () => {
+  const root = makeRoot();
+  const codexHome = makeRoot();
+  const claudeHome = makeRoot();
+  createPackage(root, '0.1.2');
+  const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {},
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
+
+  const result = runScript(
+    'check-plugin-version.mjs',
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      claudeHome,
+      '--surface',
+      'claude',
+      '--json',
+      pluginName,
+    ],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.deepEqual(payload.actions[0], {
+    surface: 'claude',
+    kind: 'command',
+    command: ['claude', 'plugin', 'marketplace', 'update', 'demo-ops'],
+    reason: 'refresh-claude-marketplace',
+    requiresCli: 'claude',
+  });
 });
 
 test('plugin state probe reports Claude home without CLI and missing requested plugin', async () => {
@@ -5312,21 +5585,30 @@ exit 23
 test('version check --surface claude skips Codex cache installed-state checks', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
-  const fakeBin = makeRoot();
-  const commandLog = join(fakeBin, 'commands.log');
+  const claudeHome = makeRoot();
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache only');
-  writeExecutable(
-    fakeBin,
-    'claude',
-    `#!/bin/sh
-printf 'claude %s\\n' "$*" >> "${commandLog}"
-if [ "$1" = "plugin" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
-  printf '[{"id":"demo-ops@demo-ops","version":"0.1.2"}]\\n'
-fi
-`,
-  );
+  const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath,
+          version: '0.1.2',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: join(claudeHome, 'plugins/marketplaces/demo-ops'),
+    },
+  });
 
   const result = runScript(
     'check-plugin-version.mjs',
@@ -5335,6 +5617,8 @@ fi
       root,
       '--codex-home',
       codexHome,
+      '--claude-home',
+      claudeHome,
       '--surface',
       'claude',
       '--strict-installed',
@@ -5342,16 +5626,15 @@ fi
       pluginName,
     ],
     {
-      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+      env: { ...process.env, PATH: '' },
     },
   );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.codexCache.status, 'skipped');
-  assert.equal(payload.claude.status, 'present');
+  assert.equal(payload.claude.status, 'cli-unavailable-metadata-present');
   assert.equal(payload.versionMismatch, false);
-  assert.match(readFileSync(commandLog, 'utf8'), /claude plugin list --json/);
 });
 
 test('version check --surface source skips installed-state checks', () => {
@@ -5378,6 +5661,8 @@ exit 23
       root,
       '--codex-home',
       codexHome,
+      '--claude-home',
+      join(makeRoot(), 'missing-claude-home'),
       '--surface',
       'source',
       '--strict-installed',
@@ -5416,7 +5701,17 @@ exit 23
 
   const result = runScript(
     'check-plugin-version.mjs',
-    ['--root', root, '--codex-home', codexHome, '--surface', 'source', pluginName],
+    [
+      '--root',
+      root,
+      '--codex-home',
+      codexHome,
+      '--claude-home',
+      join(makeRoot(), 'missing-claude-home'),
+      '--surface',
+      'source',
+      pluginName,
+    ],
     {
       env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
     },
@@ -5435,9 +5730,13 @@ test('version check fails when source versions differ', () => {
   createPackage(root, '0.1.2', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.1' });
 
-  const result = runScript('check-plugin-version.mjs', ['--root', root, pluginName], {
-    env: { ...process.env, PATH: '' },
-  });
+  const result = runScript(
+    'check-plugin-version.mjs',
+    ['--root', root, '--claude-home', join(makeRoot(), 'missing-claude-home'), pluginName],
+    {
+      env: { ...process.env, PATH: '' },
+    },
+  );
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /source versions differ/);
@@ -5452,7 +5751,16 @@ test('version check includes scoped package versions by default', () => {
 
   const result = runScript(
     'check-plugin-version.mjs',
-    ['--root', root, '--surface', 'source', '--json', pluginName],
+    [
+      '--root',
+      root,
+      '--claude-home',
+      join(makeRoot(), 'missing-claude-home'),
+      '--surface',
+      'source',
+      '--json',
+      pluginName,
+    ],
     {
       env: { ...process.env, PATH: '' },
     },
@@ -5473,7 +5781,17 @@ test('version check can force or skip package version alignment', () => {
 
   const skipped = runScript(
     'check-plugin-version.mjs',
-    ['--root', root, '--surface', 'source', '--json', '--no-include-package', pluginName],
+    [
+      '--root',
+      root,
+      '--claude-home',
+      join(makeRoot(), 'missing-claude-home'),
+      '--surface',
+      'source',
+      '--json',
+      '--no-include-package',
+      pluginName,
+    ],
     {
       env: { ...process.env, PATH: '' },
     },
@@ -5487,7 +5805,16 @@ test('version check can force or skip package version alignment', () => {
 
   const forced = runScript(
     'check-plugin-version.mjs',
-    ['--root', root, '--surface', 'source', '--include-package', pluginName],
+    [
+      '--root',
+      root,
+      '--claude-home',
+      join(makeRoot(), 'missing-claude-home'),
+      '--surface',
+      'source',
+      '--include-package',
+      pluginName,
+    ],
     {
       env: { ...process.env, PATH: '' },
     },
