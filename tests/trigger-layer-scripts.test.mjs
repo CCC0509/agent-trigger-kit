@@ -31,6 +31,7 @@ import {
   normalizeGeneratedManifest,
   upsertGeneratedPluginEntry,
 } from '../scripts/lib/generated-manifest.mjs';
+import { PLAYBOOK_FIRST_GUIDANCE } from '../scripts/lib/playbook-first-guidance.mjs';
 import { writeTriggerLayer } from '../scripts/lib/trigger-layer.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -344,6 +345,34 @@ ${body}
 ## Must Read
 
 - \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+  );
+}
+
+function writeGuidedSkill(root, pluginDir, task = 'docs-review', options = {}) {
+  const description =
+    options.description ?? 'Use for docs review work. Project playbook is source of truth.';
+  const guidance =
+    options.guidance ??
+    'For tasks covered by this project trigger layer, the project playbook is the source of truth; generic helper guidance should align with it, not override it.';
+  write(
+    root,
+    `${pluginDir}/skills/${task}/SKILL.md`,
+    `---
+name: ${task}
+description: ${description}
+---
+
+# ${task}
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+
+## Checklist
+
+- ${guidance}
+- Maintenance contract: \`../../../../.agent-trigger-kit/MAINTENANCE.md\`
 `,
   );
 }
@@ -4151,6 +4180,171 @@ test('validator accepts a generated command without a maintenance contract point
   writeJson(root, '.agent-trigger-kit/generated.json', {
     schemaVersion: 1,
     files: [{ kind: 'command', path: `${pluginDir}/commands/docs-review.md` }],
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator accepts old generated manifests without playbook-first flag', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root, { commands: false });
+  const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  writeManagedSkill(root, pluginDir);
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [{ kind: 'skill', path: skillPath }],
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator fails flagged generated skill missing playbook-first description signal', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root, { commands: false });
+  const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  writeGuidedSkill(root, pluginDir, 'docs-review', { description: 'Use for docs review work.' });
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      playbookFirstGuidance: { version: PLAYBOOK_FIRST_GUIDANCE.version },
+      tasks: ['docs-review'],
+      files: [{ kind: 'skill', path: skillPath }],
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(result.stderr, /demo-ops/);
+  assert.match(result.stderr, /missing playbook-first description signal/);
+  assert.match(
+    result.stderr,
+    /restore the managed wrapper, manually add the missing playbook-first signal\/guidance, or remove the plugin playbookFirstGuidance flag to opt out/,
+  );
+});
+
+test('validator fails flagged generated skill missing playbook-first checklist guidance', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root, { commands: false });
+  const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  writeGuidedSkill(root, pluginDir, 'docs-review', {
+    guidance: 'Use the project playbook before generic helper guidance.',
+  });
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      playbookFirstGuidance: { version: PLAYBOOK_FIRST_GUIDANCE.version },
+      tasks: ['docs-review'],
+      files: [{ kind: 'skill', path: skillPath }],
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(result.stderr, /demo-ops/);
+  assert.match(result.stderr, /missing playbook-first checklist guidance/);
+  assert.match(
+    result.stderr,
+    /restore the managed wrapper, manually add the missing playbook-first signal\/guidance, or remove the plugin playbookFirstGuidance flag to opt out/,
+  );
+});
+
+test('validator does not duplicate missing frontmatter diagnostics for flagged generated skills', () => {
+  const root = makeRoot();
+  const { pluginDir } = createMinimalPlugin(root, { commands: false });
+  const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  write(
+    root,
+    skillPath,
+    `# Docs Review
+
+Maintenance contract: \`../../../../.agent-trigger-kit/MAINTENANCE.md\`
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      playbookFirstGuidance: { version: PLAYBOOK_FIRST_GUIDANCE.version },
+      tasks: ['docs-review'],
+      files: [{ kind: 'skill', path: skillPath }],
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal((result.stderr.match(/missing frontmatter/g) || []).length, 1);
+});
+
+test('validator checks playbook-first guidance only for flagged plugins', () => {
+  const root = makeRoot();
+  const [flagged, unflagged] = createMinimalPlugins(root, ['demo-ops', 'other-ops']);
+  mkdirSync(join(root, `${flagged.pluginDir}/commands`), { recursive: true });
+  mkdirSync(join(root, `${unflagged.pluginDir}/commands`), { recursive: true });
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
+  writeGuidedSkill(root, flagged.pluginDir);
+  write(
+    root,
+    `${unflagged.pluginDir}/skills/ops-review/SKILL.md`,
+    `---
+name: ops-review
+description: Use for ops review work.
+---
+
+# Ops Review
+
+Maintenance contract: \`some/contract.md\`
+
+## Must Read
+
+- \`../../../../docs/agent-playbooks/demo-ops.md\`
+`,
+  );
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      playbookFirstGuidance: { version: PLAYBOOK_FIRST_GUIDANCE.version },
+      tasks: ['docs-review'],
+      files: [{ kind: 'skill', path: `${flagged.pluginDir}/skills/docs-review/SKILL.md` }],
+    },
+    'other-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['ops-review'],
+      files: [{ kind: 'skill', path: `${unflagged.pluginDir}/skills/ops-review/SKILL.md` }],
+    },
   });
 
   const result = runScript('validate-trigger-layer.mjs', ['--root', root]);

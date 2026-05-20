@@ -10,6 +10,11 @@ import {
   generatedPluginNames,
   normalizeGeneratedManifest,
 } from './lib/generated-manifest.mjs';
+import {
+  PLAYBOOK_FIRST_GUIDANCE,
+  hasPlaybookFirstGuidance,
+  hasPlaybookFirstSignal,
+} from './lib/playbook-first-guidance.mjs';
 
 const args = parseArgs(process.argv.slice(2), { booleanKeys: ['require-version-bump'] });
 const root = normalize(args.root || process.cwd());
@@ -83,6 +88,10 @@ function parseFrontmatter(path, text = read(path)) {
     return null;
   }
   return match[1];
+}
+
+function frontmatterText(text) {
+  return text.match(/^---\n([\s\S]*?)\n---/)?.[1] || null;
 }
 
 function frontmatterValue(frontmatter, key) {
@@ -333,6 +342,40 @@ function validateMaintenanceContractPointers() {
       if (!existsSync(pathOf(entry.path))) continue;
       if (!/Maintenance contract:\s*`[^`]+`/.test(read(entry.path))) {
         fail(`${entry.path}: missing maintenance contract pointer`);
+      }
+    }
+  }
+}
+
+function validatePlaybookFirstGuidance() {
+  const generatedPath = '.agent-trigger-kit/generated.json';
+  if (!existsSync(pathOf(generatedPath))) return;
+
+  const generated = parseJson(generatedPath);
+  if (!generated) return;
+
+  const remediation =
+    'restore the managed wrapper, manually add the missing playbook-first signal/guidance, or remove the plugin playbookFirstGuidance flag to opt out';
+  const normalized = normalizeGeneratedManifest(generated);
+  for (const [pluginName, plugin] of Object.entries(normalized.plugins)) {
+    if (plugin.playbookFirstGuidance?.version !== PLAYBOOK_FIRST_GUIDANCE.version) continue;
+
+    for (const entry of plugin.files || []) {
+      if (entry?.kind !== 'skill' || typeof entry.path !== 'string') continue;
+      if (!existsSync(pathOf(entry.path))) continue;
+
+      const text = read(entry.path);
+      const frontmatter = frontmatterText(text);
+      const description = frontmatterValue(frontmatter, 'description') || '';
+      if (!hasPlaybookFirstSignal(description)) {
+        fail(
+          `${entry.path} (${pluginName}): missing playbook-first description signal; ${remediation}`,
+        );
+      }
+      if (!hasPlaybookFirstGuidance(text)) {
+        fail(
+          `${entry.path} (${pluginName}): missing playbook-first checklist guidance; ${remediation}`,
+        );
       }
     }
   }
@@ -662,6 +705,7 @@ validateNameCollisions(skillNames, 'skill');
 validateNameCollisions(commandNames, 'command');
 validateCursorRules();
 validateMaintenanceContractPointers();
+validatePlaybookFirstGuidance();
 validateRequiredVersionBump();
 
 if (failures.length > 0) {
