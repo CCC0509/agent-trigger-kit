@@ -215,8 +215,9 @@ if (checkClaude) {
       }
     }
   } else {
-    claudeStatus = probedClaude;
-    actions = probedClaude.actions;
+    const { actions: fallbackActions, ...fallbackStatus } = probedClaude;
+    actions = fallbackActions;
+    claudeStatus = fallbackStatus;
 
     if (probedClaude.status === 'missing' || probedClaude.status === 'parse-error') {
       versionMismatch = true;

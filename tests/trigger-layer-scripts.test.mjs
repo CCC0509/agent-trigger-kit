@@ -5189,6 +5189,7 @@ test('version check emits well-formed Claude action entries', () => {
     reason: 'refresh-claude-marketplace',
     requiresCli: 'claude',
   });
+  assert.equal('actions' in payload.claude, false);
 });
 
 test('plugin state probe reports Claude home without CLI and missing requested plugin', async () => {
