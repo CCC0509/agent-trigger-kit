@@ -18,6 +18,9 @@ latest, stale, needs an update, or whether the kit version is correct.
   `--no-include-package` is passed.
 - Version checks are read-only by default. Do not run sync, update, install, or
   cache repair commands unless the user asks to repair or update.
+- When Claude CLI unavailable appears in a Codex shell, the checkout script can
+  read Claude filesystem metadata read-only. Treat that as a report, not a
+  repair; next steps must be official `claude` CLI commands.
 - Old installed versions cannot know about newly added skills. If this skill is
   unavailable, users must run the manual update commands from README first.
 
@@ -57,13 +60,19 @@ Choose the narrowest scope before running commands:
    Explain that full source version checking requires an Agent Trigger Kit
    checkout because the source manifests and scripts live there.
 
-3. If Codex or Claude installed state is stale, tell the user the update command
-   for the scoped surface:
+3. If Codex installed state is stale, tell the user the update command for the
+   scoped surface:
 
    ```bash
    codex plugin marketplace upgrade agent-trigger-kit
    codex debug prompt-input "test"
+   ```
 
+   If Claude metadata is stale but the `claude` CLI is unavailable in this shell,
+   report the metadata state and give the operator commands to run where Claude
+   Code exposes the CLI:
+
+   ```bash
    claude plugin marketplace update agent-trigger-kit
    claude plugin update agent-trigger-kit@agent-trigger-kit --scope user
    ```

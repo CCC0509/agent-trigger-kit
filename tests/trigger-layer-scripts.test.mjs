@@ -6308,6 +6308,28 @@ test('agent-trigger-kit exposes version-check skill and Claude command', () => {
   assert.match(commandText, /--surface claude/);
 });
 
+test('version and lifecycle skills document provenance-aware Claude fallback', () => {
+  const versionSkill = readFileSync(
+    join(repoRoot, 'plugins/agent-trigger-kit/skills/version-check/SKILL.md'),
+    'utf8',
+  );
+  const lifecycleSkill = readFileSync(
+    join(repoRoot, 'plugins/agent-trigger-kit/skills/claude-plugin-lifecycle/SKILL.md'),
+    'utf8',
+  );
+  const codexSkill = readFileSync(
+    join(repoRoot, 'plugins/agent-trigger-kit/skills/codex-plugin-marketplace/SKILL.md'),
+    'utf8',
+  );
+
+  assert.match(versionSkill, /Claude CLI unavailable/i);
+  assert.match(versionSkill, /filesystem metadata/i);
+  assert.match(versionSkill, /official `claude` CLI/i);
+  assert.match(lifecycleSkill, /Git-sourced marketplace/i);
+  assert.match(lifecycleSkill, /do not copy/i);
+  assert.match(codexSkill, /local Codex marketplace source/i);
+});
+
 test('agent-trigger-kit exposes trigger-layer clean command', () => {
   const commandPath = join(repoRoot, 'plugins/agent-trigger-kit/commands/trigger-layer-clean.md');
 

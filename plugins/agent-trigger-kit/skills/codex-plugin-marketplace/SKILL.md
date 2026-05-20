@@ -22,6 +22,9 @@ and any enabled plugin config. If it is unclear whether the requested plugin is
 the kit itself or a generated project ops plugin, ask one short scope question
 before changing Codex config.
 
+Local cache copy is allowed only for a local Codex marketplace source;
+do not generalize this behavior to Git-sourced Claude Code plugin caches.
+
 ## Manifest Pattern
 
 ```json

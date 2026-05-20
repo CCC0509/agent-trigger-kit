@@ -20,6 +20,18 @@ Claude Code does not auto-discover a generated in-repo
 whether the user is installing the kit itself or a generated project plugin, ask
 one short scope question instead of defaulting blindly.
 
+## Provenance Boundary
+
+Agent Trigger Kit itself is a Git-sourced marketplace in Claude Code. Do not copy
+a local working tree into `~/.claude/plugins/marketplaces/**` or
+`~/.claude/plugins/cache/**` as a default repair. That makes the cache files
+disagree with the marketplace clone's Git `HEAD`.
+
+If `claude` is unavailable in the current shell, inspect filesystem metadata
+read-only and report official commands for a shell where `claude` is available.
+Dirty marketplace clones should be reported by path and dirty file list before
+running update commands.
+
 ## Diagnose
 
 1. Confirm install state:

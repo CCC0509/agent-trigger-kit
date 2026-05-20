@@ -6,6 +6,15 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.9
+
+- Added provenance-aware version reporting for Claude Code when the `claude` CLI
+  is unavailable in the current shell.
+- Kept Claude Code filesystem fallback read-only and limited local cache copying
+  to local Codex marketplace sources.
+- Preserved trigger-layer validation and Codex prompt-input verification in the
+  local agent sync workflow.
+
 ## 0.1.8 - Playbook-First Guidance
 
 - Added playbook-first guidance to generated project trigger-layer skill

@@ -392,7 +392,14 @@ cross-agent. Add `--json` for automation:
 
 ```bash
 npm run ops:plugin-version-check -- --surface codex --json agent-trigger-kit
+npm run ops:plugin-version-check -- --surface claude --claude-home /tmp/claude-home --json agent-trigger-kit
 ```
+
+When `claude` is unavailable in the current shell, `--surface claude` and
+`--surface all` fall back to read-only Claude metadata under `~/.claude`. The
+report names installed entries, cache health warnings, and official commands to
+run from a shell where `claude` is available. Agent Trigger Kit does not copy
+local working tree files into Git-sourced Claude plugin caches.
 
 Use strict installed-state checking when you want stale checked surfaces to fail
 the command:
