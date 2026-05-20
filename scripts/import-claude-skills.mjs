@@ -330,10 +330,7 @@ function preflightGeneratedTargets({
 }) {
   const pluginDir = `plugins/${pluginName}`;
   const targets = includePluginManifests
-    ? [
-        `${pluginDir}/.codex-plugin/plugin.json`,
-        `${pluginDir}/.claude-plugin/plugin.json`,
-      ]
+    ? [`${pluginDir}/.codex-plugin/plugin.json`, `${pluginDir}/.claude-plugin/plugin.json`]
     : [];
 
   for (const task of tasks) {

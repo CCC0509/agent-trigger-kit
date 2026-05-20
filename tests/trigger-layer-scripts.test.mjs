@@ -569,9 +569,7 @@ test('playbook-first guidance helpers append signal idempotently', async () => {
     'Use for docs review work. Project playbook is source of truth.',
   );
   assert.equal(
-    appendPlaybookFirstSignal(
-      'Use for docs review work. Project playbook is source of truth.',
-    ),
+    appendPlaybookFirstSignal('Use for docs review work. Project playbook is source of truth.'),
     'Use for docs review work. Project playbook is source of truth.',
   );
   assert.equal(hasPlaybookFirstSignal('Project playbook is source of truth.'), true);
@@ -899,10 +897,7 @@ Read README changes.
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.deepEqual(generatedPluginEntry(root).playbookFirstGuidance, { version: 1 });
-  const wrapper = readFileSync(
-    join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
-    'utf8',
-  );
+  const wrapper = readFileSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'), 'utf8');
   assert.match(
     wrapper,
     /description: Review docs before release\. Project playbook is source of truth\./,
@@ -1222,7 +1217,10 @@ Deploy body.
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /plugins\/demo-ops\/skills\/deploy-ops\/SKILL\.md already exists/);
-  assert.equal(readFileSync(join(root, '.agent-trigger-kit/generated.json'), 'utf8'), generatedBefore);
+  assert.equal(
+    readFileSync(join(root, '.agent-trigger-kit/generated.json'), 'utf8'),
+    generatedBefore,
+  );
   assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
   assert.equal(existsSync(join(root, '.agent-trigger-kit/MAINTENANCE.md')), false);
 });
@@ -2585,10 +2583,7 @@ test('init emits playbook-first guidance flag and generated skill guidance', () 
   const entry = generatedPluginEntry(root);
   assert.deepEqual(entry.playbookFirstGuidance, { version: 1 });
 
-  const skill = readFileSync(
-    join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
-    'utf8',
-  );
+  const skill = readFileSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'), 'utf8');
   assert.match(
     skill,
     /description: Use for docs review work in this repo\. Project playbook is source of truth\./,
@@ -2619,8 +2614,7 @@ test('init uses task-specific descriptions and appends playbook-first signal', (
     'docs/agent-playbooks/demo-ops.md',
     '--task-descriptions',
     JSON.stringify({
-      'docs-review':
-        'Use for docs, playbooks, todo, done-log, review-log, and docs-only closeout.',
+      'docs-review': 'Use for docs, playbooks, todo, done-log, review-log, and docs-only closeout.',
     }),
   ]);
 
@@ -2629,10 +2623,7 @@ test('init uses task-specific descriptions and appends playbook-first signal', (
     join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
     'utf8',
   );
-  const deployOps = readFileSync(
-    join(root, 'plugins/demo-ops/skills/deploy-ops/SKILL.md'),
-    'utf8',
-  );
+  const deployOps = readFileSync(join(root, 'plugins/demo-ops/skills/deploy-ops/SKILL.md'), 'utf8');
 
   assert.match(
     docsReview,
@@ -3419,10 +3410,7 @@ test('writeTriggerLayer omits playbook-first guidance by default', () => {
   const entry = generatedPluginEntry(root);
   assert.equal(Object.hasOwn(entry, 'playbookFirstGuidance'), false);
 
-  const skill = readFileSync(
-    join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
-    'utf8',
-  );
+  const skill = readFileSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'), 'utf8');
   assert.doesNotMatch(skill, /Project playbook is source of truth\./);
   assert.doesNotMatch(
     skill,

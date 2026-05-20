@@ -15,7 +15,9 @@ export function hasPlaybookFirstGuidance(text) {
 }
 
 export function appendPlaybookFirstSignal(description) {
-  const text = String(description ?? '').replace(/\r\n?/g, '\n').trim();
+  const text = String(description ?? '')
+    .replace(/\r\n?/g, '\n')
+    .trim();
   if (!text) return PLAYBOOK_FIRST_GUIDANCE.signal;
   if (hasPlaybookFirstSignal(text)) return text;
   return `${text} ${PLAYBOOK_FIRST_GUIDANCE.signal}`;

@@ -44,7 +44,7 @@ cleanup.
 8. Add or update a validator that checks all trigger surfaces.
 9. Document install scope, verification, cleanup, and fallback behavior in pointer docs.
 10. When tasks are removed, run a clean dry-run for the project and plugin before
-   applying orphan cleanup.
+    applying orphan cleanup.
 
 ## Required Checks
 

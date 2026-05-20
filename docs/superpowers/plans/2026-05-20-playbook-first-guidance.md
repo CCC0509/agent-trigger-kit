@@ -50,6 +50,7 @@
 ### Task 1: Add Guidance Helpers And Manifest Persistence
 
 **Files:**
+
 - Create: `scripts/lib/playbook-first-guidance.mjs`
 - Modify: `scripts/lib/generated-manifest.mjs`
 - Test: `tests/trigger-layer-scripts.test.mjs`
@@ -72,9 +73,7 @@ test('playbook-first guidance helpers append signal idempotently', async () => {
     'Use for docs review work. Project playbook is source of truth.',
   );
   assert.equal(
-    appendPlaybookFirstSignal(
-      'Use for docs review work. Project playbook is source of truth.',
-    ),
+    appendPlaybookFirstSignal('Use for docs review work. Project playbook is source of truth.'),
     'Use for docs review work. Project playbook is source of truth.',
   );
   assert.equal(hasPlaybookFirstSignal('Project playbook is source of truth.'), true);
@@ -160,7 +159,9 @@ export function hasPlaybookFirstGuidance(text) {
 }
 
 export function appendPlaybookFirstSignal(description) {
-  const text = String(description ?? '').replace(/\r\n?/g, '\n').trim();
+  const text = String(description ?? '')
+    .replace(/\r\n?/g, '\n')
+    .trim();
   if (!text) return PLAYBOOK_FIRST_GUIDANCE.signal;
   if (hasPlaybookFirstSignal(text)) return text;
   return `${text} ${PLAYBOOK_FIRST_GUIDANCE.signal}`;
@@ -231,6 +232,7 @@ Expected: commit succeeds.
 ### Task 2: Thread Guidance Through The Generator And Skill Template
 
 **Files:**
+
 - Modify: `scripts/lib/trigger-layer.mjs`
 - Modify: `templates/project-trigger-layer/skill/SKILL.md.template`
 - Test: `tests/trigger-layer-scripts.test.mjs`
@@ -260,11 +262,11 @@ test('init emits playbook-first guidance flag and generated skill guidance', () 
   const entry = generatedPluginEntry(root);
   assert.deepEqual(entry.playbookFirstGuidance, { version: 1 });
 
-  const skill = readFileSync(
-    join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
-    'utf8',
+  const skill = readFileSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'), 'utf8');
+  assert.match(
+    skill,
+    /description: Use for docs review work in this repo\. Project playbook is source of truth\./,
   );
-  assert.match(skill, /description: Use for docs review work in this repo\. Project playbook is source of truth\./);
   assert.match(
     skill,
     /For tasks covered by this project trigger layer, the project playbook is the source of truth; generic helper guidance should align with it, not override it\./,
@@ -296,6 +298,7 @@ Modify `templates/project-trigger-layer/skill/SKILL.md.template` checklist:
 ## Checklist
 
 {{playbookFirstGuidanceChecklistItem}}- State the matched playbook before acting.
+
 - Maintenance contract: `{{maintenanceContract}}`
 - Keep this wrapper short; do not copy long SOP bodies here.
 - Run the project trigger-layer validator when editing trigger surfaces.
@@ -308,10 +311,7 @@ The placeholder value will include its own trailing newline when guidance is ena
 Add this import near the other imports in `scripts/lib/trigger-layer.mjs`:
 
 ```js
-import {
-  PLAYBOOK_FIRST_GUIDANCE,
-  appendPlaybookFirstSignal,
-} from './playbook-first-guidance.mjs';
+import { PLAYBOOK_FIRST_GUIDANCE, appendPlaybookFirstSignal } from './playbook-first-guidance.mjs';
 ```
 
 - [ ] **Step 5: Add the context option**
@@ -333,18 +333,18 @@ playbookFirstGuidance,
 Replace `writePlaybookPlaceholderFile()` content construction with a local `guidanceSection`:
 
 ```js
-  function writePlaybookPlaceholderFile() {
-    const taskList = tasks.map((task) => `- ${task}`).join('\n');
-    const guidanceSection = playbookFirstGuidance
-      ? `
+function writePlaybookPlaceholderFile() {
+  const taskList = tasks.map((task) => `- ${task}`).join('\n');
+  const guidanceSection = playbookFirstGuidance
+    ? `
 ## ${PLAYBOOK_FIRST_GUIDANCE.heading}
 
 ${PLAYBOOK_FIRST_GUIDANCE.guidance}
 `
-      : '';
-    writeIfMissing(
-      playbook,
-      `# ${titleize(pluginName)} Playbook
+    : '';
+  writeIfMissing(
+    playbook,
+    `# ${titleize(pluginName)} Playbook
 
 This is the canonical playbook for the ${pluginName} trigger layer.
 ${guidanceSection}
@@ -356,8 +356,8 @@ Keep project operating rules here. Codex skills, Claude commands, Cursor rules, 
 
 Maintenance contract: \`${markdownRelativePath(dirname(playbook), DEFAULT_MAINTENANCE_CONTRACT)}\`
 `,
-    );
-  }
+  );
+}
 ```
 
 - [ ] **Step 7: Render new-file maintenance guidance**
@@ -365,9 +365,9 @@ Maintenance contract: \`${markdownRelativePath(dirname(playbook), DEFAULT_MAINTE
 Inside `writeMaintenanceContract()`, add:
 
 ```js
-    const guidanceLine = playbookFirstGuidance
-      ? '- Treat third-party plugin or global config changes as explicit fixes, not the default response to trigger collisions.\n'
-      : '';
+const guidanceLine = playbookFirstGuidance
+  ? '- Treat third-party plugin or global config changes as explicit fixes, not the default response to trigger collisions.\n'
+  : '';
 ```
 
 Then include `${guidanceLine}` before the validator line:
@@ -381,19 +381,19 @@ ${guidanceLine}- Run the project trigger-layer validator after editing trigger s
 In `writeTaskWrappers()`, replace description calculation and add a template value:
 
 ```js
-      const baseDescription = taskDescriptions.get(task) || taskDescriptionFor(task);
-      const description = renderFrontmatterDescription(
-        playbookFirstGuidance ? appendPlaybookFirstSignal(baseDescription) : baseDescription,
-      );
-      const values = {
-        taskName: task,
-        taskTitle: title,
-        description,
-        pluginName,
-        playbookFirstGuidanceChecklistItem: playbookFirstGuidance
-          ? `- ${PLAYBOOK_FIRST_GUIDANCE.guidance}\n`
-          : '',
-      };
+const baseDescription = taskDescriptions.get(task) || taskDescriptionFor(task);
+const description = renderFrontmatterDescription(
+  playbookFirstGuidance ? appendPlaybookFirstSignal(baseDescription) : baseDescription,
+);
+const values = {
+  taskName: task,
+  taskTitle: title,
+  description,
+  pluginName,
+  playbookFirstGuidanceChecklistItem: playbookFirstGuidance
+    ? `- ${PLAYBOOK_FIRST_GUIDANCE.guidance}\n`
+    : '',
+};
 ```
 
 This value must be passed to the skill template. It is harmless for command and Cursor templates because they do not reference it.
@@ -461,6 +461,7 @@ Expected: commit succeeds.
 ### Task 3: Add `--task-descriptions` To Init
 
 **Files:**
+
 - Modify: `scripts/init-project-trigger-layer.mjs`
 - Test: `tests/trigger-layer-scripts.test.mjs`
 
@@ -482,8 +483,7 @@ test('init uses task-specific descriptions and appends playbook-first signal', (
     'docs/agent-playbooks/demo-ops.md',
     '--task-descriptions',
     JSON.stringify({
-      'docs-review':
-        'Use for docs, playbooks, todo, done-log, review-log, and docs-only closeout.',
+      'docs-review': 'Use for docs, playbooks, todo, done-log, review-log, and docs-only closeout.',
     }),
   ]);
 
@@ -492,10 +492,7 @@ test('init uses task-specific descriptions and appends playbook-first signal', (
     join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
     'utf8',
   );
-  const deployOps = readFileSync(
-    join(root, 'plugins/demo-ops/skills/deploy-ops/SKILL.md'),
-    'utf8',
-  );
+  const deployOps = readFileSync(join(root, 'plugins/demo-ops/skills/deploy-ops/SKILL.md'), 'utf8');
 
   assert.match(
     docsReview,
@@ -677,6 +674,7 @@ Expected: commit succeeds.
 ### Task 4: Implement Conservative Import Guidance Behavior
 
 **Files:**
+
 - Modify: `scripts/import-claude-skills.mjs`
 - Test: `tests/trigger-layer-scripts.test.mjs`
 
@@ -714,10 +712,7 @@ Read README changes.
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.deepEqual(generatedPluginEntry(root).playbookFirstGuidance, { version: 1 });
-  const wrapper = readFileSync(
-    join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
-    'utf8',
-  );
+  const wrapper = readFileSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'), 'utf8');
   assert.match(
     wrapper,
     /description: Review docs before release\. Project playbook is source of truth\./,
@@ -879,7 +874,7 @@ Maintenance contract: \`${maintenanceRef}\`
 In `main()`, after `const pathOf = createPathOf(root);`, compute:
 
 ```js
-  const playbookFirstGuidance = importShouldUsePlaybookFirstGuidance(pathOf, pluginName);
+const playbookFirstGuidance = importShouldUsePlaybookFirstGuidance(pathOf, pluginName);
 ```
 
 Move this line after `pluginName` is available if necessary. Use it in the playbook header:
@@ -930,6 +925,7 @@ Expected: commit succeeds.
 ### Task 5: Add Flag-Gated Validator Checks
 
 **Files:**
+
 - Modify: `scripts/validate-trigger-layer.mjs`
 - Test: `tests/trigger-layer-scripts.test.mjs`
 
@@ -939,7 +935,8 @@ Add these tests near the validator tests:
 
 ```js
 function writeGuidedSkill(root, pluginDir, task = 'docs-review', options = {}) {
-  const description = options.description ?? 'Use for docs review work. Project playbook is source of truth.';
+  const description =
+    options.description ?? 'Use for docs review work. Project playbook is source of truth.';
   const guidance =
     options.guidance ??
     'For tasks covered by this project trigger layer, the project playbook is the source of truth; generic helper guidance should align with it, not override it.';
@@ -1203,6 +1200,7 @@ Expected: commit succeeds.
 ### Task 6: Update Docs And Bump Release Versions
 
 **Files:**
+
 - Modify: `README.md`
 - Modify: `plugins/agent-trigger-kit/skills/cross-agent-trigger-layer/SKILL.md`
 - Modify: `CHANGELOG.md`
@@ -1245,7 +1243,7 @@ Expected if the test was added before docs: FAIL because README is not updated y
 
 In `README.md`, under "Use In A Project", add a short section after the basic `init` example:
 
-```markdown
+````markdown
 Generated skills include playbook-first guidance: for tasks covered by the
 project trigger layer, the project playbook is the source of truth and generic
 helper guidance should align with it instead of overriding it. This signal is
@@ -1263,9 +1261,11 @@ npx --yes github:CCC0509/agent-trigger-kit init \
   --playbook docs/agent-playbooks/<project>-ops.md \
   --task-descriptions '{"docs-review":"Use for docs, playbooks, todo, done-log, review-log, and docs-only closeout."}'
 ```
+````
 
 Add one sentence after the example noting that task descriptions with punctuation are rendered as quoted frontmatter strings in generated `SKILL.md` files; that is expected and keeps the YAML valid.
-```
+
+````
 
 Ensure the nested fenced block is valid Markdown by using a different fence length if needed.
 
@@ -1277,7 +1277,7 @@ In `plugins/agent-trigger-kit/skills/cross-agent-trigger-layer/SKILL.md`, add un
 - Generated project skills carry playbook-first guidance: for covered tasks,
   the project playbook is the source of truth and generic helper guidance should
   align with it rather than override it.
-```
+````
 
 Add under "Build Order" after creating wrappers:
 
@@ -1359,6 +1359,7 @@ Expected: commit succeeds.
 ### Task 7: Final Verification
 
 **Files:**
+
 - Verify all modified files.
 
 - [ ] **Step 1: Run formatting check**

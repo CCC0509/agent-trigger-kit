@@ -8,10 +8,7 @@ import {
   generatedPluginNames,
   upsertGeneratedPluginEntry,
 } from './generated-manifest.mjs';
-import {
-  appendPlaybookFirstSignal,
-  PLAYBOOK_FIRST_GUIDANCE,
-} from './playbook-first-guidance.mjs';
+import { appendPlaybookFirstSignal, PLAYBOOK_FIRST_GUIDANCE } from './playbook-first-guidance.mjs';
 
 export const DEFAULT_MAINTENANCE_CONTRACT = '.agent-trigger-kit/MAINTENANCE.md';
 export const TEMPLATE_VERSION = 1;
@@ -331,10 +328,7 @@ ${taskList}`,
       'Keep project operating rules here. Codex skills, Claude commands, Cursor rules, and pointer docs should stay thin references to this file.',
       `Maintenance contract: \`${markdownRelativePath(dirname(playbook), DEFAULT_MAINTENANCE_CONTRACT)}\``,
     );
-    writeIfMissing(
-      playbook,
-      sections.join('\n\n'),
-    );
+    writeIfMissing(playbook, sections.join('\n\n'));
   }
 
   function writeMaintenanceContract() {
