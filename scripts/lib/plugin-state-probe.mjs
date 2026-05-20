@@ -48,8 +48,9 @@ function directoryHasFiles(path) {
 function commandStatus(command, envPath, homeExists) {
   const path = resolveCommand(command, envPath);
   if (path) return { status: 'available', path };
+  if (!homeExists) return { status: 'not-initialized', path: null };
   return {
-    status: homeExists ? 'path-missing-with-home' : 'path-missing',
+    status: 'path-missing-with-home',
     path: null,
   };
 }
@@ -58,11 +59,23 @@ function gitOutput(cwd, args) {
   const result = spawnSync('git', args, {
     cwd,
     encoding: 'utf8',
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
   });
   if (result.error || result.status !== 0) {
     return { ok: false, error: result.error?.message || result.stderr.trim() || 'git failed' };
   }
   return { ok: true, stdout: result.stdout };
+}
+
+function formatNameStatus(stdout, prefix) {
+  return stdout
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map((line) => {
+      const [status, ...pathParts] = line.split('\t');
+      return `${prefix}${status[0]} ${pathParts.join('\t')}`;
+    });
 }
 
 function probeMarketplace({ claudeHome, marketplaceName, installedEntries }) {
@@ -73,11 +86,14 @@ function probeMarketplace({ claudeHome, marketplaceName, installedEntries }) {
       status: 'missing',
       known: false,
       marketplaceName,
-      warnings: [],
+      warnings: ['marketplace-missing'],
     };
   }
 
   const installLocation = record.installLocation || null;
+  const installedShas = installedEntries
+    .map((entry) => entry.gitCommitSha)
+    .filter((sha) => typeof sha === 'string' && sha.length > 0);
   const marketplace = {
     status: 'present',
     known: true,
@@ -87,7 +103,8 @@ function probeMarketplace({ claudeHome, marketplaceName, installedEntries }) {
     lastUpdated: record.lastUpdated || null,
     headSha: null,
     dirtyFiles: [],
-    installedSha: installedEntries.find((entry) => entry.gitCommitSha)?.gitCommitSha || null,
+    installedSha: installedShas[0] || null,
+    installedShas,
     headDiffersFromInstalledSha: false,
     warnings: [],
   };
@@ -99,23 +116,26 @@ function probeMarketplace({ claudeHome, marketplaceName, installedEntries }) {
   }
 
   const head = gitOutput(installLocation, ['rev-parse', 'HEAD']);
-  const dirty = gitOutput(installLocation, ['status', '--short']);
-  if (!head.ok || !dirty.ok) {
+  const unstaged = gitOutput(installLocation, ['diff', '--name-status', '--no-renames']);
+  const staged = gitOutput(installLocation, ['diff', '--cached', '--name-status', '--no-renames']);
+  if (!head.ok || !unstaged.ok || !staged.ok) {
     marketplace.status = 'git-state-unavailable';
     marketplace.warnings.push('git-state-unavailable');
     return marketplace;
   }
 
   marketplace.headSha = head.stdout.trim();
-  marketplace.dirtyFiles = dirty.stdout
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .filter(Boolean);
+  marketplace.dirtyFiles = [
+    ...formatNameStatus(unstaged.stdout, ' '),
+    ...formatNameStatus(staged.stdout, ''),
+  ];
   if (marketplace.dirtyFiles.length > 0) {
     marketplace.warnings.push('dirty-clone');
   }
   marketplace.headDiffersFromInstalledSha = Boolean(
-    marketplace.installedSha && marketplace.headSha && marketplace.installedSha !== marketplace.headSha,
+    marketplace.installedShas.length > 0 &&
+      marketplace.headSha &&
+      !marketplace.installedShas.includes(marketplace.headSha),
   );
   if (marketplace.headDiffersFromInstalledSha) {
     marketplace.warnings.push('head-differs-from-installed-sha');
