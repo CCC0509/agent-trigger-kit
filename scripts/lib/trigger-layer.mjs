@@ -80,6 +80,7 @@ function createWriteContext(options) {
   const taskDescriptions = options.taskDescriptions || new Map();
   const writePlaybookPlaceholder = options.writePlaybookPlaceholder ?? true;
   const playbookFirstGuidance = Boolean(options.playbookFirstGuidance);
+  const preserveExistingPluginManifests = Boolean(options.preserveExistingPluginManifests);
   const generatedFiles = [];
   const previousGeneratedManifest = readJsonFileIfExists(
     pathOf('.agent-trigger-kit/generated.json'),
@@ -163,6 +164,21 @@ function createWriteContext(options) {
       path,
       kind,
       sha256: sha256(path),
+    });
+  }
+
+  function trackPreservedGeneratedFile(path, kind) {
+    const previousGeneratedEntry = generatedPluginEntry(previousGeneratedManifest, pluginName);
+    const previousEntry = previousGeneratedEntry?.files?.find((file) => file.path === path);
+    if (!previousEntry || previousEntry.kind !== kind) return;
+
+    const currentSha256 = sha256(path);
+    if (currentSha256 !== previousEntry.sha256) return;
+
+    generatedFiles.push({
+      path,
+      kind,
+      sha256: currentSha256,
     });
   }
 
@@ -341,37 +357,50 @@ ${playbookFirstGuidance ? '- Treat third-party plugin or global config changes a
   }
 
   function writePluginManifests() {
-    writeJson(
-      `${pluginDir}/.codex-plugin/plugin.json`,
-      {
-        name: pluginName,
-        version: pluginVersion,
-        description: `${titleize(pluginName)} trigger skills for Codex and compatible skill loaders`,
-        author: { name: titleize(pluginName) },
-        skills: './skills/',
-        interface: {
-          displayName: pluginName,
-          shortDescription: `${titleize(pluginName)} playbook trigger skills`,
-          longDescription: `Thin trigger skills that route ${pluginName} tasks to the canonical playbook.`,
-          developerName: titleize(pluginName),
-          category: 'Development',
-        },
-      },
-      'plugin-manifest',
-    );
+    const codexPluginPath = `${pluginDir}/.codex-plugin/plugin.json`;
+    const claudePluginPath = `${pluginDir}/.claude-plugin/plugin.json`;
 
-    writeJson(
-      `${pluginDir}/.claude-plugin/plugin.json`,
-      {
-        name: pluginName,
-        version: pluginVersion,
-        description: `${titleize(pluginName)} trigger skills for Claude-compatible skill loaders`,
-        author: { name: titleize(pluginName) },
-        skills: ['./skills/'],
-        commands: ['./commands/'],
-      },
-      'plugin-manifest',
-    );
+    if (preserveExistingPluginManifests && existsSync(pathOf(codexPluginPath))) {
+      trackPreservedGeneratedFile(codexPluginPath, 'plugin-manifest');
+      console.log(`kept ${codexPluginPath}`);
+    } else {
+      writeJson(
+        codexPluginPath,
+        {
+          name: pluginName,
+          version: pluginVersion,
+          description: `${titleize(pluginName)} trigger skills for Codex and compatible skill loaders`,
+          author: { name: titleize(pluginName) },
+          skills: './skills/',
+          interface: {
+            displayName: pluginName,
+            shortDescription: `${titleize(pluginName)} playbook trigger skills`,
+            longDescription: `Thin trigger skills that route ${pluginName} tasks to the canonical playbook.`,
+            developerName: titleize(pluginName),
+            category: 'Development',
+          },
+        },
+        'plugin-manifest',
+      );
+    }
+
+    if (preserveExistingPluginManifests && existsSync(pathOf(claudePluginPath))) {
+      trackPreservedGeneratedFile(claudePluginPath, 'plugin-manifest');
+      console.log(`kept ${claudePluginPath}`);
+    } else {
+      writeJson(
+        claudePluginPath,
+        {
+          name: pluginName,
+          version: pluginVersion,
+          description: `${titleize(pluginName)} trigger skills for Claude-compatible skill loaders`,
+          author: { name: titleize(pluginName) },
+          skills: ['./skills/'],
+          commands: ['./commands/'],
+        },
+        'plugin-manifest',
+      );
+    }
   }
 
   function writeTaskWrappers() {
@@ -471,6 +500,7 @@ ${playbookFirstGuidance ? '- Treat third-party plugin or global config changes a
     taskDescriptions,
     writePlaybookPlaceholder,
     playbookFirstGuidance,
+    preserveExistingPluginManifests,
     generatedFiles,
     previousGeneratedManifest,
     generatedTargets,

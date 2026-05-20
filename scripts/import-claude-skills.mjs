@@ -12,7 +12,9 @@ import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:pa
 import { fileURLToPath } from 'node:url';
 
 import { parseArgs, requiredArg } from './lib/args.mjs';
-import { createPathOf } from './lib/fs-json.mjs';
+import { createPathOf, readJsonFileIfExists } from './lib/fs-json.mjs';
+import { generatedPluginEntry } from './lib/generated-manifest.mjs';
+import { PLAYBOOK_FIRST_GUIDANCE } from './lib/playbook-first-guidance.mjs';
 import { markdownRelativePath, titleize, writeTriggerLayer } from './lib/trigger-layer.mjs';
 
 const CLAUDE_ONLY_TOOL_NAMES = ['Task', 'TodoWrite'];
@@ -287,23 +289,52 @@ function parseCommaList(value, options = {}) {
   return items.filter(Boolean);
 }
 
-function playbookHeader(pluginName, maintenanceRef) {
-  return `# ${titleize(pluginName)} Playbook
+function playbookHeader(pluginName, maintenanceRef, playbookFirstGuidance = false) {
+  const sections = [
+    `# ${titleize(pluginName)} Playbook
 
 This is the canonical playbook for the ${pluginName} trigger layer.
 
 Imported Claude Code skill bodies live in task sections below. Codex skills, Claude commands, Cursor rules, and pointer docs should stay thin references to this file.
 
 Maintenance contract: \`${maintenanceRef}\`
-`;
+`,
+  ];
+  if (playbookFirstGuidance) {
+    sections.push(`## ${PLAYBOOK_FIRST_GUIDANCE.heading}
+
+${PLAYBOOK_FIRST_GUIDANCE.guidance}
+`);
+  }
+  return sections.join('\n');
 }
 
-function preflightGeneratedTargets({ pathOf, pluginName, tasks, cursorGlobs }) {
+function importGeneratedPluginEntry(pathOf, pluginName) {
+  const generated = readJsonFileIfExists(pathOf('.agent-trigger-kit/generated.json'), null);
+  return generatedPluginEntry(generated, pluginName);
+}
+
+function importShouldUsePlaybookFirstGuidance(pathOf, pluginName) {
+  const generated = readJsonFileIfExists(pathOf('.agent-trigger-kit/generated.json'), null);
+  const existingEntry = generatedPluginEntry(generated, pluginName);
+  if (!existingEntry) return true;
+  return existingEntry.playbookFirstGuidance?.version === PLAYBOOK_FIRST_GUIDANCE.version;
+}
+
+function preflightGeneratedTargets({
+  pathOf,
+  pluginName,
+  tasks,
+  cursorGlobs,
+  includePluginManifests = true,
+}) {
   const pluginDir = `plugins/${pluginName}`;
-  const targets = [
-    `${pluginDir}/.codex-plugin/plugin.json`,
-    `${pluginDir}/.claude-plugin/plugin.json`,
-  ];
+  const targets = includePluginManifests
+    ? [
+        `${pluginDir}/.codex-plugin/plugin.json`,
+        `${pluginDir}/.claude-plugin/plugin.json`,
+      ]
+    : [];
 
   for (const task of tasks) {
     targets.push(`${pluginDir}/skills/${task}/SKILL.md`);
@@ -328,6 +359,8 @@ export function main(argv = process.argv.slice(2)) {
   const pathOf = createPathOf(root);
   const source = requiredArg(args, 'source');
   const pluginName = validatePluginName(requiredArg(args, 'plugin'));
+  const existingGeneratedEntry = importGeneratedPluginEntry(pathOf, pluginName);
+  const playbookFirstGuidance = importShouldUsePlaybookFirstGuidance(pathOf, pluginName);
   const playbook = requiredArg(args, 'playbook');
   const selectedSkills = parseCommaList(args.skills, {
     rejectEmpty: args.skills !== undefined,
@@ -369,7 +402,7 @@ export function main(argv = process.argv.slice(2)) {
   );
   let playbookText = existsSync(playbookPath)
     ? readFileSync(playbookPath, 'utf8')
-    : playbookHeader(pluginName, maintenanceRef);
+    : playbookHeader(pluginName, maintenanceRef, playbookFirstGuidance);
 
   for (const item of imported) {
     playbookText = upsertPlaybookSection(playbookText, {
@@ -386,6 +419,7 @@ export function main(argv = process.argv.slice(2)) {
       pluginName,
       tasks: taskNames,
       cursorGlobs,
+      includePluginManifests: !existingGeneratedEntry,
     });
   }
 
@@ -398,6 +432,8 @@ export function main(argv = process.argv.slice(2)) {
     force: Boolean(args.force),
     initialVersion: args['initial-version'] || '0.1.0',
     taskDescriptions: new Map(imported.map((item) => [item.task, item.description])),
+    playbookFirstGuidance,
+    preserveExistingPluginManifests: Boolean(existingGeneratedEntry && !args.force),
     writePlaybookPlaceholder: false,
   });
 

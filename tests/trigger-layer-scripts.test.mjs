@@ -841,6 +841,407 @@ Confirm release state.
   assert.equal(validate.status, 0, validate.stderr || validate.stdout);
 });
 
+test('import-claude-skills creates brand-new guided plugin with preserved description signal', () => {
+  const root = makeRoot();
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(generatedPluginEntry(root).playbookFirstGuidance, { version: 1 });
+  const wrapper = readFileSync(
+    join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
+    'utf8',
+  );
+  assert.match(
+    wrapper,
+    /description: Review docs before release\. Project playbook is source of truth\./,
+  );
+  assert.match(wrapper, /For tasks covered by this project trigger layer/);
+  assert.match(
+    readFileSync(join(root, 'docs/agent-playbooks/demo-ops.md'), 'utf8'),
+    /## Playbook-First Guidance/,
+  );
+});
+
+test('import-claude-skills does not upgrade existing unflagged plugin', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [],
+    },
+  });
+  write(
+    root,
+    '.claude/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use when preparing deployments.
+---
+
+Deploy body.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(generatedPluginEntry(root).playbookFirstGuidance, undefined);
+  assert.doesNotMatch(
+    readFileSync(join(root, 'plugins/demo-ops/skills/deploy-ops/SKILL.md'), 'utf8'),
+    /Project playbook is source of truth/,
+  );
+});
+
+test('import-claude-skills preserves existing custom plugin manifests on non-force import', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [],
+    },
+  });
+  writeJson(root, 'plugins/demo-ops/.codex-plugin/plugin.json', {
+    name: 'demo-ops',
+    version: '0.1.0',
+    description: 'Custom Codex manifest',
+    author: { name: 'Demo Ops' },
+    skills: './skills/',
+    customCodexField: 'preserve me',
+  });
+  writeJson(root, 'plugins/demo-ops/.claude-plugin/plugin.json', {
+    name: 'demo-ops',
+    version: '0.1.0',
+    description: 'Custom Claude manifest',
+    author: { name: 'Demo Ops' },
+    skills: ['./skills/'],
+    commands: ['./commands/'],
+    customClaudeField: 'preserve me too',
+  });
+  write(
+    root,
+    '.claude/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use when preparing deployments.
+---
+
+Deploy body.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(
+    readJson(root, 'plugins/demo-ops/.codex-plugin/plugin.json').customCodexField,
+    'preserve me',
+  );
+  assert.equal(
+    readJson(root, 'plugins/demo-ops/.claude-plugin/plugin.json').customClaudeField,
+    'preserve me too',
+  );
+  assert.equal(generatedPluginEntry(root).playbookFirstGuidance, undefined);
+  assert.match(
+    readFileSync(join(root, 'plugins/demo-ops/skills/deploy-ops/SKILL.md'), 'utf8'),
+    /description: Use when preparing deployments\./,
+  );
+});
+
+test('import-claude-skills retains unchanged tracked plugin manifests when preserving them', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [
+        {
+          kind: 'plugin-manifest',
+          path: 'plugins/demo-ops/.codex-plugin/plugin.json',
+          sha256: sha256(join(root, 'plugins/demo-ops/.codex-plugin/plugin.json')),
+        },
+        {
+          kind: 'plugin-manifest',
+          path: 'plugins/demo-ops/.claude-plugin/plugin.json',
+          sha256: sha256(join(root, 'plugins/demo-ops/.claude-plugin/plugin.json')),
+        },
+      ],
+    },
+  });
+  write(
+    root,
+    '.claude/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use when preparing deployments.
+---
+
+Deploy body.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(
+    generatedFiles(root).some(
+      (file) =>
+        file.kind === 'plugin-manifest' &&
+        file.path === 'plugins/demo-ops/.codex-plugin/plugin.json',
+    ),
+    true,
+  );
+  assert.equal(
+    generatedFiles(root).some(
+      (file) =>
+        file.kind === 'plugin-manifest' &&
+        file.path === 'plugins/demo-ops/.claude-plugin/plugin.json',
+    ),
+    true,
+  );
+
+  write(
+    root,
+    '.claude/skills/release-ops/SKILL.md',
+    `---
+name: release-ops
+description: Use when preparing releases.
+---
+
+Release body.
+`,
+  );
+  const forceResult = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--force',
+  ]);
+
+  assert.equal(forceResult.status, 0, forceResult.stderr || forceResult.stdout);
+});
+
+test('import-claude-skills drops tracked plugin manifests with checksum mismatch when preserving them', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  const codexManifestPath = 'plugins/demo-ops/.codex-plugin/plugin.json';
+  const claudeManifestPath = 'plugins/demo-ops/.claude-plugin/plugin.json';
+  const trackedCodexSha = sha256(join(root, codexManifestPath));
+  const trackedClaudeSha = sha256(join(root, claudeManifestPath));
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [
+        { kind: 'plugin-manifest', path: codexManifestPath, sha256: trackedCodexSha },
+        { kind: 'plugin-manifest', path: claudeManifestPath, sha256: trackedClaudeSha },
+      ],
+    },
+  });
+  writeJson(root, codexManifestPath, {
+    name: 'demo-ops',
+    version: '0.1.0',
+    description: 'Locally edited Codex manifest',
+    author: { name: 'Demo Ops' },
+    skills: './skills/',
+  });
+  write(
+    root,
+    '.claude/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use when preparing deployments.
+---
+
+Deploy body.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(
+    generatedFiles(root).some(
+      (file) =>
+        file.kind === 'plugin-manifest' &&
+        file.path === 'plugins/demo-ops/.codex-plugin/plugin.json',
+    ),
+    false,
+  );
+  assert.equal(
+    generatedFiles(root).some(
+      (file) =>
+        file.kind === 'plugin-manifest' &&
+        file.path === 'plugins/demo-ops/.claude-plugin/plugin.json',
+    ),
+    true,
+  );
+});
+
+test('import-claude-skills failed existing-plugin import leaves generated.json unchanged', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [],
+    },
+  });
+  const generatedBefore = readFileSync(join(root, '.agent-trigger-kit/generated.json'), 'utf8');
+  write(root, 'plugins/demo-ops/skills/deploy-ops/SKILL.md', 'User-owned wrapper collision.');
+  write(
+    root,
+    '.claude/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use when preparing deployments.
+---
+
+Deploy body.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /plugins\/demo-ops\/skills\/deploy-ops\/SKILL\.md already exists/);
+  assert.equal(readFileSync(join(root, '.agent-trigger-kit/generated.json'), 'utf8'), generatedBefore);
+  assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
+  assert.equal(existsSync(join(root, '.agent-trigger-kit/MAINTENANCE.md')), false);
+});
+
+test('import-claude-skills preserves existing guided plugin flag for imported tasks', () => {
+  const root = makeRoot();
+  createMinimalPlugin(root);
+  writeGeneratedManifestV2(root, {
+    'demo-ops': {
+      pluginVersion: '0.1.0',
+      playbookFirstGuidance: { version: 1 },
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [],
+    },
+  });
+  write(
+    root,
+    '.claude/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use when preparing deployments.
+---
+
+Deploy body.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(generatedPluginEntry(root).playbookFirstGuidance, { version: 1 });
+  assert.match(
+    readFileSync(join(root, 'plugins/demo-ops/skills/deploy-ops/SKILL.md'), 'utf8'),
+    /Use when preparing deployments\. Project playbook is source of truth\./,
+  );
+});
+
 test('import-claude-skills deletes source by default after successful import', () => {
   const root = makeRoot();
   write(
