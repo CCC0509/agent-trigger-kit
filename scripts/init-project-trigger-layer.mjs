@@ -320,6 +320,9 @@ This file is the maintenance contract for the project-local trigger layer.
 - Keep skills, commands, Cursor rules, and pointer docs as thin routing surfaces.
 - For playbook refs with anchors, use simplified heading slugs: lowercase, trimmed, whitespace runs as hyphens, and only a-z, 0-9, and hyphen kept.
 - Bump the local plugin version when plugin-visible files change: skills, commands, plugin manifests, or marketplace manifests.
+- Keep install scope explicit: Agent Trigger Kit itself belongs at user scope, while this generated project ops plugin belongs to this project.
+- For Claude Code, generated in-repo marketplaces are not auto-discovered; when explicit plugin loading is needed, add the marketplace and install this plugin with project scope.
+- For Codex, there is no project plugin scope; add the project marketplace only for temporary verification, then remove the global config entry.
 - Run the project trigger-layer validator after editing trigger surfaces.
 `,
   );

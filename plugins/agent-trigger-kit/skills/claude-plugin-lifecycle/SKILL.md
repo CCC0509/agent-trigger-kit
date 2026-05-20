@@ -7,6 +7,19 @@ description: Use when Claude Code plugins are installed but skills or slash comm
 
 Claude Code installs plugins into a cache snapshot. Source repo changes are not live until the plugin manager updates or reinstalls the plugin, and Claude Code must restart to apply changes.
 
+## Install Scope
+
+Pick scope from the plugin role before running install or update commands.
+Agent Trigger Kit itself is a cross-project tool and belongs at user scope.
+Generated `<project>-ops` plugins belong to the consuming project; when explicit
+Claude loading is needed, add the marketplace and install the plugin with
+project scope.
+
+Claude Code does not auto-discover a generated in-repo
+`.claude-plugin/marketplace.json` just because it exists. If it is unclear
+whether the user is installing the kit itself or a generated project plugin, ask
+one short scope question instead of defaulting blindly.
+
 ## Diagnose
 
 1. Confirm install state:
@@ -38,14 +51,14 @@ Claude Code installs plugins into a cache snapshot. Source repo changes are not 
 
    ```bash
    claude plugin marketplace update <marketplace-name>
-   claude plugin update <plugin-name>@<marketplace-name> --scope user
+   claude plugin update <plugin-name>@<marketplace-name> --scope <user|project>
    ```
 
 5. If update still reports already latest while cache is stale:
 
    ```bash
-   claude plugin uninstall <plugin-name>@<marketplace-name> --scope user
-   claude plugin install <plugin-name>@<marketplace-name> --scope user
+   claude plugin uninstall <plugin-name>@<marketplace-name> --scope <user|project>
+   claude plugin install <plugin-name>@<marketplace-name> --scope <user|project>
    ```
 
 6. Restart Claude Code.

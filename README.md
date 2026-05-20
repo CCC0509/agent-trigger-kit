@@ -112,6 +112,20 @@ claude plugin install agent-trigger-kit@agent-trigger-kit --scope user
 Confirm the Codex prompt input includes `agent-trigger-kit:*` skills. Restart
 Claude Code after install so skills and slash commands are loaded.
 
+### Install Scope Notes
+
+Agent Trigger Kit itself is intentionally installed at user scope so agents can
+discover `agent-trigger-kit:*` skills across projects.
+
+Generated project ops plugins are different: keep them local to the consuming
+project. Gate 0 smoke checks on 2026-05-20 found that Claude Code does not
+auto-discover an in-repo `.claude-plugin/marketplace.json`; when you need the
+generated Claude skills or slash commands, explicitly add the project
+marketplace and install the generated plugin with project scope. Codex currently
+has no project-scoped plugin enablement; `codex plugin marketplace add` writes
+to `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`), so project ops
+plugin checks must be temporary and followed by cleanup.
+
 From a local checkout during development:
 
 ```bash
@@ -170,14 +184,46 @@ Validate a project trigger layer:
 npx --yes github:CCC0509/agent-trigger-kit validate --root /path/to/project
 ```
 
+Load the generated project plugin for Claude Code only when the project wants
+Claude skills or slash commands to appear. Run these commands from the
+consuming project root so project-scope state is written to that project:
+
+```bash
+cd /path/to/project
+claude plugin validate /path/to/project
+claude plugin marketplace add /path/to/project --scope project
+claude plugin install <project>-ops@<project>-ops --scope project
+claude plugin list --json
+```
+
+The installed plugin should report `"scope": "project"` and the expected
+`projectPath`. The project-scope enablement is stored in the consuming project,
+not in this kit repo.
+
+For Codex, `.agents/plugins/marketplace.json` is a project-local manifest but
+not a project-scoped enablement mechanism. If you temporarily add a generated
+project marketplace to inspect Codex discovery, remove it afterwards and confirm
+no enabled plugin config remains:
+
+```bash
+codex plugin marketplace add /path/to/project
+codex debug prompt-input "test"
+codex plugin marketplace remove <project>-ops
+rg '<project>-ops' ~/.codex/config.toml
+```
+
+The final `rg` should have no active config match. If a
+`[plugins."<project>-ops@<project>-ops"]` block remains, remove that global
+entry before leaving the project.
+
 ## Agent-Assisted Setup
 
 Paste this into an agent while it is working inside the target project:
 
 ```text
-Install `CCC0509/agent-trigger-kit` if it is not already available. Use
-`agent-trigger-kit:cross-agent-trigger-layer` to create or update a
-project-local trigger layer for this repo.
+Install `CCC0509/agent-trigger-kit` at user scope if it is not already
+available. Use `agent-trigger-kit:cross-agent-trigger-layer` to create or update
+a project-local trigger layer for this repo.
 
 Before generating files, inspect the current repo for existing trigger-layer
 surfaces:
@@ -202,6 +248,12 @@ Generate or update Codex marketplace files, Claude marketplace files, Claude
 slash-command shims, Cursor rules, and short AGENTS / CLAUDE / GEMINI pointer
 snippets when appropriate. Keep every generated skill, command, Cursor rule,
 and pointer doc as a thin delegate to the canonical playbook.
+
+Keep install scope explicit: Agent Trigger Kit itself is the user-scope tool;
+the generated `<project>-ops` plugin belongs to this project. Use Claude
+project scope for generated plugin installs. For Codex, there is no project
+plugin scope, so only add the generated marketplace temporarily for verification
+and then remove the global config entry.
 
 After scaffolding, run:
 
@@ -249,6 +301,10 @@ npm run ops:local-agent-sync -- agent-trigger-kit
 **Projects that already generated a trigger layer:** generated project-local
 files do not update automatically. Validate first, then regenerate only if the
 project should adopt the newer wrapper shape.
+`.agent-trigger-kit/MAINTENANCE.md` is created only when missing; re-running
+`init`, including `init --force`, does not overwrite an existing maintenance
+contract. Copy new maintenance reminders into existing projects manually when
+they matter.
 
 ```bash
 npx --yes github:CCC0509/agent-trigger-kit validate --root /path/to/project
