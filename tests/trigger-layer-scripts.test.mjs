@@ -1473,6 +1473,31 @@ test('cli routes init and validate commands to the existing scripts', () => {
   assert.match(validate.stdout, /trigger layer validation passed/);
 });
 
+test('cli forwards init task descriptions', () => {
+  const root = makeRoot();
+  const result = runCli([
+    'init',
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--task-descriptions',
+    JSON.stringify({
+      'docs-review': 'Use for docs and playbook review.',
+    }),
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(
+    readFileSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'), 'utf8'),
+    /description: Use for docs and playbook review\. Project playbook is source of truth\./,
+  );
+});
+
 test('cli routes version-check to the existing script', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
@@ -2149,6 +2174,123 @@ test('init emits playbook-first guidance flag and generated skill guidance', () 
 
   const maintenance = readFileSync(join(root, '.agent-trigger-kit/MAINTENANCE.md'), 'utf8');
   assert.match(maintenance, /third-party plugin or global config/i);
+});
+
+test('init uses task-specific descriptions and appends playbook-first signal', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review,deploy-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--task-descriptions',
+    JSON.stringify({
+      'docs-review':
+        'Use for docs, playbooks, todo, done-log, review-log, and docs-only closeout.',
+    }),
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const docsReview = readFileSync(
+    join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'),
+    'utf8',
+  );
+  const deployOps = readFileSync(
+    join(root, 'plugins/demo-ops/skills/deploy-ops/SKILL.md'),
+    'utf8',
+  );
+
+  assert.match(
+    docsReview,
+    /^description: "Use for docs, playbooks, todo, done-log, review-log, and docs-only closeout\. Project playbook is source of truth\."$/m,
+  );
+  assert.match(
+    deployOps,
+    /description: Use for deploy ops work in this repo\. Project playbook is source of truth\./,
+  );
+});
+
+test('init rejects invalid task description maps', () => {
+  const cases = [
+    {
+      name: 'bare flag',
+      args: ['--task-descriptions'],
+      pattern: /--task-descriptions must be valid JSON object text/i,
+    },
+    {
+      name: 'json null',
+      value: 'null',
+      pattern: /--task-descriptions must be a JSON object keyed by task name/i,
+    },
+    {
+      name: 'json array',
+      value: '[]',
+      pattern: /--task-descriptions must be a JSON object keyed by task name/i,
+    },
+    {
+      name: 'json string',
+      value: '"hello"',
+      pattern: /--task-descriptions must be a JSON object keyed by task name/i,
+    },
+    {
+      name: 'unknown task',
+      value: JSON.stringify({ missing: 'Use for missing work.' }),
+      pattern: /unknown task description key missing/i,
+    },
+    {
+      name: 'non-string value',
+      value: JSON.stringify({ 'docs-review': 123 }),
+      pattern: /docs-review.*non-empty single-line string/i,
+    },
+    {
+      name: 'empty string',
+      value: JSON.stringify({ 'docs-review': '   ' }),
+      pattern: /docs-review.*non-empty single-line string/i,
+    },
+    {
+      name: 'newline',
+      value: JSON.stringify({ 'docs-review': 'Line one\nLine two' }),
+      pattern: /docs-review.*single-line/i,
+    },
+    {
+      name: 'invalid json',
+      value: '{bad json',
+      pattern: /--task-descriptions must be valid JSON/i,
+    },
+  ];
+  const generatedPaths = [
+    '.agents/plugins/marketplace.json',
+    '.claude-plugin/marketplace.json',
+    'docs/agent-playbooks/demo-ops.md',
+    '.agent-trigger-kit/MAINTENANCE.md',
+    '.agent-trigger-kit/generated.json',
+    'plugins/demo-ops/skills/docs-review/SKILL.md',
+  ];
+
+  for (const testCase of cases) {
+    const root = makeRoot();
+    const result = runScript('init-project-trigger-layer.mjs', [
+      '--root',
+      root,
+      '--plugin',
+      'demo-ops',
+      '--tasks',
+      'docs-review',
+      '--playbook',
+      'docs/agent-playbooks/demo-ops.md',
+      ...(testCase.args || ['--task-descriptions', testCase.value]),
+    ]);
+
+    assert.notEqual(result.status, 0, testCase.name);
+    assert.match(result.stderr, testCase.pattern, testCase.name);
+    for (const generatedPath of generatedPaths) {
+      assert.equal(existsSync(join(root, generatedPath)), false, testCase.name);
+    }
+  }
 });
 
 test('init records generated trigger-layer files without claiming user-owned files', () => {
