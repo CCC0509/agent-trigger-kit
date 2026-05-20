@@ -4918,6 +4918,157 @@ test('version check emits structured JSON when requested', () => {
   assert.equal(payload.versionMismatch, true);
 });
 
+test('plugin state probe reports Claude home without CLI and missing requested plugin', async () => {
+  const claudeHome = makeRoot();
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'other@other': [
+        {
+          scope: 'user',
+          installPath: join(claudeHome, 'plugins/cache/other/other/1.0.0'),
+          version: '1.0.0',
+        },
+      ],
+    },
+  });
+
+  const { probeClaudeState } = await import('../scripts/lib/plugin-state-probe.mjs');
+  const state = probeClaudeState({
+    claudeHome,
+    envPath: '',
+    expectedVersion: '0.1.2',
+    marketplaceName: 'demo-ops',
+    pluginName: 'demo-ops',
+  });
+
+  assert.equal(state.status, 'missing');
+  assert.equal(state.cli.status, 'path-missing-with-home');
+  assert.deepEqual(state.entries, []);
+});
+
+test('plugin state probe reports broken Claude install paths as unusable warnings', async () => {
+  const claudeHome = makeRoot();
+  const missingInstallPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath: missingInstallPath,
+          version: '0.1.2',
+          gitCommitSha: 'abc123',
+        },
+      ],
+    },
+  });
+  writeJson(claudeHome, 'settings.json', {
+    enabledPlugins: {
+      'demo-ops@demo-ops': true,
+    },
+  });
+
+  const { probeClaudeState } = await import('../scripts/lib/plugin-state-probe.mjs');
+  const state = probeClaudeState({
+    claudeHome,
+    envPath: '',
+    expectedVersion: '0.1.2',
+    marketplaceName: 'demo-ops',
+    pluginName: 'demo-ops',
+  });
+
+  assert.equal(state.status, 'cli-unavailable-metadata-present');
+  assert.equal(state.entries[0].hasExpectedVersion, true);
+  assert.equal(state.entries[0].installPathExists, false);
+  assert.equal(state.entries[0].installPathHasFiles, false);
+  assert.equal(state.entries[0].usableExpectedInstall, false);
+  assert.equal(state.entries[0].enabled, true);
+  assert.deepEqual(state.entries[0].warnings, ['install-path-missing', 'install-path-empty']);
+});
+
+test('plugin state probe reports missing Claude metadata distinctly from missing plugin entry', async () => {
+  const claudeHome = makeRoot();
+
+  const { probeClaudeState } = await import('../scripts/lib/plugin-state-probe.mjs');
+  const state = probeClaudeState({
+    claudeHome,
+    envPath: '',
+    expectedVersion: '0.1.2',
+    marketplaceName: 'demo-ops',
+    pluginName: 'demo-ops',
+  });
+
+  assert.equal(state.status, 'cli-unavailable-metadata-missing');
+  assert.equal(state.cli.status, 'path-missing-with-home');
+  assert.deepEqual(state.entries, []);
+});
+
+test('plugin state probe lists Codex cache versions from the configured home', async () => {
+  const codexHome = makeRoot();
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
+  write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
+
+  const { probeCodexCache } = await import('../scripts/lib/plugin-state-probe.mjs');
+  const cache = probeCodexCache({
+    codexHome,
+    marketplaceName: 'demo-ops',
+    pluginName: 'demo-ops',
+    expectedVersion: '0.1.2',
+  });
+
+  assert.deepEqual(cache.versions, ['0.1.1', '0.1.2']);
+  assert.equal(cache.hasExpected, true);
+  assert.equal(cache.status, 'present');
+});
+
+test('plugin state probe separates Claude marketplace dirty state from installed commit state', async () => {
+  const claudeHome = makeRoot();
+  const marketplace = join(claudeHome, 'plugins/marketplaces/demo-ops');
+  mkdirSync(marketplace, { recursive: true });
+  initGitFixture(marketplace);
+  write(marketplace, 'README.md', 'clean');
+  const headSha = commitAll(marketplace, 'initial');
+  write(marketplace, 'README.md', 'dirty');
+  writeJson(claudeHome, 'plugins/known_marketplaces.json', {
+    'demo-ops': {
+      source: { source: 'git', url: 'https://example.invalid/demo-ops.git' },
+      installLocation: marketplace,
+      lastUpdated: '2026-05-21T00:00:00.000Z',
+    },
+  });
+  writeJson(claudeHome, 'plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'user',
+          installPath: join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2'),
+          version: '0.1.2',
+          gitCommitSha: 'installed-sha',
+        },
+      ],
+    },
+  });
+
+  const { probeClaudeState } = await import('../scripts/lib/plugin-state-probe.mjs');
+  const state = probeClaudeState({
+    claudeHome,
+    envPath: '',
+    expectedVersion: '0.1.2',
+    marketplaceName: 'demo-ops',
+    pluginName: 'demo-ops',
+  });
+
+  assert.equal(state.marketplace.status, 'present');
+  assert.equal(state.marketplace.known, true);
+  assert.equal(state.marketplace.headSha, headSha);
+  assert.equal(state.marketplace.dirtyFiles.includes(' M README.md'), true);
+  assert.equal(state.marketplace.headDiffersFromInstalledSha, true);
+  assert.equal(state.marketplace.warnings.includes('dirty-clone'), true);
+  assert.equal(state.marketplace.warnings.includes('head-differs-from-installed-sha'), true);
+});
+
 test('version check --surface codex skips Claude installed-state checks', () => {
   const root = makeRoot();
   const codexHome = makeRoot();
