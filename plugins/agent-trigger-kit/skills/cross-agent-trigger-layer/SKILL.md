@@ -17,6 +17,13 @@ Use this skill when a project needs the same operating rules to be discoverable 
 
 Do not copy long SOP bodies into trigger layers.
 
+Install scope is part of the trigger-layer contract. Agent Trigger Kit itself is
+a user-scope toolkit. Generated project ops plugins should stay local to the
+consuming project: Claude Code uses project scope when explicit plugin loading
+is needed, Cursor uses repo-local rules, and Codex currently has no project
+scope, so any Codex project-plugin registration is temporary verification plus
+cleanup.
+
 ## Build Order
 
 1. Identify the canonical playbook path and the task names.
@@ -27,7 +34,7 @@ Do not copy long SOP bodies into trigger layers.
 5. For Claude Code discoverability, create one command shim per task and declare `commands` in `.claude-plugin/plugin.json`.
 6. For Cursor, create `.cursor/rules/*.mdc` only when task-specific globs are known.
 7. Add or update a validator that checks all trigger surfaces.
-8. Document install and fallback behavior in pointer docs.
+8. Document install scope, verification, cleanup, and fallback behavior in pointer docs.
 9. When tasks are removed, run a clean dry-run for the project and plugin before
    applying orphan cleanup.
 
@@ -36,7 +43,12 @@ Do not copy long SOP bodies into trigger layers.
 - `node scripts/validate-trigger-layer.mjs --root <project>`
 - `claude plugin validate <project>`
 - `claude plugin validate <project>/plugins/<plugin-name>`
+- For generated Claude project plugins, confirm `claude plugin list --json`
+  reports `"scope": "project"` and the expected `projectPath` after explicit
+  install.
 - A fresh Codex or `codex debug prompt-input "test"` check when Codex plugin behavior changes.
+- If Codex project-plugin discovery was tested, remove the temporary marketplace
+  and confirm the global config no longer contains the project plugin.
 - A fresh Claude Code session after installing or updating Claude commands.
 
 ## Common Mistakes
@@ -47,3 +59,7 @@ Do not copy long SOP bodies into trigger layers.
 - Updating playbooks without checking wrappers, commands, Cursor rules, and pointer docs.
 - Assuming removed tasks are deleted by `init --force`; use clean dry-run before
   applying generated-wrapper cleanup.
+- Confusing the user-scope Agent Trigger Kit install with generated project ops
+  plugins, which should stay project-local.
+- Assuming Codex has project-scoped plugin enablement; it does not, so project
+  plugin registration must be temporary and cleaned up.

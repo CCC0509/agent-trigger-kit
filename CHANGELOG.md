@@ -6,6 +6,18 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.6 - Install Scope Guidance
+
+- Documented the install-scope split between user-scoped Agent Trigger Kit
+  installs and project-local generated ops plugins.
+- Added Claude project-scope guidance for generated project plugins and noted
+  that in-repo Claude marketplaces are not auto-discovered without explicit
+  project install.
+- Clarified that Codex has no project-scoped plugin enablement, so generated
+  project plugin checks require temporary marketplace registration and cleanup.
+- Added generated `MAINTENANCE.md` reminders for project plugin scope and Codex
+  cleanup behavior.
+
 ## 0.1.5 - Generated Trigger Layer Cleanup
 
 - Added schema v2 generated manifests that can track multiple project-local
