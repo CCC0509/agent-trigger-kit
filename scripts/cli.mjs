@@ -8,6 +8,7 @@ const [command, ...commandArgs] = process.argv.slice(2);
 const commands = {
   clean: 'clean-generated-trigger-layer.mjs',
   init: 'init-project-trigger-layer.mjs',
+  'import-claude-skills': 'import-claude-skills.mjs',
   validate: 'validate-trigger-layer.mjs',
   'version-check': 'check-plugin-version.mjs',
 };
@@ -20,6 +21,7 @@ function printUsage() {
       'Commands:',
       '  clean          Dry-run cleanup checks for generated trigger layer files',
       '  init           Create or update a project trigger layer',
+      '  import-claude-skills  Import existing Claude Code skills into a trigger layer',
       '  validate       Validate a project trigger layer',
       '  version-check  Check source and installed plugin versions',
     ].join('\n'),

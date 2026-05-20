@@ -166,6 +166,32 @@ Existing plugin versions are preserved on re-init, including partial recovery
 when only one plugin surface exists. Use `--initial-version <version>` only for
 a brand-new trigger layer with no existing plugin version.
 
+Import existing Claude Code skills into the same trigger-layer shape:
+
+```bash
+npx --yes github:CCC0509/agent-trigger-kit import-claude-skills \
+  --root /path/to/project \
+  --source .claude/skills \
+  --plugin <project>-ops \
+  --playbook docs/agent-playbooks/<project>-ops.md
+```
+
+The importer preserves each source skill description on the generated Codex and
+Claude skill wrappers, moves each skill body into a `## <task>` section in the
+canonical playbook, and generates the same Codex skills, Claude skills, Claude
+slash-command shims, Cursor rules, marketplaces, maintenance contract, and
+generated manifest surfaces as `init`.
+
+After a successful import, source skill directories are deleted by default so
+the project has one canonical playbook plus thin trigger wrappers. Pass
+`--keep-source` to preserve the original `.claude/skills/<task>` directories.
+Existing playbook task sections are protected; pass
+`--replace-playbook-section` only when you intentionally want the imported body
+to replace an existing `## <task>` section. The importer warns when copied skill
+bodies mention Claude-only tool names such as `TodoWrite` or `Task`; rewrite
+those playbook sections in cross-agent terms before relying on them from Codex
+or Cursor.
+
 Cursor has no plugin marketplace in this toolkit. Generate repo-local rules
 with path globs:
 

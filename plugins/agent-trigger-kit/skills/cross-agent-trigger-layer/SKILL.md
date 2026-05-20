@@ -14,6 +14,10 @@ Use this skill when a project needs the same operating rules to be discoverable 
 - Claude commands are slash-menu shims that delegate to skills.
 - Cursor rules are path-trigger wrappers.
 - AGENTS.md, CLAUDE.md, and GEMINI.md are short pointers.
+- For existing Claude Code skills, prefer `agent-trigger-kit import-claude-skills`;
+  it moves skill bodies into the canonical playbook, keeps descriptions on
+  generated wrappers, and deletes source skills after a successful import unless
+  `--keep-source` is passed.
 
 Do not copy long SOP bodies into trigger layers.
 

@@ -10,12 +10,24 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+
+import {
+  assertNoDuplicateHeadingSlugs,
+  findDuplicateHeadingSlugs,
+  lintClaudeOnlyToolRefs,
+  normalizeSkillBodyForPlaybook,
+  parseClaudeSkill,
+  upsertPlaybookSection,
+  validateImportedTaskName,
+} from '../scripts/import-claude-skills.mjs';
+import { writeTriggerLayer } from '../scripts/lib/trigger-layer.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -414,6 +426,923 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   return { pluginDir, pluginName, skillPath: `${pluginDir}/skills/docs-review/SKILL.md` };
 }
 
+test('parseClaudeSkill extracts required frontmatter and body', () => {
+  const parsed = parseClaudeSkill(
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+    '.claude/skills/docs-review/SKILL.md',
+  );
+
+  assert.deepEqual(parsed, {
+    name: 'docs-review',
+    description: 'Review docs before release.',
+    body: '# Docs Review\n\nRead README changes.\n',
+  });
+});
+
+test('parseClaudeSkill fails when name or description is missing', () => {
+  assert.throws(
+    () =>
+      parseClaudeSkill(
+        `---
+name: docs-review
+---
+
+Body.
+`,
+        '.claude/skills/docs-review/SKILL.md',
+      ),
+    /missing required frontmatter key description/i,
+  );
+});
+
+test('parseClaudeSkill normalizes CRLF and rejects unsupported block scalars', () => {
+  const parsed = parseClaudeSkill(
+    '---\r\nname: docs-review\r\ndescription: Review docs.\r\n---\r\n\r\nBody.\r\n',
+    '.claude/skills/docs-review/SKILL.md',
+  );
+  assert.equal(parsed.body, '\nBody.\n');
+  assert.throws(
+    () =>
+      parseClaudeSkill(
+        `---
+name: docs-review
+description: >
+  Review docs.
+---
+
+Body.
+`,
+        '.claude/skills/docs-review/SKILL.md',
+      ),
+    /block scalar frontmatter is not supported/i,
+  );
+});
+
+test('parseClaudeSkill rejects block scalar variants for name and description', () => {
+  for (const [key, value] of [
+    ['description', '>-'],
+    ['description', '|+'],
+    ['name', '> # comment'],
+  ]) {
+    assert.throws(
+      () =>
+        parseClaudeSkill(
+          `---
+name: docs-review
+description: Review docs.
+${key}: ${value}
+  continuation
+---
+
+Body.
+`,
+          '.claude/skills/docs-review/SKILL.md',
+        ),
+      /block scalar frontmatter is not supported/i,
+    );
+  }
+});
+
+test('validateImportedTaskName accepts clean kebab slugs only', () => {
+  assert.equal(validateImportedTaskName('docs-review', 'skill name'), 'docs-review');
+  assert.throws(
+    () => validateImportedTaskName('Docs Review', 'skill name'),
+    /must be a clean kebab slug/i,
+  );
+  assert.throws(
+    () => validateImportedTaskName('docs_review', 'skill name'),
+    /must be a clean kebab slug/i,
+  );
+});
+
+test('normalizeSkillBodyForPlaybook strips leading h1 and demotes headings outside fences', () => {
+  const body = [
+    '# Docs Review',
+    '',
+    'Intro.',
+    '',
+    '```bash',
+    '# shell comment',
+    '## literal code heading',
+    '```',
+    '',
+    '## Checklist',
+    '',
+    '- Read docs.',
+    '',
+  ].join('\n');
+  const expected = [
+    'Intro.',
+    '',
+    '```bash',
+    '# shell comment',
+    '## literal code heading',
+    '```',
+    '',
+    '### Checklist',
+    '',
+    '- Read docs.',
+    '',
+  ].join('\n');
+
+  assert.equal(normalizeSkillBodyForPlaybook(body), expected);
+});
+
+test('normalizeSkillBodyForPlaybook preserves headings inside tilde fences', () => {
+  const body = [
+    '# Docs Review',
+    '',
+    '~~~js',
+    '## literal code heading',
+    '~~~',
+    '',
+    '## Checklist',
+    '',
+  ].join('\n');
+  const expected = ['~~~js', '## literal code heading', '~~~', '', '### Checklist', ''].join('\n');
+
+  assert.equal(normalizeSkillBodyForPlaybook(body), expected);
+});
+
+test('normalizeSkillBodyForPlaybook preserves indentation when no leading h1 exists', () => {
+  assert.equal(
+    normalizeSkillBodyForPlaybook('\n    const x = 1;\n\n## Notes\n\n'),
+    '    const x = 1;\n\n### Notes\n',
+  );
+});
+
+test('normalizeSkillBodyForPlaybook preserves indentation after stripped leading h1', () => {
+  assert.equal(
+    normalizeSkillBodyForPlaybook('# Docs Review\n\n    const x = 1;\n\n## Notes\n\n'),
+    '    const x = 1;\n\n### Notes\n',
+  );
+});
+
+test('upsertPlaybookSection appends new task section and rejects accidental replacement', () => {
+  const initial = '# Demo Ops Playbook\n\nIntro.\n';
+  const updated = upsertPlaybookSection(initial, {
+    task: 'docs-review',
+    body: 'Review docs.\n',
+  });
+
+  assert.match(updated, /^# Demo Ops Playbook\n\nIntro\.\n\n## docs-review\n\nReview docs\.\n$/);
+  assert.throws(
+    () =>
+      upsertPlaybookSection(updated, {
+        task: 'docs-review',
+        body: 'Replacement.\n',
+      }),
+    /already has section ## docs-review/i,
+  );
+});
+
+test('upsertPlaybookSection replaces existing section only when requested', () => {
+  const updated = upsertPlaybookSection(
+    '# Demo\n\n## docs-review\n\nOld.\n\n## deploy-ops\n\nDeploy.\n',
+    {
+      task: 'docs-review',
+      body: 'New.\n',
+      replace: true,
+    },
+  );
+
+  assert.equal(updated, '# Demo\n\n## docs-review\n\nNew.\n\n## deploy-ops\n\nDeploy.\n');
+});
+
+test('upsertPlaybookSection preserves dollar tokens when replacing a section', () => {
+  const updated = upsertPlaybookSection('# Demo\n\n## deploy-ops\n\nOld.\n', {
+    task: 'deploy-ops',
+    body: 'Run `deploy.sh $1 $2 $@ $& $$`.\n',
+    replace: true,
+  });
+
+  assert.equal(updated, '# Demo\n\n## deploy-ops\n\nRun `deploy.sh $1 $2 $@ $& $$`.\n');
+});
+
+test('assertNoDuplicateHeadingSlugs rejects validator-incompatible playbooks', () => {
+  assert.throws(
+    () =>
+      assertNoDuplicateHeadingSlugs(`# Demo
+
+## docs-review
+
+### Checklist
+
+## deploy-ops
+
+### Checklist
+`),
+    /duplicate heading slug checklist/i,
+  );
+});
+
+test('findDuplicateHeadingSlugs uses validator-compatible simplified slugs', () => {
+  assert.deepEqual(
+    findDuplicateHeadingSlugs(`# Demo
+
+## Use The Thing!
+
+## use-the-thing
+`),
+    [
+      {
+        slug: 'use-the-thing',
+        headings: ['Use The Thing!', 'use-the-thing'],
+      },
+    ],
+  );
+});
+
+test('lintClaudeOnlyToolRefs warns for conservative Claude tool references', () => {
+  assert.deepEqual(lintClaudeOnlyToolRefs('Use the TodoWrite tool, then call `Task`.'), [
+    'Task',
+    'TodoWrite',
+  ]);
+  assert.deepEqual(lintClaudeOnlyToolRefs('Use normal shell commands.'), []);
+});
+
+test('import-claude-skills seeds playbook and generated trigger wrappers', () => {
+  const root = makeRoot();
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Use the TodoWrite tool before editing docs.
+
+## Checklist
+
+- Read README.
+`,
+  );
+  write(
+    root,
+    '.claude/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use when preparing deployments.
+---
+
+# Deploy Ops
+
+Confirm release state.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--skills',
+    'docs-review,deploy-ops',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stderr, /docs-review.*TodoWrite/i);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), false);
+
+  const playbook = readFileSync(join(root, 'docs/agent-playbooks/demo-ops.md'), 'utf8');
+  assert.match(playbook, /Maintenance contract: `..\/..\/.agent-trigger-kit\/MAINTENANCE.md`/);
+  assert.match(playbook, /## docs-review\n\nUse the TodoWrite tool before editing docs\./);
+  assert.match(playbook, /### Checklist/);
+  assert.match(playbook, /## deploy-ops\n\nConfirm release state\./);
+
+  const wrapper = readFileSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'), 'utf8');
+  assert.match(wrapper, /description: Review docs before release\./);
+
+  const generated = generatedPluginEntry(root);
+  assert.deepEqual(generated.tasks, ['docs-review', 'deploy-ops']);
+  assert.equal(
+    generated.files.some((file) => file.path === 'plugins/demo-ops/skills/docs-review/SKILL.md'),
+    true,
+  );
+
+  const validate = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(validate.status, 0, validate.stderr || validate.stdout);
+});
+
+test('import-claude-skills deletes source by default after successful import', () => {
+  const root = makeRoot();
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs.
+---
+
+Body.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), false);
+});
+
+test('import-claude-skills keeps source with --keep-source', () => {
+  const root = makeRoot();
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs.
+---
+
+Body.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--keep-source',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
+});
+
+test('import-claude-skills refuses existing playbook section without replacement flag', () => {
+  const root = makeRoot();
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo\n\n## docs-review\n\nExisting.\n');
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs.
+---
+
+New body.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /already has section ## docs-review/i);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), false);
+});
+
+test('import-claude-skills replaces playbook section with explicit flag', () => {
+  const root = makeRoot();
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo\n\n## docs-review\n\nExisting.\n');
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs.
+---
+
+New body.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--replace-playbook-section',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(
+    readFileSync(join(root, 'docs/agent-playbooks/demo-ops.md'), 'utf8'),
+    '# Demo\n\n## docs-review\n\nNew body.\n',
+  );
+});
+
+test('import-claude-skills supports importing selected skills', () => {
+  const root = makeRoot();
+  for (const skill of ['docs-review', 'deploy-ops']) {
+    write(
+      root,
+      `.claude/skills/${skill}/SKILL.md`,
+      `---
+name: ${skill}
+description: ${skill} description.
+---
+
+${skill} body.
+`,
+    );
+  }
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--skills',
+    'deploy-ops',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const playbook = readFileSync(join(root, 'docs/agent-playbooks/demo-ops.md'), 'utf8');
+  assert.doesNotMatch(playbook, /## docs-review/);
+  assert.match(playbook, /## deploy-ops/);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
+  assert.equal(existsSync(join(root, '.claude/skills/deploy-ops/SKILL.md')), false);
+});
+
+test('import-claude-skills fails before writes when imported bodies duplicate heading slugs', () => {
+  const root = makeRoot();
+  for (const skill of ['docs-review', 'deploy-ops']) {
+    write(
+      root,
+      `.claude/skills/${skill}/SKILL.md`,
+      `---
+name: ${skill}
+description: ${skill} description.
+---
+
+# ${skill}
+
+## Checklist
+
+- ${skill}
+`,
+    );
+  }
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /duplicate heading slug checklist/i);
+  assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), false);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/deploy-ops/SKILL.md')), false);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
+  assert.equal(existsSync(join(root, '.claude/skills/deploy-ops/SKILL.md')), true);
+});
+
+test('import-claude-skills fails when a selected skill is missing', () => {
+  const root = makeRoot();
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--skills',
+    'docs-review,missing-skill',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /missing-skill/);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), false);
+  assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
+});
+
+test('import-claude-skills rejects selected skill names that escape source', () => {
+  const root = makeRoot();
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+  write(
+    root,
+    '.claude/outside/SKILL.md',
+    `---
+name: outside
+description: Escaped source skill.
+---
+
+# Outside
+
+This should never import.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--skills',
+    '../outside',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /selected skill name|clean kebab slug/i);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/outside/SKILL.md')), false);
+  assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
+  assert.equal(existsSync(join(root, '.claude/outside/SKILL.md')), true);
+});
+
+test('import-claude-skills rejects source directories outside root before writes', () => {
+  const root = makeRoot();
+  const outsideRoot = makeRoot();
+  const outsideSource = join(outsideRoot, '.claude/skills');
+  const escapedSource = relative(root, outsideSource);
+  write(
+    outsideRoot,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    escapedSource,
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /source directory must stay inside --root/i);
+  assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), false);
+  assert.equal(existsSync(join(outsideSource, 'docs-review/SKILL.md')), true);
+});
+
+test('import-claude-skills rejects symlinked source directories outside root before writes', () => {
+  const root = makeRoot();
+  const outsideRoot = makeRoot();
+  const outsideSource = join(outsideRoot, '.claude/skills');
+  write(
+    outsideRoot,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+  mkdirSync(join(root, '.claude'), { recursive: true });
+  symlinkSync(outsideSource, join(root, '.claude/skills'), 'dir');
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /source directory must stay inside --root/i);
+  assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), false);
+  assert.equal(existsSync(join(outsideSource, 'docs-review/SKILL.md')), true);
+});
+
+test('import-claude-skills rejects symlinked skill directories outside source before reads', () => {
+  const root = makeRoot();
+  const outsideRoot = makeRoot();
+  write(
+    outsideRoot,
+    'docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+  mkdirSync(join(root, '.claude/skills'), { recursive: true });
+  symlinkSync(join(outsideRoot, 'docs-review'), join(root, '.claude/skills/docs-review'), 'dir');
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /skill path must stay inside --source/i);
+  assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), false);
+  assert.equal(existsSync(join(outsideRoot, 'docs-review/SKILL.md')), true);
+});
+
+test('import-claude-skills rejects playbook paths outside root before writes', () => {
+  const root = makeRoot();
+  const outsideRoot = makeRoot();
+  const escapedPlaybook = relative(root, join(outsideRoot, 'demo-ops.md'));
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    escapedPlaybook,
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /playbook.*inside --root/i);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), false);
+  assert.equal(existsSync(join(outsideRoot, 'demo-ops.md')), false);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
+});
+
+test('import-claude-skills rejects playbook parent symlinks outside root before writes', () => {
+  const root = makeRoot();
+  const outsideRoot = makeRoot();
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+  mkdirSync(join(root, 'docs'), { recursive: true });
+  symlinkSync(outsideRoot, join(root, 'docs/outside'), 'dir');
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/outside/demo-ops.md',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /playbook.*inside --root/i);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), false);
+  assert.equal(existsSync(join(outsideRoot, 'demo-ops.md')), false);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
+});
+
+test('import-claude-skills rejects unsafe plugin names before writes', () => {
+  const root = makeRoot();
+  const unsafePluginName = `../../outside-plugin-${basename(root)}`;
+  const escapedTarget = join(root, 'plugins', unsafePluginName, 'skills/docs-review/SKILL.md');
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    unsafePluginName,
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--skills',
+    'docs-review',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /plugin|unsafe|simple plugin id|clean slug/i);
+  assert.equal(existsSync(escapedTarget), false);
+  assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
+});
+
+test('import-claude-skills preflights generated target collisions before writes', () => {
+  const root = makeRoot();
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+  write(root, 'plugins/demo-ops/skills/docs-review/SKILL.md', 'existing generated target');
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--skills',
+    'docs-review',
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(
+    result.stderr,
+    /plugins\/demo-ops\/skills\/docs-review\/SKILL\.md already exists; rerun with --force/i,
+  );
+  assert.equal(existsSync(join(root, '.agents/plugins/marketplace.json')), false);
+  assert.equal(existsSync(join(root, 'docs/agent-playbooks/demo-ops.md')), false);
+  assert.equal(
+    readFileSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md'), 'utf8'),
+    'existing generated target\n',
+  );
+  assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
+});
+
+test('import-claude-skills discovers source skills in stable sorted order', () => {
+  const root = makeRoot();
+  write(
+    root,
+    '.claude/skills/deploy-ops/SKILL.md',
+    `---
+name: deploy-ops
+description: Use when preparing deployments.
+---
+
+# Deploy Ops
+
+Confirm release state.
+`,
+  );
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+
+  const result = runScript('import-claude-skills.mjs', [
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const generated = generatedPluginEntry(root);
+  assert.deepEqual(generated.tasks, ['deploy-ops', 'docs-review']);
+
+  const playbook = readFileSync(join(root, 'docs/agent-playbooks/demo-ops.md'), 'utf8');
+  assert.ok(playbook.indexOf('## deploy-ops') < playbook.indexOf('## docs-review'));
+});
+
 test('package exposes the agent-trigger-kit bin entry', () => {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
 
@@ -471,6 +1400,39 @@ test('cli routes clean command to the generated trigger layer cleaner', () => {
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /clean dry-run: no orphan generated skills for demo-ops/);
+});
+
+test('cli routes import-claude-skills command to the importer', () => {
+  const root = makeRoot();
+  write(
+    root,
+    '.claude/skills/docs-review/SKILL.md',
+    `---
+name: docs-review
+description: Review docs before release.
+---
+
+# Docs Review
+
+Read README changes.
+`,
+  );
+
+  const result = runCli([
+    'import-claude-skills',
+    '--root',
+    root,
+    '--source',
+    '.claude/skills',
+    '--plugin',
+    'demo-ops',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /imported 1 Claude skill\(s\) into demo-ops/);
+  assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), true);
 });
 
 test('clean dry-run lists generated skill files missing from a v2 plugin manifest entry', () => {
@@ -1612,6 +2574,8 @@ test('init fails when existing manifest versions disagree', () => {
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /existing manifest versions differ/);
+  assert.doesNotMatch(result.stderr, /Error: existing manifest versions differ/);
+  assert.doesNotMatch(result.stderr, /\n\s+at /);
 });
 
 test('init applies initial version only when no existing plugin version is present', () => {
@@ -1709,8 +2673,8 @@ test('init uses generated v2 fallback only for the current plugin entry', () => 
   assert.equal(generatedPluginEntry(root, 'other-ops').pluginVersion, '0.9.0');
 });
 
-test('init script consumes project trigger layer templates for generated wrappers', () => {
-  const script = readFileSync(join(repoRoot, 'scripts/init-project-trigger-layer.mjs'), 'utf8');
+test('shared trigger layer generator consumes project trigger layer templates for generated wrappers', () => {
+  const script = readFileSync(join(repoRoot, 'scripts/lib/trigger-layer.mjs'), 'utf8');
 
   assert.match(script, /templates\/project-trigger-layer/);
   assert.match(script, /skill\/SKILL\.md\.template/);
@@ -1728,6 +2692,66 @@ test('init script consumes project trigger layer templates for generated wrapper
     existsSync(join(repoRoot, 'templates/project-trigger-layer/GEMINI.snippet.md')),
     false,
   );
+});
+
+test('writeTriggerLayer renders imported task descriptions as safe frontmatter scalars', () => {
+  const root = makeRoot();
+  const description = 'Review: docs # before release\nSecond line';
+  writeTriggerLayer({
+    root,
+    pluginName: 'demo-ops',
+    tasks: ['docs-review'],
+    playbook: 'docs/agent-playbooks/demo-ops.md',
+    cursorGlobs: ['docs/**'],
+    taskDescriptions: new Map([['docs-review', description]]),
+  });
+
+  const expectedLine = 'description: "Review: docs # before release\\nSecond line"';
+  for (const path of [
+    'plugins/demo-ops/skills/docs-review/SKILL.md',
+    'plugins/demo-ops/commands/docs-review.md',
+    '.cursor/rules/docs-review.mdc',
+  ]) {
+    const text = readFileSync(join(root, path), 'utf8');
+    const frontmatter = text.match(/^---\n([\s\S]*?)\n---/)?.[1] || '';
+    const escapedLine = expectedLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(frontmatter, new RegExp(`^${escapedLine}$`, 'm'));
+    assert.doesNotMatch(frontmatter, /^Second line$/m);
+  }
+
+  const validate = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(validate.status, 0, validate.stderr || validate.stdout);
+});
+
+test('writeTriggerLayer treats template markers in imported task descriptions as literal text', () => {
+  const root = makeRoot();
+  const description = 'Use {{taskName}} safely and {{globs}} literally';
+  writeTriggerLayer({
+    root,
+    pluginName: 'demo-ops',
+    tasks: ['docs-review'],
+    playbook: 'docs/agent-playbooks/demo-ops.md',
+    cursorGlobs: ['docs/**'],
+    taskDescriptions: new Map([['docs-review', description]]),
+  });
+
+  const expectedLine = 'description: "Use {{taskName}} safely and {{globs}} literally"';
+  for (const path of [
+    'plugins/demo-ops/skills/docs-review/SKILL.md',
+    'plugins/demo-ops/commands/docs-review.md',
+    '.cursor/rules/docs-review.mdc',
+  ]) {
+    const text = readFileSync(join(root, path), 'utf8');
+    const frontmatter = text.match(/^---\n([\s\S]*?)\n---/)?.[1] || '';
+    const descriptionLine = frontmatter.match(/^description:.+$/m)?.[0] || '';
+    const escapedLine = expectedLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(descriptionLine, new RegExp(`^${escapedLine}$`));
+    assert.doesNotMatch(descriptionLine, /Use docs-review safely/);
+    assert.doesNotMatch(descriptionLine, /docs\/\*\*/);
+  }
+
+  const validate = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(validate.status, 0, validate.stderr || validate.stdout);
 });
 
 test('validator fails when a skill delegates to a missing playbook', () => {
