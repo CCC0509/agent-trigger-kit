@@ -115,8 +115,8 @@ git pull --ff-only
 git switch -c feat/<topic>
 ```
 
-If slash-style branch namespaces are unavailable in a local checkout, use a
-plain descriptive branch name instead.
+If the team does not use slash-style branch namespaces, use a plain descriptive
+branch name instead.
 
 Branch-local scratch files may be created under:
 
