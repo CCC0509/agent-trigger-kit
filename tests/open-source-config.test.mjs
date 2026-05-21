@@ -95,12 +95,15 @@ test('scratch namespace policy is documented and reviewable', () => {
 
 test('scratch namespace CI gate is scoped to main pushes', () => {
   const ci = read('.github/workflows/ci.yml');
+  const scratchJob = ci.match(/ {2}scratch-namespace:[\s\S]*/)?.[0] || '';
 
   assert.equal((ci.match(/run: npm run check:scratch-namespace/g) || []).length, 1);
   assert.match(ci, /scratch-namespace:/);
   assert.match(ci, /name: Check Scratch Namespace/);
   assert.match(ci, /needs: validate/);
   assert.match(ci, /runs-on: ubuntu-latest/);
+  assert.doesNotMatch(scratchJob, /cache:\s*npm/);
+  assert.doesNotMatch(scratchJob, /npm ci/);
   assert.match(
     ci,
     /scratch-namespace:[\s\S]*if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'[\s\S]*run: npm run check:scratch-namespace/,
