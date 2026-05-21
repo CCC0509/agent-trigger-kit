@@ -6,6 +6,13 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.10
+
+- Added opt-in document header checks to trigger-layer validation, configured
+  from `.agent-trigger-kit/generated.json`.
+- Added `init --with-superpowers-gate` to scaffold the Superpowers plan/spec
+  status-header policy only when explicitly requested.
+
 ## 0.1.9
 
 - Added provenance-aware version reporting for Claude Code when the `claude` CLI

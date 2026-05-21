@@ -150,6 +150,48 @@ npx --yes github:CCC0509/agent-trigger-kit init \
   --playbook docs/agent-playbooks/<project>-ops.md
 ```
 
+### Optional Document Header Checks
+
+`agent-trigger-kit validate` can enforce project-owned document header
+policies from `.agent-trigger-kit/generated.json`. The feature is off when the
+manifest has no `headerChecks` array.
+
+Example plugin-entry config:
+
+```json
+"headerChecks": [
+  {
+    "name": "superpowers-plan-lifecycle",
+    "globs": ["docs/superpowers/specs/*.md", "docs/superpowers/plans/*.md"],
+    "headerLines": 6,
+    "requirePattern": "^Status: ",
+    "exclude": ["docs/plans/**"]
+  }
+]
+```
+
+Each matched file must contain a line matching `requirePattern` within the
+first `headerLines` lines. Failures look like:
+
+```text
+MISSING header in docs/superpowers/plans/example.md (check: superpowers-plan-lifecycle)
+```
+
+For greenfield projects that intentionally use Superpowers spec/plan lifecycle
+headers, scaffold the active config explicitly:
+
+```bash
+npx --yes github:CCC0509/agent-trigger-kit init \
+  --root /path/to/project \
+  --plugin <project>-ops \
+  --tasks docs-review \
+  --playbook docs/agent-playbooks/<project>-ops.md \
+  --with-superpowers-gate
+```
+
+Agent Trigger Kit does not hard-code Superpowers status values. Projects that
+want enum enforcement should express it in `requirePattern`.
+
 ### Playbook-First Guidance
 
 Generated skills include playbook-first guidance. For tasks covered by the
