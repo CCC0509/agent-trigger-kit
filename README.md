@@ -154,7 +154,7 @@ npx --yes github:CCC0509/agent-trigger-kit init \
 
 `agent-trigger-kit validate` can enforce project-owned document header
 policies from `.agent-trigger-kit/generated.json`. The feature is off when the
-manifest has no `headerChecks` array.
+generated plugin entry has no `headerChecks` array.
 
 Example plugin-entry config:
 
@@ -169,6 +169,9 @@ Example plugin-entry config:
   }
 ]
 ```
+
+Keep globs scoped to the document types you intend to validate, such as
+Markdown files, so broad patterns do not include unrelated files.
 
 Each matched file must contain a line matching `requirePattern` within the
 first `headerLines` lines. Failures look like:

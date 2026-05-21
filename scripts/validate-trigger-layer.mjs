@@ -386,6 +386,8 @@ function validatePlaybookFirstGuidance() {
 }
 
 function generatedHeaderCheckEntries(generated) {
+  // Use raw manifest entries here because normalization intentionally drops
+  // malformed optional headerChecks that validation must report.
   if (!generated || typeof generated !== 'object') return [];
   if (generated.schemaVersion === 2 && generated.plugins && typeof generated.plugins === 'object') {
     return Object.entries(generated.plugins).filter(
@@ -408,16 +410,17 @@ function validateDocumentHeaderChecks() {
   const generated = parseJson(generatedPath);
   if (!generated) return;
 
+  const checks = [];
   for (const [pluginName, plugin] of generatedHeaderCheckEntries(generated)) {
     const configErrors = validateHeaderCheckConfig(generatedPath, pluginName, plugin.headerChecks);
     for (const error of configErrors) fail(error);
     if (configErrors.length > 0 || !Array.isArray(plugin.headerChecks)) continue;
-    for (const error of collectDocumentHeaderCheckFailures({
-      root,
-      checks: plugin.headerChecks,
-    })) {
-      fail(error);
-    }
+    checks.push(...plugin.headerChecks);
+  }
+
+  if (checks.length === 0) return;
+  for (const error of collectDocumentHeaderCheckFailures({ root, checks })) {
+    fail(error);
   }
 }
 
