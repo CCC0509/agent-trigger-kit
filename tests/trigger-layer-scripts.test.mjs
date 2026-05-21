@@ -2877,6 +2877,107 @@ test('init keeps playbook-first signal out of command and Cursor routing descrip
   assert.doesNotMatch(cursorFrontmatter, /Project playbook is source of truth\./);
 });
 
+test('init does not write active headerChecks by default', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(generatedPluginEntry(root).headerChecks, undefined);
+});
+
+test('init writes an inactive headerChecks example in the maintenance contract', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const maintenance = readFileSync(join(root, '.agent-trigger-kit/MAINTENANCE.md'), 'utf8');
+  assert.match(maintenance, /## Optional Document Header Checks/);
+  assert.match(maintenance, /"headerChecks": \[/);
+  assert.equal(generatedPluginEntry(root).headerChecks, undefined);
+});
+
+test('init writes superpowers headerChecks only with explicit flag', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--with-superpowers-gate',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(generatedPluginEntry(root).headerChecks, [
+    {
+      name: 'superpowers-plan-lifecycle',
+      globs: ['docs/superpowers/specs/*.md', 'docs/superpowers/plans/*.md'],
+      headerLines: 6,
+      requirePattern: '^Status: ',
+      exclude: ['docs/plans/**'],
+    },
+  ]);
+});
+
+test('init preserves existing headerChecks on re-run without the explicit flag', () => {
+  const root = makeRoot();
+  const first = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--with-superpowers-gate',
+  ]);
+  assert.equal(first.status, 0, first.stderr || first.stdout);
+
+  const second = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--force',
+  ]);
+  assert.equal(second.status, 0, second.stderr || second.stdout);
+  assert.deepEqual(generatedPluginEntry(root).headerChecks, [
+    {
+      name: 'superpowers-plan-lifecycle',
+      globs: ['docs/superpowers/specs/*.md', 'docs/superpowers/plans/*.md'],
+      headerLines: 6,
+      requirePattern: '^Status: ',
+      exclude: ['docs/plans/**'],
+    },
+  ]);
+});
+
 test('init uses task-specific descriptions and appends playbook-first signal', () => {
   const root = makeRoot();
   const result = runScript('init-project-trigger-layer.mjs', [

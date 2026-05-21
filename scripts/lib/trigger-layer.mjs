@@ -12,6 +12,15 @@ import { appendPlaybookFirstSignal, PLAYBOOK_FIRST_GUIDANCE } from './playbook-f
 
 export const DEFAULT_MAINTENANCE_CONTRACT = '.agent-trigger-kit/MAINTENANCE.md';
 export const TEMPLATE_VERSION = 1;
+export const SUPERPOWERS_HEADER_CHECKS = [
+  {
+    name: 'superpowers-plan-lifecycle',
+    globs: ['docs/superpowers/specs/*.md', 'docs/superpowers/plans/*.md'],
+    headerLines: 6,
+    requirePattern: '^Status: ',
+    exclude: ['docs/plans/**'],
+  },
+];
 
 const kitPackage = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
 const templateRoot = new URL('../../templates/project-trigger-layer/', import.meta.url);
@@ -78,6 +87,7 @@ function createWriteContext(options) {
   const writePlaybookPlaceholder = options.writePlaybookPlaceholder ?? true;
   const playbookFirstGuidance = Boolean(options.playbookFirstGuidance);
   const preserveExistingPluginManifests = Boolean(options.preserveExistingPluginManifests);
+  const requestedHeaderChecks = options.headerChecks;
   const generatedFiles = [];
   const previousGeneratedManifest = readJsonFileIfExists(
     pathOf('.agent-trigger-kit/generated.json'),
@@ -346,6 +356,23 @@ This file is the maintenance contract for the project-local trigger layer.
 - For Claude Code, generated in-repo marketplaces are not auto-discovered; when explicit plugin loading is needed, add the marketplace and install this plugin with project scope.
 - For Codex, there is no project plugin scope; add the project marketplace only for temporary verification, then remove the global config entry.
 ${playbookFirstGuidance ? '- Treat third-party plugin or global config changes as explicit fixes, not the default response to trigger collisions.\n' : ''}- Run the project trigger-layer validator after editing trigger surfaces.
+
+## Optional Document Header Checks
+
+To opt in, copy a headerChecks block into this plugin entry in
+\`.agent-trigger-kit/generated.json\`. Example:
+
+\`\`\`json
+"headerChecks": [
+  {
+    "name": "superpowers-plan-lifecycle",
+    "globs": ["docs/superpowers/specs/*.md", "docs/superpowers/plans/*.md"],
+    "headerLines": 6,
+    "requirePattern": "^Status: ",
+    "exclude": ["docs/plans/**"]
+  }
+]
+\`\`\`
 `,
     );
   }
@@ -452,6 +479,9 @@ ${playbookFirstGuidance ? '- Treat third-party plugin or global config changes a
   }
 
   function writeGeneratedManifest() {
+    const previousPlugin = generatedPluginEntry(previousGeneratedManifest, pluginName);
+    const resolvedHeaderChecks = requestedHeaderChecks ?? previousPlugin?.headerChecks;
+
     writeJsonFileCreatingParents(
       pathOf('.agent-trigger-kit/generated.json'),
       upsertGeneratedPluginEntry(
@@ -463,6 +493,7 @@ ${playbookFirstGuidance ? '- Treat third-party plugin or global config changes a
           maintenanceContract: DEFAULT_MAINTENANCE_CONTRACT,
           tasks,
           files: generatedFiles,
+          ...(resolvedHeaderChecks ? { headerChecks: resolvedHeaderChecks } : {}),
           ...(playbookFirstGuidance
             ? { playbookFirstGuidance: { version: PLAYBOOK_FIRST_GUIDANCE.version } }
             : {}),
