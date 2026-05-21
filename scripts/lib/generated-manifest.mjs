@@ -14,6 +14,11 @@ function copyPlaybookFirstGuidance(value) {
   return { version: value.version };
 }
 
+function copyHeaderChecks(headerChecks) {
+  if (!Array.isArray(headerChecks)) return undefined;
+  return headerChecks.map((check) => ({ ...check }));
+}
+
 function copyPluginEntry(entry = {}) {
   const copied = {
     pluginVersion: entry.pluginVersion,
@@ -24,6 +29,8 @@ function copyPluginEntry(entry = {}) {
   };
   const playbookFirstGuidance = copyPlaybookFirstGuidance(entry.playbookFirstGuidance);
   if (playbookFirstGuidance) copied.playbookFirstGuidance = playbookFirstGuidance;
+  const headerChecks = copyHeaderChecks(entry.headerChecks);
+  if (headerChecks) copied.headerChecks = headerChecks;
   return copied;
 }
 

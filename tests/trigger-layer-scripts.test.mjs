@@ -657,6 +657,96 @@ test('generated manifest drops malformed playbook-first guidance flags', () => {
   }
 });
 
+test('generated manifest round-trips header checks', () => {
+  const headerChecks = [
+    {
+      name: 'superpowers-plan-lifecycle',
+      globs: ['docs/superpowers/plans/*.md'],
+      headerLines: 6,
+      requirePattern: '^Status: ',
+      exclude: ['docs/plans/**'],
+    },
+  ];
+  const manifest = {
+    schemaVersion: 2,
+    kitVersion: '0.1.9',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+        headerChecks,
+      },
+    },
+  };
+
+  const normalized = normalizeGeneratedManifest(manifest);
+  assert.deepEqual(normalized.plugins['demo-ops'].headerChecks, headerChecks);
+
+  const updated = upsertGeneratedPluginEntry(
+    manifest,
+    'demo-ops',
+    {
+      pluginVersion: '0.1.1',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [],
+      headerChecks,
+    },
+    { kitVersion: '0.1.10', templateVersion: 1 },
+  );
+
+  assert.deepEqual(updated.plugins['demo-ops'].headerChecks, headerChecks);
+});
+
+test('generated manifest omits malformed header checks during normalization', () => {
+  for (const headerChecks of [{}, 'yes', true]) {
+    const normalized = normalizeGeneratedManifest({
+      schemaVersion: 2,
+      plugins: {
+        'demo-ops': {
+          pluginVersion: '0.1.0',
+          playbook: 'docs/agent-playbooks/demo-ops.md',
+          maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+          tasks: ['docs-review'],
+          files: [],
+          headerChecks,
+        },
+      },
+    });
+
+    assert.equal(normalized.plugins['demo-ops'].headerChecks, undefined);
+  }
+});
+
+test('generated manifest carries v1 header checks forward', () => {
+  const headerChecks = [
+    {
+      name: 'superpowers-plan-lifecycle',
+      globs: ['docs/superpowers/plans/*.md'],
+      headerLines: 6,
+      requirePattern: '^Status: ',
+    },
+  ];
+
+  const normalized = normalizeGeneratedManifest({
+    schemaVersion: 1,
+    pluginName: 'demo-ops',
+    pluginVersion: '0.1.0',
+    playbook: 'docs/agent-playbooks/demo-ops.md',
+    maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+    tasks: ['docs-review'],
+    files: [],
+    headerChecks,
+  });
+
+  assert.deepEqual(normalized.plugins['demo-ops'].headerChecks, headerChecks);
+});
+
 test('normalizeSkillBodyForPlaybook strips leading h1 and demotes headings outside fences', () => {
   const body = [
     '# Docs Review',
