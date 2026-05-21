@@ -31,6 +31,11 @@ import {
   normalizeGeneratedManifest,
   upsertGeneratedPluginEntry,
 } from '../scripts/lib/generated-manifest.mjs';
+import {
+  collectDocumentHeaderCheckFailures,
+  expandHeaderCheckGlobs,
+  validateHeaderCheckConfig,
+} from '../scripts/lib/document-header-checks.mjs';
 import { PLAYBOOK_FIRST_GUIDANCE } from '../scripts/lib/playbook-first-guidance.mjs';
 import { writeTriggerLayer } from '../scripts/lib/trigger-layer.mjs';
 
@@ -745,6 +750,128 @@ test('generated manifest carries v1 header checks forward', () => {
   });
 
   assert.deepEqual(normalized.plugins['demo-ops'].headerChecks, headerChecks);
+});
+
+test('document header checks pass when a required header appears within the configured top lines', () => {
+  const root = makeRoot();
+  write(
+    root,
+    'docs/superpowers/plans/feature.md',
+    `# Feature Plan
+Status: Draft
+
+Body.
+`,
+  );
+
+  const failures = collectDocumentHeaderCheckFailures({
+    root,
+    checks: [
+      {
+        name: 'superpowers-plan-lifecycle',
+        globs: ['docs/superpowers/plans/*.md'],
+        headerLines: 6,
+        requirePattern: '^Status: ',
+      },
+    ],
+  });
+
+  assert.deepEqual(failures, []);
+});
+
+test('document header checks fail when the header is missing from the top lines', () => {
+  const root = makeRoot();
+  write(
+    root,
+    'docs/superpowers/plans/feature.md',
+    `# Feature Plan
+
+Intro.
+
+More intro.
+
+Status: Draft
+`,
+  );
+
+  const failures = collectDocumentHeaderCheckFailures({
+    root,
+    checks: [
+      {
+        name: 'superpowers-plan-lifecycle',
+        globs: ['docs/superpowers/plans/*.md'],
+        headerLines: 3,
+        requirePattern: '^Status: ',
+      },
+    ],
+  });
+
+  assert.deepEqual(failures, [
+    'MISSING header in docs/superpowers/plans/feature.md (check: superpowers-plan-lifecycle)',
+  ]);
+});
+
+test('document header checks respect exclude globs', () => {
+  const root = makeRoot();
+  write(root, 'docs/superpowers/plans/current.md', '# Current\nStatus: Draft\n');
+  write(root, 'docs/superpowers/plans/legacy.md', '# Legacy\n');
+
+  const files = expandHeaderCheckGlobs(root, {
+    globs: ['docs/superpowers/plans/*.md'],
+    exclude: ['docs/superpowers/plans/legacy.md'],
+  });
+
+  assert.deepEqual(files, ['docs/superpowers/plans/current.md']);
+});
+
+test('document header glob expansion skips symlinked directories', () => {
+  const root = makeRoot();
+  write(root, 'docs/superpowers/plans/current.md', '# Current\nStatus: Draft\n');
+  symlinkSync(root, join(root, 'docs/superpowers/plans/loop'), 'dir');
+
+  const files = expandHeaderCheckGlobs(root, {
+    globs: ['docs/superpowers/plans/**'],
+  });
+
+  assert.deepEqual(files, ['docs/superpowers/plans/current.md']);
+});
+
+test('document header checks support enum policies through requirePattern', () => {
+  const root = makeRoot();
+  write(root, 'docs/superpowers/specs/feature.md', '# Feature\nStatus: Banana\n');
+
+  const failures = collectDocumentHeaderCheckFailures({
+    root,
+    checks: [
+      {
+        name: 'superpowers-status-enum',
+        globs: ['docs/superpowers/specs/*.md'],
+        headerLines: 6,
+        requirePattern: '^Status: (Draft|Approved|Implemented)$',
+      },
+    ],
+  });
+
+  assert.deepEqual(failures, [
+    'MISSING header in docs/superpowers/specs/feature.md (check: superpowers-status-enum)',
+  ]);
+});
+
+test('document header check config reports malformed entries', () => {
+  const errors = validateHeaderCheckConfig('.agent-trigger-kit/generated.json', 'demo-ops', [
+    {
+      name: '',
+      globs: [],
+      headerLines: 0,
+      requirePattern: '(',
+      exclude: ['docs/plans/**'],
+    },
+  ]);
+
+  assert.match(errors.join('\n'), /headerChecks\[0\]\.name must be a non-empty string/);
+  assert.match(errors.join('\n'), /headerChecks\[0\]\.globs must be a non-empty array/);
+  assert.match(errors.join('\n'), /headerChecks\[0\]\.headerLines must be a positive integer/);
+  assert.match(errors.join('\n'), /headerChecks\[0\]\.requirePattern is invalid/);
 });
 
 test('normalizeSkillBodyForPlaybook strips leading h1 and demotes headings outside fences', () => {
