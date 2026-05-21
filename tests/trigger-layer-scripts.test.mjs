@@ -4452,6 +4452,132 @@ test('validator accepts a generated command without a maintenance contract point
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
+test('validator treats missing headerChecks as a no-op', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 2,
+    kitVersion: '0.1.9',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+      },
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test('validator reports non-array headerChecks as malformed config', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 2,
+    kitVersion: '0.1.9',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+        headerChecks: {},
+      },
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /\.agent-trigger-kit\/generated\.json \(demo-ops\): headerChecks must be an array when present/,
+  );
+});
+
+test('validator reports configured missing document headers', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  write(root, 'docs/superpowers/plans/feature.md', '# Feature Plan\n\nBody.\n');
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 2,
+    kitVersion: '0.1.9',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+        headerChecks: [
+          {
+            name: 'superpowers-plan-lifecycle',
+            globs: ['docs/superpowers/plans/*.md'],
+            headerLines: 6,
+            requirePattern: '^Status: ',
+          },
+        ],
+      },
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /MISSING header in docs\/superpowers\/plans\/feature\.md \(check: superpowers-plan-lifecycle\)/,
+  );
+});
+
+test('validator accepts configured document headers and excludes legacy paths', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook\nStatus: Draft\n');
+  write(root, 'docs/superpowers/plans/feature.md', '# Feature Plan\nStatus: Draft\n');
+  write(root, 'docs/plans/legacy.md', '# Legacy Plan\n');
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 2,
+    kitVersion: '0.1.9',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+        headerChecks: [
+          {
+            name: 'superpowers-plan-lifecycle',
+            globs: ['docs/**/*.md'],
+            headerLines: 6,
+            requirePattern: '^Status: ',
+            exclude: ['docs/plans/**'],
+          },
+        ],
+      },
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 test('validator accepts old generated manifests without playbook-first flag', () => {
   const root = makeRoot();
   const { pluginDir } = createMinimalPlugin(root, { commands: false });

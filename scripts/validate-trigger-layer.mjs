@@ -11,6 +11,10 @@ import {
   normalizeGeneratedManifest,
 } from './lib/generated-manifest.mjs';
 import {
+  collectDocumentHeaderCheckFailures,
+  validateHeaderCheckConfig,
+} from './lib/document-header-checks.mjs';
+import {
   PLAYBOOK_FIRST_GUIDANCE,
   hasPlaybookFirstGuidance,
   hasPlaybookFirstSignal,
@@ -381,6 +385,42 @@ function validatePlaybookFirstGuidance() {
   }
 }
 
+function generatedHeaderCheckEntries(generated) {
+  if (!generated || typeof generated !== 'object') return [];
+  if (generated.schemaVersion === 2 && generated.plugins && typeof generated.plugins === 'object') {
+    return Object.entries(generated.plugins).filter(
+      ([, plugin]) => plugin && typeof plugin === 'object' && !Array.isArray(plugin),
+    );
+  }
+  if (typeof generated.pluginName === 'string' && generated.pluginName) {
+    return [[generated.pluginName, generated]];
+  }
+  if (Array.isArray(generated.files)) {
+    return [['__legacy_v1_without_plugin_name__', generated]];
+  }
+  return [];
+}
+
+function validateDocumentHeaderChecks() {
+  const generatedPath = '.agent-trigger-kit/generated.json';
+  if (!existsSync(pathOf(generatedPath))) return;
+
+  const generated = parseJson(generatedPath);
+  if (!generated) return;
+
+  for (const [pluginName, plugin] of generatedHeaderCheckEntries(generated)) {
+    const configErrors = validateHeaderCheckConfig(generatedPath, pluginName, plugin.headerChecks);
+    for (const error of configErrors) fail(error);
+    if (configErrors.length > 0 || !Array.isArray(plugin.headerChecks)) continue;
+    for (const error of collectDocumentHeaderCheckFailures({
+      root,
+      checks: plugin.headerChecks,
+    })) {
+      fail(error);
+    }
+  }
+}
+
 function runGit(argsToRun) {
   const result = spawnSync('git', argsToRun, { cwd: root, encoding: 'utf8' });
   if (result.error) {
@@ -706,6 +746,7 @@ validateNameCollisions(commandNames, 'command');
 validateCursorRules();
 validateMaintenanceContractPointers();
 validatePlaybookFirstGuidance();
+validateDocumentHeaderChecks();
 validateRequiredVersionBump();
 
 if (failures.length > 0) {
