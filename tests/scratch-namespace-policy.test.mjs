@@ -13,9 +13,13 @@ function makeRoot() {
 }
 
 function runScript(root) {
+  return runScriptArgs(['--root', root]);
+}
+
+function runScriptArgs(args) {
   return spawnSync(
     process.execPath,
-    [join(repoRoot, 'scripts/check-scratch-namespace.mjs'), '--root', root],
+    [join(repoRoot, 'scripts/check-scratch-namespace.mjs'), ...args],
     {
       cwd: repoRoot,
       encoding: 'utf8',
@@ -74,6 +78,15 @@ test('scratch namespace check fails and lists tracked scratch files', () => {
     assert.match(result.stderr, /Tracked scratch namespace files are not allowed/);
     assert.match(result.stderr, /docs\/superpowers\/specs\/draft-design\.md/);
     assert.match(result.stderr, /relocate durable files to docs\/designs\//);
+    assert.match(result.stderr, /git mv/);
     assert.match(result.stderr, /git rm/);
+    assert.match(result.stderr, /\.gitignore does not untrack existing files/i);
   });
+});
+
+test('scratch namespace check reports a missing root option value', () => {
+  const result = runScriptArgs(['--root']);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /--root requires a path value/i);
 });

@@ -5,6 +5,11 @@ import { normalize } from 'node:path';
 import { parseArgs } from './lib/args.mjs';
 
 const args = parseArgs(process.argv.slice(2));
+if (args.root === true) {
+  console.error('--root requires a path value');
+  process.exit(2);
+}
+
 const root = normalize(args.root || process.cwd());
 
 const result = spawnSync('git', ['-C', root, 'ls-files', 'docs/superpowers/'], {
@@ -30,7 +35,10 @@ console.error('Tracked scratch namespace files are not allowed in the final main
 console.error('');
 console.error('docs/superpowers/ is branch-local scratch space.');
 console.error(
-  'Please relocate durable files to docs/designs/ or remove scratch artifacts with git rm.',
+  'Please relocate durable files to docs/designs/ with git mv or remove scratch artifacts with git rm.',
+);
+console.error(
+  '.gitignore does not untrack existing files; tracked files must be moved or removed.',
 );
 console.error('');
 console.error('Tracked files:');
