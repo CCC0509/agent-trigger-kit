@@ -2,9 +2,11 @@
 import { normalize } from 'node:path';
 
 import { parseArgs, requiredArg } from './lib/args.mjs';
-import { writeTriggerLayer } from './lib/trigger-layer.mjs';
+import { SUPERPOWERS_HEADER_CHECKS, writeTriggerLayer } from './lib/trigger-layer.mjs';
 
-const args = parseArgs(process.argv.slice(2));
+const args = parseArgs(process.argv.slice(2), {
+  booleanKeys: ['force', 'with-superpowers-gate'],
+});
 const root = normalize(requiredArg(args, 'root'));
 const pluginName = requiredArg(args, 'plugin');
 const tasks = requiredArg(args, 'tasks')
@@ -71,6 +73,7 @@ try {
     initialVersion: args['initial-version'] || '0.1.0',
     writePlaybookPlaceholder: true,
     playbookFirstGuidance: true,
+    ...(args['with-superpowers-gate'] ? { headerChecks: SUPERPOWERS_HEADER_CHECKS } : {}),
   });
 } catch (error) {
   console.error(error.message);

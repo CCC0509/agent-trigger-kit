@@ -58,6 +58,9 @@ cleanup.
 - If Codex project-plugin discovery was tested, remove the temporary marketplace
   and confirm the global config no longer contains the project plugin.
 - A fresh Claude Code session after installing or updating Claude commands.
+- When `.agent-trigger-kit/generated.json` contains `headerChecks`, treat
+  `MISSING header in <file> (check: <name>)` as a committed document lifecycle
+  policy failure, not as trigger-wrapper drift.
 
 ## Common Mistakes
 

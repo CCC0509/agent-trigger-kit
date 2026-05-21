@@ -17,3 +17,5 @@ Apply the `agent-trigger-kit:cross-agent-trigger-layer` skill before answering o
 - Identify the canonical playbook, plugin name, and task names.
 - Prefer the bundled `scripts/init-project-trigger-layer.mjs` when scaffolding files.
 - Keep generated trigger layers thin and playbook-centric.
+- Use `--with-superpowers-gate` only when the project explicitly wants the
+  Superpowers plan/spec status-header check committed during scaffold.

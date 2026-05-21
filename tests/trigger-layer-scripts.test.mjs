@@ -31,6 +31,11 @@ import {
   normalizeGeneratedManifest,
   upsertGeneratedPluginEntry,
 } from '../scripts/lib/generated-manifest.mjs';
+import {
+  collectDocumentHeaderCheckFailures,
+  expandHeaderCheckGlobs,
+  validateHeaderCheckConfig,
+} from '../scripts/lib/document-header-checks.mjs';
 import { PLAYBOOK_FIRST_GUIDANCE } from '../scripts/lib/playbook-first-guidance.mjs';
 import { writeTriggerLayer } from '../scripts/lib/trigger-layer.mjs';
 
@@ -655,6 +660,218 @@ test('generated manifest drops malformed playbook-first guidance flags', () => {
 
     assert.equal(updated.plugins['demo-ops'].playbookFirstGuidance, undefined);
   }
+});
+
+test('generated manifest round-trips header checks', () => {
+  const headerChecks = [
+    {
+      name: 'superpowers-plan-lifecycle',
+      globs: ['docs/superpowers/plans/*.md'],
+      headerLines: 6,
+      requirePattern: '^Status: ',
+      exclude: ['docs/plans/**'],
+    },
+  ];
+  const manifest = {
+    schemaVersion: 2,
+    kitVersion: '0.1.9',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+        headerChecks,
+      },
+    },
+  };
+
+  const normalized = normalizeGeneratedManifest(manifest);
+  assert.deepEqual(normalized.plugins['demo-ops'].headerChecks, headerChecks);
+
+  const updated = upsertGeneratedPluginEntry(
+    manifest,
+    'demo-ops',
+    {
+      pluginVersion: '0.1.1',
+      playbook: 'docs/agent-playbooks/demo-ops.md',
+      maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+      tasks: ['docs-review'],
+      files: [],
+      headerChecks,
+    },
+    { kitVersion: '0.1.10', templateVersion: 1 },
+  );
+
+  assert.deepEqual(updated.plugins['demo-ops'].headerChecks, headerChecks);
+});
+
+test('generated manifest omits malformed header checks during normalization', () => {
+  for (const headerChecks of [{}, 'yes', true]) {
+    const normalized = normalizeGeneratedManifest({
+      schemaVersion: 2,
+      plugins: {
+        'demo-ops': {
+          pluginVersion: '0.1.0',
+          playbook: 'docs/agent-playbooks/demo-ops.md',
+          maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+          tasks: ['docs-review'],
+          files: [],
+          headerChecks,
+        },
+      },
+    });
+
+    assert.equal(normalized.plugins['demo-ops'].headerChecks, undefined);
+  }
+});
+
+test('generated manifest carries v1 header checks forward', () => {
+  const headerChecks = [
+    {
+      name: 'superpowers-plan-lifecycle',
+      globs: ['docs/superpowers/plans/*.md'],
+      headerLines: 6,
+      requirePattern: '^Status: ',
+    },
+  ];
+
+  const normalized = normalizeGeneratedManifest({
+    schemaVersion: 1,
+    pluginName: 'demo-ops',
+    pluginVersion: '0.1.0',
+    playbook: 'docs/agent-playbooks/demo-ops.md',
+    maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+    tasks: ['docs-review'],
+    files: [],
+    headerChecks,
+  });
+
+  assert.deepEqual(normalized.plugins['demo-ops'].headerChecks, headerChecks);
+});
+
+test('document header checks pass when a required header appears within the configured top lines', () => {
+  const root = makeRoot();
+  write(
+    root,
+    'docs/superpowers/plans/feature.md',
+    `# Feature Plan
+Status: Draft
+
+Body.
+`,
+  );
+
+  const failures = collectDocumentHeaderCheckFailures({
+    root,
+    checks: [
+      {
+        name: 'superpowers-plan-lifecycle',
+        globs: ['docs/superpowers/plans/*.md'],
+        headerLines: 6,
+        requirePattern: '^Status: ',
+      },
+    ],
+  });
+
+  assert.deepEqual(failures, []);
+});
+
+test('document header checks fail when the header is missing from the top lines', () => {
+  const root = makeRoot();
+  write(
+    root,
+    'docs/superpowers/plans/feature.md',
+    `# Feature Plan
+
+Intro.
+
+More intro.
+
+Status: Draft
+`,
+  );
+
+  const failures = collectDocumentHeaderCheckFailures({
+    root,
+    checks: [
+      {
+        name: 'superpowers-plan-lifecycle',
+        globs: ['docs/superpowers/plans/*.md'],
+        headerLines: 3,
+        requirePattern: '^Status: ',
+      },
+    ],
+  });
+
+  assert.deepEqual(failures, [
+    'MISSING header in docs/superpowers/plans/feature.md (check: superpowers-plan-lifecycle)',
+  ]);
+});
+
+test('document header checks respect exclude globs', () => {
+  const root = makeRoot();
+  write(root, 'docs/superpowers/plans/current.md', '# Current\nStatus: Draft\n');
+  write(root, 'docs/superpowers/plans/legacy.md', '# Legacy\n');
+
+  const files = expandHeaderCheckGlobs(root, {
+    globs: ['docs/superpowers/plans/*.md'],
+    exclude: ['docs/superpowers/plans/legacy.md'],
+  });
+
+  assert.deepEqual(files, ['docs/superpowers/plans/current.md']);
+});
+
+test('document header glob expansion skips symlinked directories', () => {
+  const root = makeRoot();
+  write(root, 'docs/superpowers/plans/current.md', '# Current\nStatus: Draft\n');
+  symlinkSync(root, join(root, 'docs/superpowers/plans/loop'), 'dir');
+
+  const files = expandHeaderCheckGlobs(root, {
+    globs: ['docs/superpowers/plans/**'],
+  });
+
+  assert.deepEqual(files, ['docs/superpowers/plans/current.md']);
+});
+
+test('document header checks support enum policies through requirePattern', () => {
+  const root = makeRoot();
+  write(root, 'docs/superpowers/specs/feature.md', '# Feature\nStatus: Banana\n');
+
+  const failures = collectDocumentHeaderCheckFailures({
+    root,
+    checks: [
+      {
+        name: 'superpowers-status-enum',
+        globs: ['docs/superpowers/specs/*.md'],
+        headerLines: 6,
+        requirePattern: '^Status: (Draft|Approved|Implemented)$',
+      },
+    ],
+  });
+
+  assert.deepEqual(failures, [
+    'MISSING header in docs/superpowers/specs/feature.md (check: superpowers-status-enum)',
+  ]);
+});
+
+test('document header check config reports malformed entries', () => {
+  const errors = validateHeaderCheckConfig('.agent-trigger-kit/generated.json', 'demo-ops', [
+    {
+      name: '',
+      globs: [],
+      headerLines: 0,
+      requirePattern: '(',
+      exclude: ['docs/plans/**'],
+    },
+  ]);
+
+  assert.match(errors.join('\n'), /headerChecks\[0\]\.name must be a non-empty string/);
+  assert.match(errors.join('\n'), /headerChecks\[0\]\.globs must be a non-empty array/);
+  assert.match(errors.join('\n'), /headerChecks\[0\]\.headerLines must be a positive integer/);
+  assert.match(errors.join('\n'), /headerChecks\[0\]\.requirePattern is invalid/);
 });
 
 test('normalizeSkillBodyForPlaybook strips leading h1 and demotes headings outside fences', () => {
@@ -2660,6 +2877,107 @@ test('init keeps playbook-first signal out of command and Cursor routing descrip
   assert.doesNotMatch(cursorFrontmatter, /Project playbook is source of truth\./);
 });
 
+test('init does not write active headerChecks by default', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(generatedPluginEntry(root).headerChecks, undefined);
+});
+
+test('init writes an inactive headerChecks example in the maintenance contract', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const maintenance = readFileSync(join(root, '.agent-trigger-kit/MAINTENANCE.md'), 'utf8');
+  assert.match(maintenance, /## Optional Document Header Checks/);
+  assert.match(maintenance, /"headerChecks": \[/);
+  assert.equal(generatedPluginEntry(root).headerChecks, undefined);
+});
+
+test('init writes superpowers headerChecks only with explicit flag', () => {
+  const root = makeRoot();
+  const result = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--with-superpowers-gate',
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(generatedPluginEntry(root).headerChecks, [
+    {
+      name: 'superpowers-plan-lifecycle',
+      globs: ['docs/superpowers/specs/*.md', 'docs/superpowers/plans/*.md'],
+      headerLines: 6,
+      requirePattern: '^Status: ',
+      exclude: ['docs/plans/**'],
+    },
+  ]);
+});
+
+test('init preserves existing headerChecks on re-run without the explicit flag', () => {
+  const root = makeRoot();
+  const first = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--with-superpowers-gate',
+  ]);
+  assert.equal(first.status, 0, first.stderr || first.stdout);
+
+  const second = runScript('init-project-trigger-layer.mjs', [
+    '--root',
+    root,
+    '--plugin',
+    'demo-ops',
+    '--tasks',
+    'docs-review',
+    '--playbook',
+    'docs/agent-playbooks/demo-ops.md',
+    '--force',
+  ]);
+  assert.equal(second.status, 0, second.stderr || second.stdout);
+  assert.deepEqual(generatedPluginEntry(root).headerChecks, [
+    {
+      name: 'superpowers-plan-lifecycle',
+      globs: ['docs/superpowers/specs/*.md', 'docs/superpowers/plans/*.md'],
+      headerLines: 6,
+      requirePattern: '^Status: ',
+      exclude: ['docs/plans/**'],
+    },
+  ]);
+});
+
 test('init uses task-specific descriptions and appends playbook-first signal', () => {
   const root = makeRoot();
   const result = runScript('init-project-trigger-layer.mjs', [
@@ -4233,6 +4551,132 @@ test('validator accepts a generated command without a maintenance contract point
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /trigger layer validation passed/);
+});
+
+test('validator treats missing headerChecks as a no-op', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 2,
+    kitVersion: '0.1.9',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+      },
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test('validator reports non-array headerChecks as malformed config', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 2,
+    kitVersion: '0.1.9',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+        headerChecks: {},
+      },
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /\.agent-trigger-kit\/generated\.json \(demo-ops\): headerChecks must be an array when present/,
+  );
+});
+
+test('validator reports configured missing document headers', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  write(root, 'docs/superpowers/plans/feature.md', '# Feature Plan\n\nBody.\n');
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 2,
+    kitVersion: '0.1.9',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+        headerChecks: [
+          {
+            name: 'superpowers-plan-lifecycle',
+            globs: ['docs/superpowers/plans/*.md'],
+            headerLines: 6,
+            requirePattern: '^Status: ',
+          },
+        ],
+      },
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /MISSING header in docs\/superpowers\/plans\/feature\.md \(check: superpowers-plan-lifecycle\)/,
+  );
+});
+
+test('validator accepts configured document headers and excludes legacy paths', () => {
+  const root = makeRoot();
+  createPackage(root);
+  const { pluginDir } = createMinimalPlugin(root);
+  writeValidSkillAndCommand(root, pluginDir);
+  write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook\nStatus: Draft\n');
+  write(root, 'docs/superpowers/plans/feature.md', '# Feature Plan\nStatus: Draft\n');
+  write(root, 'docs/plans/legacy.md', '# Legacy Plan\n');
+  writeJson(root, '.agent-trigger-kit/generated.json', {
+    schemaVersion: 2,
+    kitVersion: '0.1.9',
+    templateVersion: 1,
+    plugins: {
+      'demo-ops': {
+        pluginVersion: '0.1.0',
+        playbook: 'docs/agent-playbooks/demo-ops.md',
+        maintenanceContract: '.agent-trigger-kit/MAINTENANCE.md',
+        tasks: ['docs-review'],
+        files: [],
+        headerChecks: [
+          {
+            name: 'superpowers-plan-lifecycle',
+            globs: ['docs/**/*.md'],
+            headerLines: 6,
+            requirePattern: '^Status: ',
+            exclude: ['docs/plans/**'],
+          },
+        ],
+      },
+    },
+  });
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
 test('validator accepts old generated manifests without playbook-first flag', () => {
