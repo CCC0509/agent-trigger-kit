@@ -17,5 +17,5 @@ Apply the `agent-trigger-kit:cross-agent-trigger-layer` skill before answering o
 - Run the bundled validator against the target project.
 - Report manifest, skill, command, Cursor rule, and pointer-doc drift separately.
 - Report configured document header failures as `MISSING header in <file>
-  (check: <name>)`.
+(check: <name>)`.
 - Do not rewrite canonical playbook content unless the user asks.
