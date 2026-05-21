@@ -43,6 +43,10 @@ jobs:
       - name: Validate trigger layer
         run: npm run validate
 
+      - name: Check scratch namespace
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: npm run check:scratch-namespace
+
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code@2.1.116
 

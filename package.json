@@ -13,6 +13,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "test": "node --test",
+    "check:scratch-namespace": "node scripts/check-scratch-namespace.mjs",
     "ops:plugin-cache-sync": "node scripts/sync-codex-plugin-cache.mjs",
     "ops:local-agent-sync": "node scripts/update-local-agent-triggers.mjs",
     "ops:plugin-version-check": "node scripts/check-plugin-version.mjs",

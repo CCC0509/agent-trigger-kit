@@ -33,6 +33,8 @@ test('package exposes lint and format tooling with locked dev dependencies', () 
   assert.equal(pkg.scripts.lint, 'eslint .');
   assert.equal(pkg.scripts.format, 'prettier --write .');
   assert.equal(pkg.scripts['format:check'], 'prettier --check .');
+  assert.equal(pkg.scripts['check:scratch-namespace'], 'node scripts/check-scratch-namespace.mjs');
+  assert.equal(pkg.scripts.validate, 'node scripts/validate-trigger-layer.mjs --root .');
   assert.match(pkg.devDependencies?.eslint, /^\d+\.\d+\.\d+$/);
   assert.match(pkg.devDependencies?.prettier, /^\d+\.\d+\.\d+$/);
 });
@@ -71,4 +73,31 @@ test('README documents playbook-first task descriptions', () => {
   const readme = read('README.md');
   assert.match(readme, /playbook-first guidance/i);
   assert.match(readme, /--task-descriptions/);
+});
+
+test('scratch namespace policy is documented and reviewable', () => {
+  const gitignore = read('.gitignore');
+  const contributing = read('CONTRIBUTING.md');
+  const prTemplate = read('.github/PULL_REQUEST_TEMPLATE.md');
+
+  assert.match(gitignore, /^docs\/superpowers\/$/m);
+  assert.match(contributing, /docs\/superpowers\/.*scratch space/is);
+  assert.match(contributing, /git add -f docs\/superpowers\//);
+  assert.match(contributing, /docs\/designs\//);
+  assert.match(contributing, /relocate durable/i);
+  assert.match(contributing, /drop\s+non-durable/i);
+  assert.match(prTemplate, /docs\/superpowers\//);
+  assert.match(
+    prTemplate,
+    /relocated to `docs\/designs\/` or dropped|relocated to docs\/designs\/ or dropped/i,
+  );
+});
+
+test('scratch namespace CI gate is scoped to main pushes', () => {
+  const ci = read('.github/workflows/ci.yml');
+
+  assert.match(
+    ci,
+    /- name: Check scratch namespace\s+if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\s+run: npm run check:scratch-namespace/,
+  );
 });

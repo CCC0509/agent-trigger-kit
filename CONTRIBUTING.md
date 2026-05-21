@@ -42,6 +42,24 @@ npm pack --cache /private/tmp/agent-trigger-kit-npm-cache --dry-run --json
 CI pins Claude Code CLI to `@anthropic-ai/claude-code@2.1.116`. Bump that
 version intentionally when validating against a newer Claude CLI release.
 
+## Scratch Specs And Plans
+
+`docs/superpowers/` is branch-local scratch space for Superpowers specs and
+plans. It is ignored repository-wide so `git add .` does not accidentally stage
+working design artifacts.
+
+Create a feature branch before writing scratch specs or plans. If a scratch
+document needs review in a pull request, stage it explicitly:
+
+```bash
+git add -f docs/superpowers/specs/<date>-<topic>-design.md
+git add -f docs/superpowers/plans/<date>-<topic>.md
+```
+
+Before merge, relocate durable scratch documents to `docs/designs/` or drop
+non-durable scratch artifacts from the branch. `docs/superpowers/` must contain
+no tracked files in the final `main` tree.
+
 ## Code Style
 
 - Keep scripts small and focused.
