@@ -4,6 +4,7 @@
 
 ## Verification
 
+- [ ] `npm run preflight`
 - [ ] `npm test`
 - [ ] `npm run validate`
 

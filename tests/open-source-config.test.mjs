@@ -4,10 +4,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { parse as parseYaml } from 'yaml';
+
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 function read(path) {
   return readFileSync(join(repoRoot, path), 'utf8');
+}
+
+function readCiWorkflow() {
+  return parseYaml(read('.github/workflows/ci.yml'));
 }
 
 function parseChangelogPatchVersions(changelog) {
@@ -38,6 +44,8 @@ function assertNoPatchVersionGaps(versions) {
 
 test('ci runs the quality gate on Ubuntu and macOS with a pinned Claude CLI', () => {
   const ci = read('.github/workflows/ci.yml');
+  const workflow = readCiWorkflow();
+  const validateRuns = workflow.jobs.validate.steps.map((step) => step.run).filter(Boolean);
 
   assert.match(ci, /matrix:/);
   assert.match(ci, /ubuntu-latest/);
@@ -45,11 +53,12 @@ test('ci runs the quality gate on Ubuntu and macOS with a pinned Claude CLI', ()
   assert.match(ci, /npm ci/);
   assert.match(ci, /npm run lint/);
   assert.match(ci, /npm run format:check/);
+  assert.equal(validateRuns.includes('npm run check:scratch-namespace'), true);
   assert.match(ci, /@anthropic-ai\/claude-code@\d+\.\d+\.\d+/);
   assert.doesNotMatch(ci, /npm install -g @anthropic-ai\/claude-code\s*$/m);
 });
 
-test('package exposes lint and format tooling with locked dev dependencies', () => {
+test('package exposes lint format and preflight tooling with locked dev dependencies', () => {
   const pkg = JSON.parse(read('package.json'));
   const lock = JSON.parse(read('package-lock.json'));
 
@@ -61,6 +70,10 @@ test('package exposes lint and format tooling with locked dev dependencies', () 
   assert.equal(pkg.scripts['format:check'], 'prettier --check .');
   assert.equal(pkg.scripts['check:scratch-namespace'], 'node scripts/check-scratch-namespace.mjs');
   assert.equal(pkg.scripts.validate, 'node scripts/validate-trigger-layer.mjs --root .');
+  assert.equal(
+    pkg.scripts.preflight,
+    'npm run lint && npm run format:check && npm test && npm run validate && npm run check:scratch-namespace',
+  );
   assert.match(pkg.devDependencies?.eslint, /^\d+\.\d+\.\d+$/);
   assert.match(pkg.devDependencies?.prettier, /^\d+\.\d+\.\d+$/);
 });
@@ -125,6 +138,7 @@ test('completion workflow documents plugin-visible version bump gate', () => {
 test('contributing documents premerge version reconciliation', () => {
   const pkg = JSON.parse(read('package.json'));
   const contributing = read('CONTRIBUTING.md');
+  const prTemplate = read('.github/PULL_REQUEST_TEMPLATE.md');
 
   assert.equal(
     pkg.scripts['ops:premerge-version-check'],
@@ -137,6 +151,8 @@ test('contributing documents premerge version reconciliation', () => {
   assert.match(contributing, /source-visible/i);
   assert.match(contributing, /package-lock\.json/);
   assert.match(contributing, /scripts\/install-hooks\.mjs/);
+  assert.match(contributing, /npm run preflight/);
+  assert.match(prTemplate, /npm run preflight/);
   assert.match(contributing, /git push --no-verify/);
 });
 
@@ -170,11 +186,16 @@ test('scratch namespace policy is documented and reviewable', () => {
 
 test('scratch namespace CI gate is scoped to main pushes', () => {
   const ci = read('.github/workflows/ci.yml');
+  const workflow = readCiWorkflow();
+  const scratchRuns = workflow.jobs['scratch-namespace'].steps
+    .map((step) => step.run)
+    .filter(Boolean);
   const scratchJob =
     ci.match(/ {2}scratch-namespace:[\s\S]*?(?=\n {2}[a-zA-Z0-9_-]+:|$)/)?.[0] || '';
 
-  assert.equal((scratchJob.match(/^ {8}run: npm run check:scratch-namespace$/gm) || []).length, 1);
+  assert.deepEqual(scratchRuns, ['npm run check:scratch-namespace']);
   assert.match(ci, /scratch-namespace:/);
+  assert.match(scratchJob, /belt-and-suspenders/i);
   assert.match(scratchJob, /name: Check Scratch Namespace/);
   assert.match(scratchJob, /needs: validate/);
   assert.match(scratchJob, /runs-on: ubuntu-latest/);
@@ -190,17 +211,24 @@ test('scratch namespace CI gate is scoped to main pushes', () => {
 
 test('scratch namespace advisory CI job reports PR warnings without blocking review', () => {
   const ci = read('.github/workflows/ci.yml');
+  const workflow = readCiWorkflow();
+  const advisoryRuns = workflow.jobs['scratch-namespace-advisory'].steps
+    .map((step) => step.run)
+    .filter(Boolean);
   const advisoryJob =
     ci.match(/ {2}scratch-namespace-advisory:[\s\S]*?(?=\n {2}[a-zA-Z0-9_-]+:|$)/)?.[0] || '';
 
   assert.match(ci, /scratch-namespace-advisory:/);
   assert.match(advisoryJob, /name: Scratch Namespace Advisory/);
-  assert.match(advisoryJob, /if: github\.event_name == 'pull_request'/);
+  assert.match(
+    workflow.jobs['scratch-namespace-advisory'].if,
+    /github\.event_name == 'pull_request'.*github\.event\.pull_request\.draft == true/,
+  );
   assert.match(advisoryJob, /runs-on: ubuntu-latest/);
   assert.match(advisoryJob, /actions\/checkout@v4/);
   assert.match(advisoryJob, /actions\/setup-node@v4/);
   assert.match(advisoryJob, /node-version: '20'/);
-  assert.match(advisoryJob, /run: npm run check:scratch-namespace -- --advisory/);
+  assert.deepEqual(advisoryRuns, ['npm run check:scratch-namespace -- --advisory']);
   assert.doesNotMatch(advisoryJob, /continue-on-error/);
   assert.doesNotMatch(advisoryJob, /needs: validate/);
   assert.doesNotMatch(advisoryJob, /npm ci/);

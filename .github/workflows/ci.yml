@@ -37,6 +37,9 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
+      - name: Check scratch namespace
+        run: npm run check:scratch-namespace
+
       - name: Run script tests
         run: npm test
 
@@ -54,8 +57,8 @@ jobs:
 
   scratch-namespace-advisory:
     name: Scratch Namespace Advisory
-    # Draft PRs get early advisory annotations too; this job is informational.
-    if: github.event_name == 'pull_request'
+    # Draft PRs get early advisory annotations before the hard validate gate matters.
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == true
     runs-on: ubuntu-latest
 
     steps:
@@ -72,6 +75,8 @@ jobs:
 
   scratch-namespace:
     name: Check Scratch Namespace
+    # Belt-and-suspenders guard: validate already checks PRs and main pushes, but
+    # keep a final main-only gate so protected history cannot retain scratch docs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     needs: validate
