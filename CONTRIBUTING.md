@@ -65,6 +65,52 @@ Before merge, relocate durable scratch documents to `docs/designs/` or drop
 non-durable scratch artifacts from the branch. `docs/superpowers/` must contain
 no tracked files in the final `main` tree.
 
+## Pre-Merge Version Reconciliation
+
+Before merging an Agent Trigger Kit source branch to `main`, reconcile the
+branch against the intended base and run the local source pre-merge guard:
+
+```bash
+git fetch origin
+git merge origin/main
+npm run ops:premerge-version-check -- --base origin/main
+```
+
+Pass the actual target base when the branch is not main-bound. The guard has no
+default base on purpose; `--base origin/main` is a maintainer decision, not an
+implicit assumption.
+
+The guard composes `ops:plugin-version-check -- --surface source` for the five
+aligned source versions, then verifies that the base is an ancestor of `HEAD`,
+the `CHANGELOG.md` head matches the aligned source version, and source-visible
+changes have bumped the aligned version above the base version.
+
+`CHANGELOG.md` does not use `## Unreleased`; the first `## x.y.z` heading must
+match the aligned source version.
+
+Source-visible paths currently include:
+
+- `.agents/plugins/marketplace.json`
+- `.claude-plugin/marketplace.json`
+- `package.json`
+- `package-lock.json`
+- `plugins/agent-trigger-kit/**`
+- `scripts/**`
+- `templates/**`
+
+`package-lock.json` is intentionally included because lockfile drift can change
+fresh install behavior in CI and clean clones.
+
+To install an opt-in local pre-push hook for main-bound Agent Trigger Kit work:
+
+```bash
+node scripts/install-hooks.mjs
+```
+
+The hook always runs `npm run ops:premerge-version-check -- --base origin/main`.
+When pushing to a sandbox remote or a non-main integration target, use
+`git push --no-verify` or edit the hook for that local checkout.
+
 ## Code Style
 
 - Keep scripts small and focused.

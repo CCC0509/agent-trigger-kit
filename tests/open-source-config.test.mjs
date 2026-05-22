@@ -122,6 +122,24 @@ test('completion workflow documents plugin-visible version bump gate', () => {
   assert.match(readme, /bump.*aligned version/i);
 });
 
+test('contributing documents premerge version reconciliation', () => {
+  const pkg = JSON.parse(read('package.json'));
+  const contributing = read('CONTRIBUTING.md');
+
+  assert.equal(
+    pkg.scripts['ops:premerge-version-check'],
+    'node scripts/premerge-version-check.mjs',
+  );
+  assert.match(contributing, /pre-merge version reconciliation/i);
+  assert.match(contributing, /ops:premerge-version-check -- --base origin\/main/);
+  assert.match(contributing, /CHANGELOG\.md.*head.*aligned source version/is);
+  assert.match(contributing, /## Unreleased/i);
+  assert.match(contributing, /source-visible/i);
+  assert.match(contributing, /package-lock\.json/);
+  assert.match(contributing, /scripts\/install-hooks\.mjs/);
+  assert.match(contributing, /git push --no-verify/);
+});
+
 test('README documents playbook-first task descriptions', () => {
   const readme = read('README.md');
   assert.match(readme, /playbook-first guidance/i);
