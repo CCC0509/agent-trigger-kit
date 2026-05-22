@@ -379,9 +379,10 @@ Name resolution is part of the v1 contract:
 
 - `sets: [skills]` resolves each skill display name from `name:` frontmatter in
   `skills/<dir>/SKILL.md`; when `name:` is absent, it falls back to `<dir>`.
-- `sets: [commands]` resolves each command display name from the basename of
-  `commands/*.md`. Command frontmatter `description:` is not a name, and v1
-  ignores command frontmatter `name:` if one is later added.
+- `sets: [commands]` resolves each command display name from the filename
+  basename of `commands/*.md` with the `.md` extension stripped. Command
+  frontmatter `description:` is not a name, and v1 ignores command frontmatter
+  `name:` if one is later added.
 
 Comparisons use exact trimmed strings and preserve case.
 
@@ -434,6 +435,7 @@ Owner: stock-scanner has 1 actionable drift
   },
   "results": [
     {
+      "resultType": "surface",
       "id": "claude-project-stock-scanner-ops",
       "surface": "claude",
       "scope": "project",
@@ -450,8 +452,14 @@ Owner: stock-scanner has 1 actionable drift
 }
 ```
 
-The JSON contract is guarded by tests for the stable keys `schemaVersion`,
-`plugin`, `status`, `summary`, and `results[*].{id,surface,scope,owner,status}`.
+`results[]` contains every selected surface row result and every configured
+assertion outcome that runs. Surface results use stable keys
+`{resultType,id,surface,scope,owner,status}` with `resultType: "surface"`.
+Assertion results use stable keys `{resultType,id,kind,owner,status}` with
+`resultType: "assertion"`; they do not invent a fake surface or scope.
+
+The JSON contract is guarded by tests for the stable root keys `schemaVersion`,
+`plugin`, `status`, `summary`, surface result keys, and assertion result keys.
 Consumers should key on those stable fields, not free-form messages. Additive
 fields are allowed and covered by JSON output tests.
 

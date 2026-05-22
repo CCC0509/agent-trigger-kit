@@ -909,7 +909,9 @@ surfaces:
   assert.equal(payload.status, 'drift');
   assert.equal(payload.summary.clean, 1);
   assert.equal(payload.summary.drift, 1);
+  assert.equal(payload.results.find((row) => row.id === 'codex-demo').resultType, 'surface');
   assert.equal(payload.results.find((row) => row.id === 'codex-demo').status, 'clean');
+  assert.equal(payload.results.find((row) => row.id === 'claude-demo').resultType, 'surface');
   assert.equal(payload.results.find((row) => row.id === 'claude-demo').status, 'drift');
   assert.match(payload.results.find((row) => row.id === 'claude-demo').nextActions.join('\n'), /claude plugin update/);
 });
@@ -962,7 +964,7 @@ surfaces:
   assert.match(payload.results[0].message, /demo-ops@demo-ops/);
 });
 
-test('component-name-disjoint compares skill frontmatter names with command filename basenames', () => {
+test('component-name-disjoint appends assertion results and strips command .md extensions', () => {
   const root = makeRoot();
   createVersionedPlugin(root, 'demo-ops', '0.1.0');
   write(root, 'plugins/demo-ops/skills/scan/SKILL.md', '---\nname: scan\n---\n# Scan\n');
@@ -988,6 +990,8 @@ assertions:
 
   assert.equal(result.status, 1);
   assert.equal(payload.status, 'drift');
+  assert.equal(payload.results[0].resultType, 'assertion');
+  assert.equal(payload.results[0].kind, 'component-name-disjoint');
   assert.equal(payload.results[0].status, 'drift');
   assert.match(payload.results[0].message, /scan/);
 });
@@ -1087,7 +1091,7 @@ Verifier behavior:
 - `codex-config-absence`: if config missing, clean; else use `extractTomlTableNames()` and exact-match forbidden plugin/marketplace tables.
 - `pointer-doc`: read target pointer doc path from row `path` if present, otherwise `GEMINI.md` for `surface: gemini`; require frontmatter `pointer_only: true`.
 - `static-validator`: return clean in live-check; static failure is owned by `validate`.
-- `component-name-disjoint`: resolve skill display names from `skills/<dir>/SKILL.md` frontmatter `name:` with `<dir>` fallback; resolve command display names from `commands/*.md` filename basenames; compare exact trimmed names and return row status based on `onFailure`.
+- `component-name-disjoint`: resolve skill display names from `skills/<dir>/SKILL.md` frontmatter `name:` with `<dir>` fallback; resolve command display names from `commands/*.md` filename basenames with the `.md` extension stripped; compare exact trimmed names and append an assertion result with `resultType: "assertion"`, `kind`, `id`, `owner`, and status based on `onFailure`.
 
 Apply staleness budgets after a verifier returns drift:
 
