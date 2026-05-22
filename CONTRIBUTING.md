@@ -56,6 +56,11 @@ git add -f docs/superpowers/specs/<date>-<topic>-design.md
 git add -f docs/superpowers/plans/<date>-<topic>.md
 ```
 
+Pull requests run a non-blocking `Scratch Namespace Advisory` check. If tracked
+scratch files are present, the check emits GitHub warning annotations on each
+file so reviewers can see the risk while branch-local design review is still in
+progress. This advisory does not block ordinary review.
+
 Before merge, relocate durable scratch documents to `docs/designs/` or drop
 non-durable scratch artifacts from the branch. `docs/superpowers/` must contain
 no tracked files in the final `main` tree.

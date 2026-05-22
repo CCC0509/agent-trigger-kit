@@ -12,4 +12,4 @@
 - [ ] I kept the change focused and avoided unrelated refactors.
 - [ ] I updated docs or `CHANGELOG.md` for user-visible changes.
 - [ ] I added or updated tests for script behavior changes.
-- [ ] `docs/superpowers/` contains no tracked files in the final merge diff; scratch specs/plans were relocated to `docs/designs/` or dropped.
+- [ ] `docs/superpowers/` contains no tracked files in the final merge diff; any `Scratch Namespace Advisory` warnings were resolved because scratch specs/plans were relocated to `docs/designs/` or dropped before merge.

@@ -6,6 +6,11 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.11
+
+- Added a pull request `Scratch Namespace Advisory` check that emits warning annotations
+  for tracked `docs/superpowers/` files without blocking ordinary review.
+
 ## 0.1.10
 
 - Added opt-in document header checks to trigger-layer validation, configured

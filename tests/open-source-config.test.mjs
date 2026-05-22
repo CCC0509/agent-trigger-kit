@@ -54,6 +54,15 @@ test('open-source polish files document editor, badge, and SemVer expectations',
   assert.match(contributing, /patch/i);
 });
 
+test('changelog documents scratch namespace pre-merge controls in 0.1.11', () => {
+  const changelog = read('CHANGELOG.md');
+  const release = changelog.match(/## 0\.1\.11[\s\S]*?(?=\n## |\n*$)/)?.[0] || '';
+
+  assert.match(release, /Scratch Namespace Advisory/);
+  assert.match(release, /pull request/i);
+  assert.match(release, /warning annotations/i);
+});
+
 test('completion workflow documents plugin-visible version bump gate', () => {
   const agents = read('AGENTS.md');
   const readme = read('README.md');
@@ -91,6 +100,10 @@ test('scratch namespace policy is documented and reviewable', () => {
     prTemplate,
     /relocated to `docs\/designs\/` or dropped|relocated to docs\/designs\/ or dropped/i,
   );
+  assert.match(contributing, /Scratch Namespace Advisory/);
+  assert.match(contributing, /warning annotations/i);
+  assert.match(contributing, /does not block ordinary review/i);
+  assert.match(prTemplate, /Scratch Namespace Advisory/);
 });
 
 test('scratch namespace CI gate is scoped to main pushes', () => {
