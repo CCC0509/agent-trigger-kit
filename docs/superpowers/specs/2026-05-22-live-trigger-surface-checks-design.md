@@ -273,7 +273,8 @@ For `component-name-disjoint`, required assertion-specific fields are:
 
 `onFailure` is author intent, not runtime state. It accepts only `drift` and
 `allowed-drift`. The runtime result still uses the normal result status
-vocabulary (`clean`, `drift`, `allowed-drift`, `validation-error`, `timeout`).
+vocabulary (`clean`, `drift`, `allowed-drift`, `validation-error`,
+`config-error`, `timeout`).
 
 ## Field Semantics
 
@@ -374,10 +375,20 @@ component sets do not share display names. For generated Claude plugins this
 checks skill names and command shim names separately so a plugin does not create
 the same component name twice.
 
+Name resolution is part of the v1 contract:
+
+- `sets: [skills]` resolves each skill display name from `name:` frontmatter in
+  `skills/<dir>/SKILL.md`; when `name:` is absent, it falls back to `<dir>`.
+- `sets: [commands]` resolves each command display name from the basename of
+  `commands/*.md`. Command frontmatter `description:` is not a name, and v1
+  ignores command frontmatter `name:` if one is later added.
+
+Comparisons use exact trimmed strings and preserve case.
+
 Assertions use `onFailure` to say how a failed assertion is classified. Matrix
 authors may set `onFailure: drift` or `onFailure: allowed-drift`; `clean`,
-`validation-error`, and `timeout` are runtime result states and are invalid as
-author declarations.
+`validation-error`, `config-error`, and `timeout` are runtime result states and
+are invalid as author declarations.
 
 The Stock Scanner `stock-scanner-ops` project currently has eight skill wrappers
 and eight command shims with the same names. Claude's `plugin details` output
@@ -418,6 +429,7 @@ Owner: stock-scanner has 1 actionable drift
     "drift": 1,
     "allowedDrift": 1,
     "validationErrors": 0,
+    "configErrors": 0,
     "timeouts": 0
   },
   "results": [
@@ -443,6 +455,12 @@ The JSON contract is guarded by tests for the stable keys `schemaVersion`,
 Consumers should key on those stable fields, not free-form messages. Additive
 fields are allowed and covered by JSON output tests.
 
+The top-level JSON `status` mirrors the winning exit-code class and must not
+collapse failures into a generic error bucket. Valid root statuses are `clean`,
+`drift`, `validation-error`, `config-error`, and `timeout`. An
+allowed-drift-only run exits `0` and uses root `status: "clean"`; consumers that
+care about accepted lag should inspect `summary.allowedDrift`.
+
 ## Exit Codes
 
 Exit codes are intentionally distinct so hooks can soft-fail on drift while
@@ -450,7 +468,7 @@ hard-failing on broken configuration:
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Clean. No drift, validation errors, or timeouts. |
+| 0 | Clean. No actionable drift, validation errors, configuration errors, or timeouts. |
 | 1 | Drift detected. State is actionable by an operator, and the matrix/config is valid. |
 | 2 | Validation error. Source repo, manifests, or runtime metadata are broken or unparsable. |
 | 3 | Live-check configuration or matrix schema error. Upgrade or repair the matrix/checker. |

@@ -793,15 +793,18 @@ if (mode === 'render-matrix') {
 In `scripts/cli.mjs`, add:
 
 ```js
-'live-check': 'live-trigger-surface-check.mjs',
-'render-matrix': 'live-trigger-surface-check.mjs',
+'live-check': { script: 'live-trigger-surface-check.mjs' },
+'render-matrix': { script: 'live-trigger-surface-check.mjs', args: ['render-matrix'] },
 ```
 
-For `render-matrix`, pass a leading `render-matrix` argument when dispatching:
+Dispatch through a command map so command-specific leading args stay with the
+command definition:
 
 ```js
-const dispatchArgs =
-  command === 'render-matrix' ? [join(scriptDir, scriptName), 'render-matrix', ...commandArgs] : [join(scriptDir, scriptName), ...commandArgs];
+const commandEntry = commands[command];
+const scriptName = typeof commandEntry === 'string' ? commandEntry : commandEntry.script;
+const commandPrefixArgs = typeof commandEntry === 'string' ? [] : commandEntry.args || [];
+const dispatchArgs = [join(scriptDir, scriptName), ...commandPrefixArgs, ...commandArgs];
 ```
 
 - [ ] **Step 5: Verify static validation/render tests**
@@ -903,6 +906,7 @@ surfaces:
   const payload = JSON.parse(result.stdout);
 
   assert.equal(result.status, 1);
+  assert.equal(payload.status, 'drift');
   assert.equal(payload.summary.clean, 1);
   assert.equal(payload.summary.drift, 1);
   assert.equal(payload.results.find((row) => row.id === 'codex-demo').status, 'clean');
@@ -953,8 +957,39 @@ surfaces:
   const payload = JSON.parse(result.stdout);
 
   assert.equal(result.status, 1);
+  assert.equal(payload.status, 'drift');
   assert.equal(payload.results[0].status, 'drift');
   assert.match(payload.results[0].message, /demo-ops@demo-ops/);
+});
+
+test('component-name-disjoint compares skill frontmatter names with command filename basenames', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, 'demo-ops', '0.1.0');
+  write(root, 'plugins/demo-ops/skills/scan/SKILL.md', '---\nname: scan\n---\n# Scan\n');
+  write(root, 'plugins/demo-ops/commands/scan.md', '---\ndescription: Scan command\n---\n# Scan\n');
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces: []
+assertions:
+  - id: no-component-collisions
+    kind: component-name-disjoint
+    plugin: demo-ops
+    sets: [skills, commands]
+    onFailure: drift
+    owner: demo
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+  const payload = JSON.parse(result.stdout);
+
+  assert.equal(result.status, 1);
+  assert.equal(payload.status, 'drift');
+  assert.equal(payload.results[0].status, 'drift');
+  assert.match(payload.results[0].message, /scan/);
 });
 
 test('live-check exits zero when filters select no rows', () => {
@@ -990,8 +1025,8 @@ In `scripts/live-trigger-surface-check.mjs`, add helpers:
 ```js
 const EXIT_PRECEDENCE = {
   timeout: 124,
-  configError: 3,
-  validationError: 2,
+  'config-error': 3,
+  'validation-error': 2,
   drift: 1,
   clean: 0,
 };
@@ -1004,16 +1039,29 @@ function exitCodeForResults(results) {
   return 0;
 }
 
+function statusForExitCode(exitCode) {
+  if (exitCode === 124) return 'timeout';
+  if (exitCode === 3) return 'config-error';
+  if (exitCode === 2) return 'validation-error';
+  if (exitCode === 1) return 'drift';
+  return 'clean';
+}
+
 function summarize(results) {
   return {
     clean: results.filter((result) => result.status === 'clean').length,
     drift: results.filter((result) => result.status === 'drift').length,
     allowedDrift: results.filter((result) => result.status === 'allowed-drift').length,
     validationErrors: results.filter((result) => result.status === 'validation-error').length,
+    configErrors: results.filter((result) => result.status === 'config-error').length,
     timeouts: results.filter((result) => result.status === 'timeout').length,
   };
 }
 ```
+
+Add focused coverage for `statusForExitCode(0|1|2|3|124)` so the root JSON
+contract locks `clean`, `drift`, `validation-error`, `config-error`, and
+`timeout` instead of a generic error string.
 
 - [ ] **Step 4: Implement verifiers**
 
@@ -1039,7 +1087,7 @@ Verifier behavior:
 - `codex-config-absence`: if config missing, clean; else use `extractTomlTableNames()` and exact-match forbidden plugin/marketplace tables.
 - `pointer-doc`: read target pointer doc path from row `path` if present, otherwise `GEMINI.md` for `surface: gemini`; require frontmatter `pointer_only: true`.
 - `static-validator`: return clean in live-check; static failure is owned by `validate`.
-- `component-name-disjoint`: read plugin manifest skill/command directories, compare basenames/frontmatter names, and return row status based on `onFailure`.
+- `component-name-disjoint`: resolve skill display names from `skills/<dir>/SKILL.md` frontmatter `name:` with `<dir>` fallback; resolve command display names from `commands/*.md` filename basenames; compare exact trimmed names and return row status based on `onFailure`.
 
 Apply staleness budgets after a verifier returns drift:
 
@@ -1064,7 +1112,7 @@ Human output must include row ID, surface/scope, status, and owner summary. JSON
 {
   schemaVersion: 1,
   plugin: matrix.plugin,
-  status: exitCode === 0 ? 'clean' : exitCode === 1 ? 'drift' : 'error',
+  status: statusForExitCode(exitCode),
   summary,
   results,
 }
@@ -1143,7 +1191,7 @@ test('live trigger surface docs explain matrix ownership and read-only checks', 
 
 Add a README section after the consumer lifecycle static gate:
 
-```markdown
+````markdown
 ### Live Trigger Surface Checks
 
 Consumers own `.agent-trigger-kit/live-surfaces.yaml`. Agent Trigger Kit owns the
@@ -1162,12 +1210,15 @@ agent-trigger-kit render-matrix --root "$CONSUMER_ROOT" --output docs/agent-trig
 `live-check` is read-only by default. It may print manual `nextActions`, but it
 does not update Codex or Claude state unless a future explicit repair mode is
 implemented and invoked.
-```
-```
+````
 
 Update the cross-agent and version-check skills with the same routing rule in shorter form.
 
 - [ ] **Step 4: Bump version and changelog**
+
+The existing `scripts/bump-plugin-version.mjs` accepts `--root`, `--plugin`, and
+`--next patch|minor|major`; keep this invocation unless the bump script itself
+changes in the same task.
 
 Run:
 
