@@ -4,13 +4,28 @@ import { normalize } from 'node:path';
 
 import { parseArgs } from './lib/args.mjs';
 
-const args = parseArgs(process.argv.slice(2));
+const args = parseArgs(process.argv.slice(2), { booleanKeys: ['advisory'] });
 if (args.root === true) {
   console.error('--root requires a path value');
   process.exit(2);
 }
 
 const root = normalize(args.root || process.cwd());
+const advisory = args.advisory === true;
+const warningMessage = 'Tracked scratch namespace file must be relocated or dropped before merge';
+
+function escapeAnnotationProperty(value) {
+  return value
+    .replaceAll('%', '%25')
+    .replaceAll('\r', '%0D')
+    .replaceAll('\n', '%0A')
+    .replaceAll(':', '%3A')
+    .replaceAll(',', '%2C');
+}
+
+function emitWarningAnnotation(file) {
+  console.warn(`::warning file=${escapeAnnotationProperty(file)}::${warningMessage}`);
+}
 
 const result = spawnSync('git', ['-C', root, 'ls-files', 'docs/superpowers/'], {
   encoding: 'utf8',
@@ -27,7 +42,21 @@ if (result.status !== 0) {
 const trackedFiles = result.stdout.split(/\r?\n/).filter(Boolean);
 
 if (trackedFiles.length === 0) {
-  console.log('scratch namespace check passed: docs/superpowers/ has no tracked files');
+  if (advisory) {
+    console.log('scratch namespace advisory passed: docs/superpowers/ has no tracked files');
+  } else {
+    console.log('scratch namespace check passed: docs/superpowers/ has no tracked files');
+  }
+  process.exit(0);
+}
+
+if (advisory) {
+  console.log(
+    `scratch namespace advisory found ${trackedFiles.length} tracked files in docs/superpowers/`,
+  );
+  for (const file of trackedFiles) {
+    emitWarningAnnotation(file);
+  }
   process.exit(0);
 }
 
