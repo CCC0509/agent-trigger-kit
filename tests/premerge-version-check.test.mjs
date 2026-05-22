@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -197,6 +205,31 @@ test('source visible changed files returns only matching paths', () => {
     ]),
     ['package-lock.json', 'plugins/agent-trigger-kit/commands/trigger-layer-init.md'],
   );
+});
+
+test('install hooks writes a main-bound pre-push hook', () => {
+  const root = makeRoot();
+  mkdirSync(join(root, '.git', 'hooks'), { recursive: true });
+
+  const result = runScript('install-hooks.mjs', ['--root', root]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const hookPath = join(root, '.git', 'hooks', 'pre-push');
+  assert.equal(existsSync(hookPath), true);
+  const hook = readFileSync(hookPath, 'utf8');
+  assert.match(hook, /^#!\/bin\/sh/);
+  assert.match(hook, /main-bound Agent Trigger Kit work/);
+  assert.match(hook, /npm run ops:premerge-version-check -- --base origin\/main/);
+  assert.equal((statSync(hookPath).mode & 0o111) !== 0, true);
+});
+
+test('install hooks fails clearly outside a git checkout', () => {
+  const root = makeRoot();
+
+  const result = runScript('install-hooks.mjs', ['--root', root]);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /\.git\/hooks/);
 });
 
 test('premerge version check requires an explicit base', () => {
