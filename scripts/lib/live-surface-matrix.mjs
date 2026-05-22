@@ -49,8 +49,6 @@ export function loadLiveSurfaceMatrix({ root, matrixPath = DEFAULT_MATRIX_PATH }
 export function validateLiveSurfaceMatrix({ matrix }) {
   const errors = [];
   const seenIds = new Set();
-  const surfaces = Array.isArray(matrix?.surfaces) ? matrix.surfaces : [];
-  const assertions = Array.isArray(matrix?.assertions) ? matrix.assertions : [];
 
   if (!matrix || typeof matrix !== 'object') {
     return { errors: ['matrix must be an object'] };
@@ -62,6 +60,21 @@ export function validateLiveSurfaceMatrix({ matrix }) {
     fields: ['schemaVersion', 'plugin', 'surfaces'],
     label: 'matrix',
   });
+
+  if (matrix.schemaVersion !== undefined && matrix.schemaVersion !== 1) {
+    errors.push(`matrix.schemaVersion has unsupported value: ${matrix.schemaVersion}`);
+  }
+
+  if (matrix.surfaces !== undefined && !Array.isArray(matrix.surfaces)) {
+    errors.push('matrix.surfaces must be an array');
+  }
+
+  if (matrix.assertions !== undefined && !Array.isArray(matrix.assertions)) {
+    errors.push('matrix.assertions must be an array');
+  }
+
+  const surfaces = Array.isArray(matrix.surfaces) ? matrix.surfaces : [];
+  const assertions = Array.isArray(matrix.assertions) ? matrix.assertions : [];
 
   for (const [index, surface] of surfaces.entries()) {
     validateRequiredFields({
@@ -97,6 +110,24 @@ export function validateLiveSurfaceMatrix({ matrix }) {
       errors.push(
         `surfaces[${index}].stalenessBudget.mode pointer-only requires artifactType pointer-doc and liveVerifier.kind pointer-doc`,
       );
+    }
+
+    if (surface?.stalenessBudget?.mode === 'pointer-only') {
+      const budget = surface.stalenessBudget;
+      const hasExpiry =
+        budget.until !== undefined ||
+        budget['allowed-until'] !== undefined ||
+        budget.allowedUntil !== undefined;
+
+      if (!hasExpiry) {
+        errors.push(
+          `surfaces[${index}].stalenessBudget.mode pointer-only requires an expiry field`,
+        );
+      }
+
+      if (!budget.reason) {
+        errors.push(`surfaces[${index}].stalenessBudget.mode pointer-only requires reason`);
+      }
     }
   }
 

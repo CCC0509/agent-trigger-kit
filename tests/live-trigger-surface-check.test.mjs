@@ -622,6 +622,40 @@ surfaces:
   assert.equal(JSON.parse(strictResult.stdout).results[0].status, 'drift');
 });
 
+test('live-check keeps expired pointer-only budgets as drift', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, '0.1.0');
+  write(root, 'GEMINI.md', '# Gemini pointer\n');
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: gemini-pointer
+    surface: gemini
+    scope: project
+    plugin: demo-ops
+    artifactType: pointer-doc
+    sourceTruth: source
+    liveVerifier:
+      kind: pointer-doc
+      path: \${ROOT}/GEMINI.md
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: pointer-only
+      until: 2000-01-01
+      reason: expired review window
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stdout).results[0].status, 'drift');
+});
+
 test('live-check flags codex forbidden config residue by exact table names', () => {
   const root = makeRoot();
   createVersionedPlugin(root, '0.1.0');
@@ -671,6 +705,59 @@ surfaces:
   assert.equal(payload.results[0].resultType, 'surface');
   assert.equal(payload.results[0].status, 'drift');
   assert.match(payload.results[0].message, /demo-ops@demo-ops/);
+});
+
+test('live-check defaults codex config absence to CODEX_HOME config', () => {
+  const root = makeRoot();
+  const previousCodexHome = process.env.CODEX_HOME;
+
+  try {
+    process.env.CODEX_HOME = join(root, 'codex-home');
+    createVersionedPlugin(root, '0.1.0');
+    write(
+      root,
+      'codex-home/config.toml',
+      `
+[plugins."demo-ops@demo-ops"]
+enabled = true
+`,
+    );
+    writeLiveMatrix(
+      root,
+      `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: codex-config-residue
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: negative-config-assertion
+    sourceTruth: config
+    liveVerifier:
+      kind: codex-config-absence
+      forbiddenPluginIds:
+        - demo-ops@demo-ops
+      forbiddenMarketplaces: []
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+    );
+
+    const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stdout).results[0].status, 'drift');
+  } finally {
+    if (previousCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  }
 });
 
 test('live-check expands environment fallback paths in codex config absence verifier', () => {
@@ -936,6 +1023,15 @@ surfaces: []
   assert.match(result.stdout, /no rows selected/);
 });
 
+test('cli prints live-check help without requiring a matrix', () => {
+  const result = runScript('cli.mjs', ['live-check', '--help']);
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.status, 0);
+  assert.match(output, /live-check/);
+  assert.match(output, /render-matrix/);
+});
+
 test('cli routes render-matrix command to live surface script', () => {
   const root = makeRoot();
   writeLiveMatrix(
@@ -1188,6 +1284,37 @@ test('live surface matrix rejects invalid assertion onFailure and pointer-only m
   assert.match(validation.errors.join('\n'), /onFailure/);
 });
 
+test('live surface matrix rejects pointer-only budgets without expiry or reason', () => {
+  const root = makeRoot();
+  const matrix = {
+    schemaVersion: 1,
+    plugin: 'demo-ops',
+    surfaces: [
+      {
+        id: 'gemini-pointer',
+        surface: 'gemini',
+        scope: 'project',
+        plugin: 'demo-ops',
+        artifactType: 'pointer-doc',
+        sourceTruth: 'source',
+        liveVerifier: {
+          kind: 'pointer-doc',
+        },
+        headless: 'safe',
+        owner: 'demo',
+        stalenessBudget: {
+          mode: 'pointer-only',
+        },
+      },
+    ],
+  };
+
+  const validation = validateLiveSurfaceMatrix({ root, matrix });
+
+  assert.match(validation.errors.join('\n'), /pointer-only.*expiry/);
+  assert.match(validation.errors.join('\n'), /pointer-only.*reason/);
+});
+
 test('live surface matrix rejects missing top-level required fields and live verifier kind', () => {
   const root = makeRoot();
   const matrix = {
@@ -1223,6 +1350,70 @@ test('live surface matrix rejects missing top-level required fields and live ver
   assert.match(validation.errors.join('\n'), /plugin/);
   assert.match(validation.errors.join('\n'), /liveVerifier\.kind/);
   assert.match(missingSurfacesValidation.errors.join('\n'), /surfaces/);
+});
+
+test('live surface matrix rejects unsupported schema versions and non-array rows', () => {
+  const root = makeRoot();
+  const unsupportedSchemaValidation = validateLiveSurfaceMatrix({
+    root,
+    matrix: {
+      schemaVersion: 2,
+      plugin: 'demo-ops',
+      surfaces: [],
+    },
+  });
+  const nonArraySurfacesValidation = validateLiveSurfaceMatrix({
+    root,
+    matrix: {
+      schemaVersion: 1,
+      plugin: 'demo-ops',
+      surfaces: {},
+    },
+  });
+  const nonArrayAssertionsValidation = validateLiveSurfaceMatrix({
+    root,
+    matrix: {
+      schemaVersion: 1,
+      plugin: 'demo-ops',
+      surfaces: [],
+      assertions: {},
+    },
+  });
+
+  assert.match(unsupportedSchemaValidation.errors.join('\n'), /schemaVersion/);
+  assert.match(nonArraySurfacesValidation.errors.join('\n'), /surfaces must be an array/);
+  assert.match(nonArrayAssertionsValidation.errors.join('\n'), /assertions must be an array/);
+});
+
+test('live-check exits with config error for unsupported schema versions and non-array rows', () => {
+  const root = makeRoot();
+
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 2
+plugin: demo-ops
+surfaces: []
+`,
+  );
+  const unsupportedSchemaResult = runScript('live-trigger-surface-check.mjs', ['--root', root]);
+
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces: {}
+assertions: {}
+`,
+  );
+  const nonArrayRowsResult = runScript('live-trigger-surface-check.mjs', ['--root', root]);
+
+  assert.equal(unsupportedSchemaResult.status, 3);
+  assert.match(unsupportedSchemaResult.stderr, /schemaVersion/);
+  assert.equal(nonArrayRowsResult.status, 3);
+  assert.match(nonArrayRowsResult.stderr, /surfaces must be an array/);
+  assert.match(nonArrayRowsResult.stderr, /assertions must be an array/);
 });
 
 test('live surface matrix renders markdown and extracts codex config table names', () => {

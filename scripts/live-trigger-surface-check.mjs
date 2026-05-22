@@ -20,8 +20,28 @@ import {
 const DEFAULT_MATRIX_PATH = '.agent-trigger-kit/live-surfaces.yaml';
 
 const [mode, ...modeArgs] = process.argv.slice(2);
+const isHelpArg = (value) => value === '--help' || value === '-h';
+
+function printUsage() {
+  console.log(
+    [
+      'Usage:',
+      '  agent-trigger-kit live-check [--root <path>] [--matrix <path>] [--json] [filters]',
+      '  agent-trigger-kit render-matrix --output <path> [--root <path>] [--matrix <path>]',
+      '',
+      'Commands:',
+      '  live-check     Check live agent trigger surfaces from a consumer-owned matrix',
+      '  render-matrix  Render live trigger surface matrix documentation',
+    ].join('\n'),
+  );
+}
 
 if (mode === 'render-matrix') {
+  if (modeArgs.some(isHelpArg)) {
+    printUsage();
+    process.exit(0);
+  }
+
   const args = parseArgs(modeArgs);
   const root = resolve(args.root || process.cwd());
   const matrixPath = args.matrix || DEFAULT_MATRIX_PATH;
@@ -54,6 +74,11 @@ if (mode === 'render-matrix') {
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, renderLiveSurfaceMarkdown(matrix));
   console.log(`wrote ${output}`);
+  process.exit(0);
+}
+
+if (isHelpArg(mode)) {
+  printUsage();
   process.exit(0);
 }
 
@@ -281,7 +306,7 @@ function runSurfaceVerifier({ root, matrix, row, sourceSnapshots, args }) {
 
 function runCodexConfigAbsence({ root, row }) {
   const verifier = row.liveVerifier || {};
-  const configPath = expandPath(root, verifier.configPath || join(root, '.codex/config.toml'));
+  const configPath = expandPath(root, verifier.configPath || '${CODEX_HOME:-~/.codex}/config.toml');
   if (!existsSync(configPath)) {
     return surfaceResult(row, { status: 'clean', message: 'codex config missing' });
   }
@@ -465,7 +490,9 @@ function applyStalenessBudget({ row, result, strict }) {
   const now = new Date();
   const allowedUntil = budget['allowed-until'] || budget.allowedUntil || budget.until;
   const pointerOnlyAllowed =
-    budget.mode === 'pointer-only' && now.getTime() <= endOfUtcDay(now).getTime();
+    budget.mode === 'pointer-only' &&
+    allowedUntil &&
+    now.getTime() <= parseAllowedUntil(allowedUntil).getTime();
   const explicitAllowed =
     budget.mode === 'allowed-until' &&
     allowedUntil &&
@@ -489,12 +516,6 @@ function parseAllowedUntil(value) {
   }
 
   return new Date(value);
-}
-
-function endOfUtcDay(date) {
-  return new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999),
-  );
 }
 
 function isTimedOut({ startedAt, row, matrix, args }) {
