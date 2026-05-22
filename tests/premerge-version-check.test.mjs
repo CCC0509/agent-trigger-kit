@@ -196,3 +196,145 @@ test('source visible changed files returns only matching paths', () => {
     ['package-lock.json', 'plugins/agent-trigger-kit/commands/trigger-layer-init.md'],
   );
 });
+
+test('premerge version check requires an explicit base', () => {
+  const root = makeRoot();
+  initGitFixture(root);
+  createSourceFixture(root);
+
+  const result = runPremerge(root);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /--base is required/);
+  assert.match(result.stderr, /origin\/main/);
+});
+
+test('premerge version check passes a clean source repo reconciled with base', () => {
+  const root = makeRoot();
+  initGitFixture(root);
+  createSourceFixture(root);
+  const base = commitAll(root, 'base source fixture');
+
+  const { result, json } = runPremergeJson(root, ['--base', base]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(json.overallStatus, 'passed');
+  assert.equal(json.exitReason, null);
+  assert.deepEqual(
+    Object.fromEntries(json.checks.map((check) => [check.name, check.status])),
+    {
+      'source-version-consistency': 'passed',
+      'base-reconciliation': 'passed',
+      'changelog-head-alignment': 'passed',
+      'plugin-visible-version-bump': 'passed',
+    },
+  );
+});
+
+test('premerge version check rejects malformed changelog heads', () => {
+  const cases = [
+    {
+      name: 'missing changelog',
+      writeCase(root) {
+        createSourceFixture(root);
+        rmSync(join(root, 'CHANGELOG.md'), { force: true });
+      },
+      pattern: /CHANGELOG\.md is missing/,
+    },
+    {
+      name: 'no second-level heading',
+      writeCase(root) {
+        createSourceFixture(root);
+        writeChangelog(root, '# Changelog\n\nNo releases yet.');
+      },
+      pattern: /no release heading/i,
+    },
+    {
+      name: 'unreleased heading',
+      writeCase(root) {
+        createSourceFixture(root);
+        writeChangelog(root, '# Changelog\n\n## Unreleased\n\n- Draft.');
+      },
+      pattern: /Unreleased/i,
+    },
+    {
+      name: 'non semver heading',
+      writeCase(root) {
+        createSourceFixture(root);
+        writeChangelog(root, '# Changelog\n\n## Next\n\n- Draft.');
+      },
+      pattern: /clean SemVer/i,
+    },
+    {
+      name: 'version mismatch',
+      writeCase(root) {
+        createSourceFixture(root, '0.1.0');
+        writeChangelog(root, '# Changelog\n\n## 0.1.1\n\n- Wrong head.');
+      },
+      pattern: /does not match source version 0\.1\.0/,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const root = makeRoot();
+    initGitFixture(root);
+    testCase.writeCase(root);
+    const base = commitAll(root, testCase.name);
+
+    const { result, json } = runPremergeJson(root, ['--base', base]);
+
+    assert.equal(result.status, 1, `${testCase.name} unexpectedly passed`);
+    assert.equal(json.exitReason, 'changelog-head-alignment');
+    assert.equal(
+      json.checks.find((check) => check.name === 'changelog-head-alignment').status,
+      'failed',
+    );
+    assert.match(result.stderr || JSON.stringify(json), testCase.pattern);
+  }
+});
+
+test('premerge version check skips dependent checks when prerequisites fail', () => {
+  const root = makeRoot();
+  initGitFixture(root);
+  createSourceFixture(root);
+  const codexMarketplace = readJson(root, '.agents/plugins/marketplace.json');
+  codexMarketplace.plugins[0].version = '0.1.1';
+  writeJson(root, '.agents/plugins/marketplace.json', codexMarketplace);
+  commitAll(root, 'misalign source versions');
+
+  const { result, json } = runPremergeJson(root, ['--base', 'missing-base']);
+
+  assert.equal(result.status, 1);
+  assert.equal(json.overallStatus, 'failed');
+  assert.equal(json.exitReason, 'source-version-consistency');
+  assert.equal(
+    json.checks.find((check) => check.name === 'source-version-consistency').status,
+    'failed',
+  );
+  assert.equal(json.checks.find((check) => check.name === 'base-reconciliation').status, 'failed');
+  assert.equal(
+    json.checks.find((check) => check.name === 'changelog-head-alignment').status,
+    'skipped',
+  );
+  assert.equal(
+    json.checks.find((check) => check.name === 'plugin-visible-version-bump').status,
+    'skipped',
+  );
+});
+
+test('premerge version check reports base failure before bump checks', () => {
+  const root = makeRoot();
+  initGitFixture(root);
+  createSourceFixture(root);
+  commitAll(root, 'base source fixture');
+
+  const { result, json } = runPremergeJson(root, ['--base', 'missing-base']);
+
+  assert.equal(result.status, 1);
+  assert.equal(json.exitReason, 'base-reconciliation');
+  assert.equal(json.checks.find((check) => check.name === 'base-reconciliation').status, 'failed');
+  assert.equal(
+    json.checks.find((check) => check.name === 'plugin-visible-version-bump').status,
+    'skipped',
+  );
+});
