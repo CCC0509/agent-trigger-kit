@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
@@ -32,6 +39,43 @@ function write(root, path, text) {
 
 function writeJson(root, path, value) {
   write(root, path, JSON.stringify(value, null, 2));
+}
+
+function writeCodexCache(root, marketplaceName, pluginName, version) {
+  write(
+    root,
+    `.codex/plugins/cache/${marketplaceName}/${pluginName}/${version}/skills/demo/SKILL.md`,
+    `
+---
+name: demo
+---
+
+# Demo
+`,
+  );
+}
+
+function writeClaudeInstalled(root, pluginId, entry) {
+  writeJson(root, '.claude/plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      [pluginId]: [entry],
+    },
+  });
+  const installPath = isAbsolute(entry.installPath)
+    ? relative(root, entry.installPath)
+    : entry.installPath;
+  write(
+    root,
+    `${installPath}/skills/demo/SKILL.md`,
+    `
+---
+name: demo
+---
+
+# Demo
+`,
+  );
 }
 
 function writeLiveMatrix(root, text) {
@@ -276,6 +320,598 @@ surfaces:
 
   assert.equal(result.status, 2);
   assert.match(result.stderr, /render-matrix --output must stay within --root/);
+});
+
+test('live-check reports drift, allowed drift, and clean rows without mutating state', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, '0.1.0');
+  writeCodexCache(root, 'demo-ops', 'demo-ops', '0.1.0');
+  writeClaudeInstalled(root, 'demo-ops@demo-ops', {
+    scope: 'project',
+    projectPath: root,
+    version: '0.0.9',
+    installPath: join(root, '.claude/plugins/cache/demo-ops/demo-ops/0.0.9'),
+  });
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+      codexHome: \${ROOT}/.codex
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+  - id: claude-project-demo-ops
+    surface: claude
+    scope: project
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: project-plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: claude-installed-plugin
+      claudeHome: \${ROOT}/.claude
+      projectPath: \${ROOT}
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+  const beforeInstalled = readFileSync(
+    join(root, '.claude/plugins/installed_plugins.json'),
+    'utf8',
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+
+  assert.equal(result.status, 1);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.status, 'drift');
+  assert.equal(payload.summary.clean, 1);
+  assert.equal(payload.summary.drift, 1);
+  assert.equal(payload.results[0].resultType, 'surface');
+  assert.equal(payload.results[0].status, 'clean');
+  assert.equal(payload.results[1].resultType, 'surface');
+  assert.equal(payload.results[1].status, 'drift');
+  assert.match(payload.results[1].nextActions.join('\n'), /claude plugin update/);
+  assert.equal(
+    readFileSync(join(root, '.claude/plugins/installed_plugins.json'), 'utf8'),
+    beforeInstalled,
+  );
+});
+
+test('live-check claude verifier does not run git or claude commands', () => {
+  const root = makeRoot();
+  const fakeBin = join(root, 'fake-bin');
+  const commandLog = join(root, 'command-log.txt');
+  createVersionedPlugin(root, '0.1.0');
+  writeClaudeInstalled(root, 'demo-ops@demo-ops', {
+    scope: 'project',
+    projectPath: root,
+    version: '0.0.9',
+    installPath: join(root, '.claude/plugins/cache/demo-ops/demo-ops/0.0.9'),
+  });
+  writeJson(root, '.claude/plugins/known_marketplaces.json', {
+    'demo-ops': {
+      installLocation: join(root, 'marketplace-clone'),
+      source: '/unused',
+    },
+  });
+  write(root, 'marketplace-clone/.keep', 'present');
+  write(
+    root,
+    'fake-bin/git',
+    `#!/bin/sh
+echo git >> "${commandLog}"
+exit 99
+`,
+  );
+  chmodSync(join(root, 'fake-bin/git'), 0o755);
+  write(
+    root,
+    'fake-bin/claude',
+    `#!/bin/sh
+echo claude >> "${commandLog}"
+exit 99
+`,
+  );
+  chmodSync(join(root, 'fake-bin/claude'), 0o755);
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: claude-project-demo-ops
+    surface: claude
+    scope: project
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: project-plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: claude-installed-plugin
+      claudeHome: \${ROOT}/.claude
+      projectPath: \${ROOT}
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json'], {
+    env: {
+      ...process.env,
+      PATH: `${fakeBin}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH || ''}`,
+    },
+  });
+
+  assert.equal(result.status, 1);
+  assert.equal(existsSync(commandLog), false);
+});
+
+test('live-check reports validation error for malformed claude installed metadata', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, '0.1.0');
+  writeJson(root, '.claude/plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [null],
+    },
+  });
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: claude-project-demo-ops
+    surface: claude
+    scope: project
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: project-plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: claude-installed-plugin
+      claudeHome: \${ROOT}/.claude
+      projectPath: \${ROOT}
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+
+  assert.equal(result.status, 2);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\n\s+at /);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.status, 'validation-error');
+  assert.equal(payload.results[0].resultType, 'surface');
+  assert.equal(payload.results[0].status, 'validation-error');
+  assert.match(payload.results[0].message, /installed_plugins\.json/);
+});
+
+test('live-check reports validation error for non-string claude install path metadata', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, '0.1.0');
+  writeJson(root, '.claude/plugins/installed_plugins.json', {
+    version: 2,
+    plugins: {
+      'demo-ops@demo-ops': [
+        {
+          scope: 'project',
+          projectPath: root,
+          version: '0.1.0',
+          installPath: { bad: true },
+        },
+      ],
+    },
+  });
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: claude-project-demo-ops
+    surface: claude
+    scope: project
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: project-plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: claude-installed-plugin
+      claudeHome: \${ROOT}/.claude
+      projectPath: \${ROOT}
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+
+  assert.equal(result.status, 2);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\n\s+at /);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.status, 'validation-error');
+  assert.equal(payload.results[0].status, 'validation-error');
+  assert.match(payload.results[0].message, /installPath/);
+});
+
+test('live-check keeps allowed-until date active through end-of-day UTC', () => {
+  const root = makeRoot();
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  createVersionedPlugin(root, '0.1.0');
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+      codexHome: \${ROOT}/.codex
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: allowed-until
+      allowed-until: ${todayUtc}
+      reason: same-day review window
+`,
+  );
+
+  const allowedResult = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+  const strictResult = runScript('live-trigger-surface-check.mjs', [
+    '--root',
+    root,
+    '--json',
+    '--strict-allowed-drift',
+  ]);
+
+  assert.equal(allowedResult.status, 0);
+  assert.equal(JSON.parse(allowedResult.stdout).results[0].status, 'allowed-drift');
+  assert.equal(strictResult.status, 1);
+  assert.equal(JSON.parse(strictResult.stdout).results[0].status, 'drift');
+});
+
+test('live-check flags codex forbidden config residue by exact table names', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, '0.1.0');
+  write(
+    root,
+    '.codex/config.toml',
+    `
+[marketplaces.demo-ops]
+path = "./demo-ops"
+
+[plugins."demo-ops@demo-ops"]
+enabled = true
+`,
+  );
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: codex-config-residue
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: negative-config-assertion
+    sourceTruth: config
+    liveVerifier:
+      kind: codex-config-absence
+      configPath: \${ROOT}/.codex/config.toml
+      forbiddenPluginIds:
+        - demo-ops@demo-ops
+      forbiddenMarketplaces:
+        - demo-ops
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+
+  assert.equal(result.status, 1);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.status, 'drift');
+  assert.equal(payload.results[0].resultType, 'surface');
+  assert.equal(payload.results[0].status, 'drift');
+  assert.match(payload.results[0].message, /demo-ops@demo-ops/);
+});
+
+test('live-check expands environment fallback paths in codex config absence verifier', () => {
+  const root = makeRoot();
+  const previousCodexHome = process.env.CODEX_HOME;
+
+  try {
+    process.env.CODEX_HOME = join(root, '.codex');
+    createVersionedPlugin(root, '0.1.0');
+    write(
+      root,
+      '.codex/config.toml',
+      `
+[plugins."demo-ops@demo-ops"]
+enabled = true
+`,
+    );
+    writeLiveMatrix(
+      root,
+      `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: codex-config-residue
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: negative-config-assertion
+    sourceTruth: config
+    liveVerifier:
+      kind: codex-config-absence
+      configPath: \${CODEX_HOME:-~/.codex}/config.toml
+      forbiddenPluginIds:
+        - demo-ops@demo-ops
+      forbiddenMarketplaces: []
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+    );
+
+    const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+
+    assert.equal(result.status, 1);
+    assert.match(JSON.parse(result.stdout).results[0].message, /demo-ops@demo-ops/);
+  } finally {
+    if (previousCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  }
+});
+
+test('live-check uses effective timeout precedence for row timeout and invalid cli timeout', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, '0.1.0');
+  writeCodexCache(root, 'demo-ops', 'demo-ops', '0.1.0');
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+defaults:
+  timeoutMs: 20000
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    timeoutMs: -1
+    liveVerifier:
+      kind: codex-cache
+      codexHome: \${ROOT}/.codex
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', [
+    '--root',
+    root,
+    '--json',
+    '--timeout-ms',
+    'invalid',
+  ]);
+
+  assert.equal(result.status, 124);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.status, 'timeout');
+  assert.equal(payload.results[0].status, 'timeout');
+});
+
+test('live-check honors AGENT_TRIGGER_LIVE_CHECK_TIMEOUT_MS when no row cli or default timeout exists', () => {
+  const root = makeRoot();
+  const previousTimeout = process.env.AGENT_TRIGGER_LIVE_CHECK_TIMEOUT_MS;
+  createVersionedPlugin(root, '0.1.0');
+  writeCodexCache(root, 'demo-ops', 'demo-ops', '0.1.0');
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+      codexHome: \${ROOT}/.codex
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+
+  try {
+    process.env.AGENT_TRIGGER_LIVE_CHECK_TIMEOUT_MS = '-1';
+    const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+
+    assert.equal(result.status, 124);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.status, 'timeout');
+    assert.equal(payload.results[0].status, 'timeout');
+  } finally {
+    if (previousTimeout === undefined) {
+      delete process.env.AGENT_TRIGGER_LIVE_CHECK_TIMEOUT_MS;
+    } else {
+      process.env.AGENT_TRIGGER_LIVE_CHECK_TIMEOUT_MS = previousTimeout;
+    }
+  }
+});
+
+test('live-check component-name-disjoint appends assertion results and strips command .md extensions', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, '0.1.0');
+  write(
+    root,
+    'plugins/demo-ops/skills/scan/SKILL.md',
+    `
+---
+name: scan
+---
+
+# Scan
+`,
+  );
+  write(
+    root,
+    'plugins/demo-ops/commands/scan.md',
+    `
+---
+description: Scan surfaces
+---
+`,
+  );
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces: []
+assertions:
+  - id: no-skill-command-name-collisions
+    kind: component-name-disjoint
+    plugin: demo-ops
+    sets:
+      - skills
+      - commands
+    onFailure: drift
+    owner: demo
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+
+  assert.equal(result.status, 1);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.status, 'drift');
+  assert.equal(payload.results[0].resultType, 'assertion');
+  assert.equal(payload.results[0].kind, 'component-name-disjoint');
+  assert.equal(payload.results[0].status, 'drift');
+  assert.match(payload.results[0].message, /scan/);
+});
+
+test('live-check component-name-disjoint ignores duplicate names within one set', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, '0.1.0');
+  write(
+    root,
+    'plugins/demo-ops/skills/scan-a/SKILL.md',
+    `
+---
+name: scan
+---
+
+# Scan A
+`,
+  );
+  write(
+    root,
+    'plugins/demo-ops/skills/scan-b/SKILL.md',
+    `
+---
+name: scan
+---
+
+# Scan B
+`,
+  );
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces: []
+assertions:
+  - id: no-skill-command-name-collisions
+    kind: component-name-disjoint
+    plugin: demo-ops
+    sets:
+      - skills
+      - commands
+    onFailure: drift
+    owner: demo
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--json']);
+
+  assert.equal(result.status, 0);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.status, 'clean');
+  assert.equal(payload.results[0].status, 'clean');
+});
+
+test('live-check exits zero when filters select no rows', () => {
+  const root = makeRoot();
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces: []
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', ['--root', root, '--owner', 'nobody']);
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /no rows selected/);
 });
 
 test('cli routes render-matrix command to live surface script', () => {
