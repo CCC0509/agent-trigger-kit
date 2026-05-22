@@ -133,7 +133,7 @@ test('contributing documents premerge version reconciliation', () => {
   assert.match(contributing, /pre-merge version reconciliation/i);
   assert.match(contributing, /ops:premerge-version-check -- --base origin\/main/);
   assert.match(contributing, /CHANGELOG\.md.*head.*aligned source version/is);
-  assert.match(contributing, /## Unreleased/i);
+  assert.match(contributing, /`CHANGELOG\.md` does not use `## Unreleased`/i);
   assert.match(contributing, /source-visible/i);
   assert.match(contributing, /package-lock\.json/);
   assert.match(contributing, /scripts\/install-hooks\.mjs/);

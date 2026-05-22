@@ -209,7 +209,7 @@ test('source visible changed files returns only matching paths', () => {
 
 test('install hooks writes a main-bound pre-push hook', () => {
   const root = makeRoot();
-  mkdirSync(join(root, '.git', 'hooks'), { recursive: true });
+  initGitFixture(root);
 
   const result = runScript('install-hooks.mjs', ['--root', root]);
 
@@ -223,13 +223,42 @@ test('install hooks writes a main-bound pre-push hook', () => {
   assert.equal((statSync(hookPath).mode & 0o111) !== 0, true);
 });
 
+test('install hooks refuses to overwrite an existing pre-push hook', () => {
+  const root = makeRoot();
+  initGitFixture(root);
+  write(root, '.git/hooks/pre-push', '#!/bin/sh\necho existing hook');
+
+  const result = runScript('install-hooks.mjs', ['--root', root]);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Refusing to overwrite existing/);
+  assert.equal(
+    readFileSync(join(root, '.git', 'hooks', 'pre-push'), 'utf8'),
+    '#!/bin/sh\necho existing hook\n',
+  );
+});
+
+test('install hooks supports gitfile worktrees', () => {
+  const root = makeRoot();
+  const gitDir = join(makeRoot(), 'actual-git-dir');
+  const init = runGit(root, ['init', '--separate-git-dir', gitDir, root]);
+  assert.equal(init.status, 0, init.stderr || init.stdout);
+
+  const result = runScript('install-hooks.mjs', ['--root', root]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const hookPath = join(gitDir, 'hooks', 'pre-push');
+  assert.equal(existsSync(hookPath), true);
+  assert.match(readFileSync(hookPath, 'utf8'), /ops:premerge-version-check/);
+});
+
 test('install hooks fails clearly outside a git checkout', () => {
   const root = makeRoot();
 
   const result = runScript('install-hooks.mjs', ['--root', root]);
 
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /\.git\/hooks/);
+  assert.match(result.stderr, /Cannot determine git hooks path/);
 });
 
 test('premerge version check requires an explicit base', () => {
