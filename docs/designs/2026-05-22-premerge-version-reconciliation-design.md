@@ -4,9 +4,8 @@
 version and changelog mistakes before `agent-trigger-kit` branches land on
 `main`.
 
-**Status:** Design spec. This is a branch-local scratch artifact under
-`docs/superpowers/specs/`; before merge it must either graduate to
-`docs/designs/` or be dropped.
+**Status:** Graduated design. This spec was drafted under
+`docs/superpowers/specs/` and moved to `docs/designs/` after implementation.
 
 ## Problem
 
@@ -180,7 +179,6 @@ The wrapper runs four named checks.
 3. `changelog-head-alignment`
 
    Read `CHANGELOG.md` at the working tree. Fail when:
-
    - the file is missing,
    - there is no `## ...` heading,
    - the first heading is `## Unreleased`,
@@ -201,11 +199,11 @@ The wrapper runs four named checks.
 
 Each check reports exactly one of `passed`, `failed`, or `skipped`.
 
-| Check                         | Prerequisites                                               | Skip Rule                                                    |
-| ----------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------ |
-| `source-version-consistency`  | none                                                        | never skipped                                                |
-| `base-reconciliation`         | none                                                        | never skipped                                                |
-| `changelog-head-alignment`    | `source-version-consistency` passed and produced a version  | skipped when the source version is unavailable               |
+| Check                         | Prerequisites                                               | Skip Rule                                                     |
+| ----------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
+| `source-version-consistency`  | none                                                        | never skipped                                                 |
+| `base-reconciliation`         | none                                                        | never skipped                                                 |
+| `changelog-head-alignment`    | `source-version-consistency` passed and produced a version  | skipped when the source version is unavailable                |
 | `plugin-visible-version-bump` | `source-version-consistency` and `base-reconciliation` pass | skipped when the source version or reconciled base is missing |
 
 When an upstream prerequisite fails, dependent checks should be `skipped`, not
