@@ -41,9 +41,9 @@ support the declared schema must fail with exit code `3` and a message such as
 `unsupported matrix schemaVersion 2; upgrade Agent Trigger Kit`.
 
 Within a supported schema version, unknown fields are allowed and preserved in
-JSON output when practical. Unknown fields should produce warnings only when a
-known field name is likely misspelled. This keeps the schema forward-compatible
-without forcing a new `schemaVersion` for every additive field.
+JSON output when practical. Unknown fields do not warn or fail validation in v1;
+this keeps the schema forward-compatible without forcing a new `schemaVersion`
+for every additive field.
 
 ### Consumers Own Their Matrix
 
@@ -146,7 +146,6 @@ surfaces:
     sourceTruth: source-version
     liveVerifier:
       kind: codex-cache
-      codexHome: "${CODEX_HOME:-~/.codex}"
     headless: safe
     owner: toolkit
     stalenessBudget:
@@ -161,7 +160,6 @@ surfaces:
     sourceTruth: source-version
     liveVerifier:
       kind: claude-installed-plugin
-      claudeHome: "${CLAUDE_HOME:-~/.claude}"
     headless: safe
     owner: stock-scanner
     stalenessBudget:
@@ -176,9 +174,10 @@ surfaces:
     sourceTruth: allowlist
     liveVerifier:
       kind: codex-config-absence
-      configPath: "${CODEX_HOME:-~/.codex}/config.toml"
       forbiddenPluginIds:
         - stock-scanner-ops@stock-scanner-ops
+      forbiddenMarketplaces:
+        - stock-scanner-ops
     headless: safe
     owner: stock-scanner
     stalenessBudget:
@@ -219,7 +218,7 @@ assertions:
     sets:
       - skills
       - commands
-    status: drift
+    onFailure: drift
     owner: toolkit
 ```
 
@@ -260,6 +259,22 @@ the required field list above unless the field explicitly says it supports a
 default. In v1, `timeoutMs` supports top-level defaulting; `owner` must remain
 explicit on every row so drift ownership is visible in review.
 
+Required assertion fields:
+
+- `id`
+- `kind`
+- `onFailure`
+- `owner`
+
+For `component-name-disjoint`, required assertion-specific fields are:
+
+- `plugin`
+- `sets`
+
+`onFailure` is author intent, not runtime state. It accepts only `drift` and
+`allowed-drift`. The runtime result still uses the normal result status
+vocabulary (`clean`, `drift`, `allowed-drift`, `validation-error`, `timeout`).
+
 ## Field Semantics
 
 `surface` is the agent or integration surface: `codex`, `claude`, `cursor`,
@@ -289,6 +304,13 @@ or `local`.
 - `pointer-doc`: check the pointer doc exists and has frontmatter
   `pointer_only: true`.
 
+For `codex-cache`, `liveVerifier.codexHome` is optional and defaults to
+`${CODEX_HOME:-~/.codex}`. For `claude-installed-plugin`,
+`liveVerifier.claudeHome` is optional and defaults to
+`${CLAUDE_HOME:-~/.claude}`. Both fields support the same environment expansion
+rules documented in the CLI section. Committed consumer matrices should omit
+these fields unless they intentionally target a non-default home.
+
 For `claude-installed-plugin`, `liveVerifier.projectPath` is optional. When it
 is omitted for a `scope: project` row, the expected project path is the resolved
 `--root` path. When present, `projectPath` supports the same environment and
@@ -298,12 +320,24 @@ machine-specific absolute paths.
 
 For `codex-config-absence`, `configPath` defaults to
 `${CODEX_HOME:-~/.codex}/config.toml`. A missing config file is clean. An
-unparsable config file is a validation error. The verifier checks active plugin
-configuration under `[plugins."<plugin-id>"]` tables and active marketplace
-configuration under `[marketplaces.<marketplace-name>]`; it does not scan
-comments or unrelated string values. `forbiddenPluginIds` use exact
-`name@marketplace` string matching. Future aliases may be added explicitly, but
-v1 does not infer partial names.
+unparsable config file is a validation error. The verifier checks active
+configuration table names only; it does not scan comments or unrelated string
+values.
+
+Example forbidden global residue:
+
+```toml
+[marketplaces.stock-scanner-ops]
+source = "/Users/example/projects/stock-scanner"
+
+[plugins."stock-scanner-ops@stock-scanner-ops"]
+enabled = true
+```
+
+`forbiddenPluginIds` match `[plugins."<plugin-id>"]` table names exactly.
+`forbiddenMarketplaces` match `[marketplaces.<marketplace-name>]` table names
+exactly. Future aliases may be added explicitly, but v1 does not infer partial
+names from free-form config values.
 
 `headless` is a declared capability, not an afterthought. Initial values:
 
@@ -340,10 +374,10 @@ component sets do not share display names. For generated Claude plugins this
 checks skill names and command shim names separately so a plugin does not create
 the same component name twice.
 
-Assertions use the same result status vocabulary as surface rows: `clean`,
-`drift`, `allowed-drift`, `validation-error`, and `timeout`. Matrix authors use
-`status: drift` to say a failed assertion is actionable drift. There is no
-separate `severity` enum in v1.
+Assertions use `onFailure` to say how a failed assertion is classified. Matrix
+authors may set `onFailure: drift` or `onFailure: allowed-drift`; `clean`,
+`validation-error`, and `timeout` are runtime result states and are invalid as
+author declarations.
 
 The Stock Scanner `stock-scanner-ops` project currently has eight skill wrappers
 and eight command shims with the same names. Claude's `plugin details` output
@@ -407,7 +441,7 @@ Owner: stock-scanner has 1 actionable drift
 The JSON contract is guarded by tests for the stable keys `schemaVersion`,
 `plugin`, `status`, `summary`, and `results[*].{id,surface,scope,owner,status}`.
 Consumers should key on those stable fields, not free-form messages. Additive
-fields are allowed.
+fields are allowed and covered by JSON output tests.
 
 ## Exit Codes
 
@@ -430,9 +464,10 @@ beats `2` beats `1` beats `0`.
 Every verifier that can invoke a CLI gets a timeout. The effective value is:
 
 1. row-level `timeoutMs`
-2. top-level `defaults.timeoutMs`
-3. environment variable `AGENT_TRIGGER_LIVE_CHECK_TIMEOUT_MS`
-4. built-in default `20000`
+2. CLI flag `--timeout-ms`
+3. top-level `defaults.timeoutMs`
+4. environment variable `AGENT_TRIGGER_LIVE_CHECK_TIMEOUT_MS`
+5. built-in default `20000`
 
 Timeouts produce exit code `124` and a result status of `timeout`. They are not
 collapsed into ordinary drift because operators need to distinguish "state is
@@ -453,6 +488,9 @@ agent-trigger-kit live-check \
   --matrix .agent-trigger-kit/live-surfaces.yaml \
   --plugin <plugin-name>
 ```
+
+If `--matrix` is omitted, `live-check` reads
+`.agent-trigger-kit/live-surfaces.yaml` under `--root`.
 
 Package script in Agent Trigger Kit:
 
@@ -512,8 +550,9 @@ The generated table is for humans. It should include at least:
 | --- | --- | --- | --- | --- | --- | --- | --- |
 
 The checker never parses this table. If the generated Markdown is stale, the
-checker can report that as a source validation issue by comparing a content hash
-or regenerated bytes, but the YAML/JSON matrix remains canonical.
+checker reports that as a source validation issue by comparing regenerated bytes
+when `generatedDocs.markdownTable` is configured. The YAML/JSON matrix remains
+canonical.
 
 ## Hook And Release Integration
 
@@ -525,7 +564,9 @@ V1 should wire checks in this order:
 2. Static matrix schema validation:
    if `.agent-trigger-kit/live-surfaces.yaml` exists, `validate` checks its
    schema, duplicate IDs, verifier kinds, staleness budget shape, and static
-   cross-field constraints without reading user-level agent state.
+   cross-field constraints without reading user-level agent state. If
+   `generatedDocs.markdownTable` is configured, `validate` also checks generated
+   Markdown freshness.
 3. Consumer release/operator step:
    `ops:agent-triggers:live-check`.
 4. Optional future hook:
@@ -540,8 +581,8 @@ live-check result.
 
 Matrix parse failure, unsupported schema, missing required fields, duplicate row
 IDs, unknown verifier kinds, malformed staleness budgets, `pointer-only` on a
-non-pointer row, and invalid assertion status values are configuration errors
-and exit `3`.
+non-pointer row, and invalid assertion `onFailure` values are configuration
+errors and exit `3`.
 
 Source manifest inconsistency, broken generated manifest, unparsable Claude
 metadata, invalid Codex config syntax, static validator failure, or stale
@@ -585,18 +626,20 @@ contents.
 3. Add `scripts/live-trigger-surface-check.mjs` and expose it through
    `scripts/cli.mjs` as `live-check`.
 4. Add verifier implementations for `codex-cache`, `codex-config-absence`,
-   `claude-installed-plugin`, `static-validator`, `pointer-doc`, and
-   `component-name-disjoint`.
-5. Teach `validate` to schema-check `.agent-trigger-kit/live-surfaces.yaml`
+   `claude-installed-plugin`, `static-validator`, and `pointer-doc`.
+5. Add assertion implementations for `component-name-disjoint`.
+6. Teach `validate` to schema-check `.agent-trigger-kit/live-surfaces.yaml`
    when present, without reading user-level agent state.
-6. Add focused `node:test` coverage for schema validation, exit-code
+7. Add focused `node:test` coverage for schema validation, exit-code
    precedence, staleness budgets, timeout behavior, JSON output, read-only
    default behavior, and collision detection.
-7. Add a template matrix under docs or examples, but do not add hard-coded
-   consumer rows to Agent Trigger Kit.
-8. Update `README.md`, `cross-agent-trigger-layer`, and `version-check` skill
+8. Add a template matrix at `docs/examples/live-surfaces.yaml`, but do not add
+   hard-coded consumer rows to Agent Trigger Kit. Do not add a separate
+   `matrix init` command in v1; the existing trigger-layer init flow and the
+   documented template are sufficient.
+9. Update `README.md`, `cross-agent-trigger-layer`, and `version-check` skill
    wrappers to point operators at the matrix-driven live-check workflow.
-9. Bump the aligned Agent Trigger Kit plugin version through the existing
+10. Bump the aligned Agent Trigger Kit plugin version through the existing
    premerge/version reconciliation workflow because CLI scripts and
    plugin-visible skill instructions change.
 
@@ -607,6 +650,7 @@ Unit tests:
 - Matrix schema accepts the documented example and rejects missing required
   fields, unknown verifier kinds, duplicate row IDs, and unsupported schemas.
 - Matrix schema allows unknown additive fields for supported schemas.
+- Assertions reject invalid `onFailure` values such as `clean` or `timeout`.
 - Staleness budgets convert mismatches into `allowed-drift` only until their
   expiration date.
 - `pointer-only` is rejected unless the row is a pointer-doc row.
@@ -615,6 +659,7 @@ Unit tests:
 - `component-name-disjoint` reports skill/command collisions.
 - JSON output is stable and contains owner, surface, scope, status, expected,
   actual, and nextActions where relevant.
+- JSON output preserves additive fields without breaking the stable contract.
 
 Integration-style tests with temporary homes:
 
@@ -628,16 +673,15 @@ Integration-style tests with temporary homes:
 Manual verification on a real consumer:
 
 ```bash
-agent-trigger-kit validate --root /Users/rd/projects/stock-scanner
-agent-trigger-kit version-check --root /Users/rd/projects/stock-scanner --surface source stock-scanner-ops
-agent-trigger-kit live-check --root /Users/rd/projects/stock-scanner --matrix .agent-trigger-kit/live-surfaces.yaml --plugin stock-scanner-ops
+agent-trigger-kit validate --root <consumer-root>
+agent-trigger-kit version-check --root <consumer-root> --surface source <plugin-name>
+agent-trigger-kit live-check --root <consumer-root> --matrix .agent-trigger-kit/live-surfaces.yaml --plugin <plugin-name>
 ```
 
-Expected: clean when Codex has no global `stock-scanner-ops` residue and Claude
-project cache matches the source manifest; drift when either condition is
+Expected: clean when Codex has no global generated project plugin residue and
+Claude project cache matches the source manifest; drift when either condition is
 manually mocked stale.
 
-## Open Questions
-
-- Should Agent Trigger Kit provide a `matrix init` command, or is a documented
-  template enough for v1?
+`nextActions` in live-check output are operator suggestions. Read-only verifiers
+may print commands such as `claude plugin update ...`, but they never execute
+those commands unless a future explicit repair mode is implemented and invoked.
