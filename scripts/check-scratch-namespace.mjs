@@ -24,7 +24,7 @@ function escapeAnnotationProperty(value) {
 }
 
 function emitWarningAnnotation(file) {
-  console.warn(`::warning file=${escapeAnnotationProperty(file)}::${warningMessage}`);
+  console.log(`::warning file=${escapeAnnotationProperty(file)}::${warningMessage}`);
 }
 
 const result = spawnSync('git', ['-C', root, 'ls-files', 'docs/superpowers/'], {

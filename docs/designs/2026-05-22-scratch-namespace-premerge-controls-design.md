@@ -4,9 +4,9 @@
 into an earlier, review-visible control without breaking branch-local scratch
 spec and plan review.
 
-**Status:** Design spec. No implementation files have been changed by this
-spec. This file is a branch-local scratch artifact and must be relocated or
-dropped before this branch is merged to `main`.
+**Status:** Design spec. This file has graduated from the branch-local scratch
+namespace into `docs/designs/` as the durable record for the implemented PR
+advisory control.
 
 ## Review Synthesis
 

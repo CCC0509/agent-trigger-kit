@@ -103,14 +103,14 @@ test('scratch namespace advisory exits zero and emits GitHub warning annotations
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(
-      result.stderr,
+      result.stdout,
       /::warning file=docs\/superpowers\/specs\/draft-design\.md::Tracked scratch namespace file must be relocated or dropped before merge/,
     );
     assert.match(
-      result.stderr,
+      result.stdout,
       /::warning file=docs\/superpowers\/plans\/draft-plan\.md::Tracked scratch namespace file must be relocated or dropped before merge/,
     );
-    assert.equal((result.stderr.match(/::warning file=/g) || []).length, 2);
+    assert.equal((result.stdout.match(/::warning file=/g) || []).length, 2);
     assert.match(result.stdout, /scratch namespace advisory found 2 tracked files/i);
   });
 });
@@ -122,7 +122,7 @@ test('scratch namespace advisory emits no warning annotations for a clean tree',
     const result = runScriptAdvisory(root);
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.doesNotMatch(result.stderr, /::warning file=/);
+    assert.doesNotMatch(result.stdout, /::warning file=/);
     assert.match(result.stdout, /scratch namespace advisory passed/i);
   });
 });
