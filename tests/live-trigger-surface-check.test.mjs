@@ -7,6 +7,13 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import {
+  effectiveTimeoutMs,
+  extractTomlTableNames,
+  loadLiveSurfaceMatrix,
+  renderLiveSurfaceMarkdown,
+  validateLiveSurfaceMatrix,
+} from '../scripts/lib/live-surface-matrix.mjs';
+import {
   collectSourceVersionSnapshot,
   sourceVersionsDiffer,
 } from '../scripts/lib/source-version-snapshot.mjs';
@@ -25,6 +32,10 @@ function write(root, path, text) {
 
 function writeJson(root, path, value) {
   write(root, path, JSON.stringify(value, null, 2));
+}
+
+function writeLiveMatrix(root, text) {
+  write(root, '.agent-trigger-kit/live-surfaces.yaml', text);
 }
 
 function createVersionedPlugin(root, version = '0.2.3') {
@@ -164,4 +175,266 @@ test('source snapshot reports unaligned source versions', () => {
   assert.equal(sourceVersionsDiffer(snapshot), true);
   assert.match(snapshot.errorMessage, /source versions differ/);
   assert.match(snapshot.errorMessage, /codex plugin=0\.2\.2/);
+});
+
+test('live surface matrix validates schema and applies path defaults', () => {
+  const root = makeRoot();
+
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+generatedDocs:
+  markdownTable: docs/agent-trigger-surfaces.md
+defaults:
+  timeoutMs: 12345
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+  - id: claude-project-demo-ops
+    surface: claude
+    scope: project
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: project-plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: claude-installed-plugin
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+assertions:
+  - id: no-skill-command-name-collisions
+    kind: component-name-disjoint
+    plugin: demo-ops
+    sets:
+      - skills
+      - commands
+    onFailure: drift
+    owner: demo
+extraFutureField: preserved
+`,
+  );
+
+  const matrix = loadLiveSurfaceMatrix({
+    root,
+    matrixPath: '.agent-trigger-kit/live-surfaces.yaml',
+  });
+  const validation = validateLiveSurfaceMatrix({ root, matrix });
+
+  assert.deepEqual(validation.errors, []);
+  assert.equal(matrix.surfaces[0].timeoutMs, 12345);
+  assert.equal(matrix.surfaces[0].liveVerifier.codexHome.endsWith('.codex'), true);
+  assert.equal(matrix.surfaces[1].liveVerifier.claudeHome.endsWith('.claude'), true);
+  assert.equal(matrix.surfaces[1].liveVerifier.projectPath, root);
+  assert.equal(matrix.extraFutureField, 'preserved');
+});
+
+test('live surface matrix uses fallback when env path variable is empty', () => {
+  const root = makeRoot();
+  const previousCodexHome = process.env.CODEX_HOME;
+
+  try {
+    process.env.CODEX_HOME = '';
+    writeLiveMatrix(
+      root,
+      `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+    );
+
+    const matrix = loadLiveSurfaceMatrix({
+      root,
+      matrixPath: '.agent-trigger-kit/live-surfaces.yaml',
+    });
+
+    assert.equal(matrix.surfaces[0].liveVerifier.codexHome.endsWith('.codex'), true);
+    assert.notEqual(matrix.surfaces[0].liveVerifier.codexHome, root);
+  } finally {
+    if (previousCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  }
+});
+
+test('live surface matrix rejects invalid assertion onFailure and pointer-only misuse', () => {
+  const root = makeRoot();
+  const matrix = {
+    schemaVersion: 1,
+    plugin: 'demo-ops',
+    surfaces: [
+      {
+        id: 'codex-demo-ops',
+        surface: 'codex',
+        scope: 'user',
+        plugin: 'demo-ops',
+        artifactType: 'plugin-cache',
+        sourceTruth: 'source-version',
+        liveVerifier: {
+          kind: 'codex-cache',
+        },
+        headless: 'safe',
+        owner: 'demo',
+        stalenessBudget: {
+          mode: 'pointer-only',
+        },
+      },
+    ],
+    assertions: [
+      {
+        id: 'no-skill-command-name-collisions',
+        kind: 'component-name-disjoint',
+        plugin: 'demo-ops',
+        sets: ['skills', 'commands'],
+        onFailure: 'clean',
+        owner: 'demo',
+      },
+    ],
+  };
+
+  const validation = validateLiveSurfaceMatrix({ root, matrix });
+
+  assert.match(validation.errors.join('\n'), /pointer-only/);
+  assert.match(validation.errors.join('\n'), /onFailure/);
+});
+
+test('live surface matrix rejects missing top-level required fields and live verifier kind', () => {
+  const root = makeRoot();
+  const matrix = {
+    surfaces: [
+      {
+        id: 'codex-demo-ops',
+        surface: 'codex',
+        scope: 'user',
+        plugin: 'demo-ops',
+        artifactType: 'plugin-cache',
+        sourceTruth: 'source-version',
+        liveVerifier: {},
+        headless: 'safe',
+        owner: 'demo',
+        stalenessBudget: {
+          mode: 'none',
+        },
+      },
+    ],
+  };
+  const matrixWithoutSurfaces = {
+    schemaVersion: 1,
+    plugin: 'demo-ops',
+  };
+
+  const validation = validateLiveSurfaceMatrix({ root, matrix });
+  const missingSurfacesValidation = validateLiveSurfaceMatrix({
+    root,
+    matrix: matrixWithoutSurfaces,
+  });
+
+  assert.match(validation.errors.join('\n'), /schemaVersion/);
+  assert.match(validation.errors.join('\n'), /plugin/);
+  assert.match(validation.errors.join('\n'), /liveVerifier\.kind/);
+  assert.match(missingSurfacesValidation.errors.join('\n'), /surfaces/);
+});
+
+test('live surface matrix renders markdown and extracts codex config table names', () => {
+  const markdown = renderLiveSurfaceMarkdown({
+    surfaces: [
+      {
+        id: 'codex-demo-ops',
+        surface: 'codex',
+        scope: 'user',
+        plugin: 'demo-ops',
+        artifactType: 'plugin-cache',
+        sourceTruth: 'source|truth\\alpha\nbeta',
+        liveVerifier: {
+          kind: 'codex-cache',
+        },
+        headless: 'safe',
+        owner: 'demo|owner\\name\nnext',
+        stalenessBudget: {
+          mode: 'none',
+        },
+      },
+    ],
+  });
+
+  assert.match(
+    markdown,
+    /\| Surface \| Scope \| Artifact \| Source Truth \| Live Verifier \| Headless \| Owner \| Staleness Budget \|/,
+  );
+  assert.match(
+    markdown,
+    /\| codex \| user \| plugin-cache \| source\\\|truth\\\\alpha\\nbeta \| codex-cache \| safe \| demo\\\|owner\\\\name\\nnext \| none \|/,
+  );
+  assert.equal(markdown.trimEnd().split('\n').length, 3);
+
+  const names = extractTomlTableNames(`
+[marketplaces.stock-scanner-ops]
+path = "./stock-scanner-ops"
+
+[plugins."stock-scanner-ops@stock-scanner-ops"]
+enabled = true
+
+[plugins."inline-comment@demo"] # trailing comment
+enabled = true
+
+[marketplaces.local] # trailing comment
+path = "./local"
+
+# [plugins."commented-out"]
+`);
+
+  assert.deepEqual(names.plugins, ['stock-scanner-ops@stock-scanner-ops', 'inline-comment@demo']);
+  assert.deepEqual(names.marketplaces, ['stock-scanner-ops', 'local']);
+});
+
+test('live surface matrix resolves effective timeout using first finite value', () => {
+  assert.equal(
+    effectiveTimeoutMs({
+      rowTimeoutMs: 500,
+      cliTimeoutMs: 1000,
+      defaultTimeoutMs: 2000,
+      envTimeoutMs: 3000,
+    }),
+    500,
+  );
+  assert.equal(effectiveTimeoutMs({ rowTimeoutMs: 'abc', cliTimeoutMs: 1000 }), 1000);
+  assert.equal(
+    effectiveTimeoutMs({
+      rowTimeoutMs: 'abc',
+      cliTimeoutMs: Number.NaN,
+      defaultTimeoutMs: Infinity,
+      envTimeoutMs: '4000',
+    }),
+    4000,
+  );
+  assert.equal(effectiveTimeoutMs({ rowTimeoutMs: 'abc', cliTimeoutMs: Number.NaN }), 20000);
 });

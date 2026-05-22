@@ -1,0 +1,44 @@
+schemaVersion: 1
+plugin: demo-ops
+canonicalPlaybook: docs/agent-playbooks/demo-ops.md
+generatedManifest: .agent-trigger-kit/generated.json
+generatedDocs:
+  markdownTable: docs/agent-trigger-surfaces.md
+defaults:
+  timeoutMs: 20000
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+  - id: claude-project-demo-ops
+    surface: claude
+    scope: project
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: project-plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: claude-installed-plugin
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+assertions:
+  - id: no-skill-command-name-collisions
+    kind: component-name-disjoint
+    plugin: demo-ops
+    sets:
+      - skills
+      - commands
+    onFailure: drift
+    owner: demo
