@@ -127,33 +127,6 @@ function createSourceFixture(root, version = '0.1.0') {
   write(root, 'CHANGELOG.md', `# Changelog\n\n## ${version}\n\n- Initial fixture.`);
 }
 
-function bumpSourceFixture(root, version) {
-  const packageJson = readJson(root, 'package.json');
-  packageJson.version = version;
-  writeJson(root, 'package.json', packageJson);
-
-  const packageLock = readJson(root, 'package-lock.json');
-  packageLock.version = version;
-  packageLock.packages[''].version = version;
-  writeJson(root, 'package-lock.json', packageLock);
-
-  const codexMarketplace = readJson(root, '.agents/plugins/marketplace.json');
-  codexMarketplace.plugins[0].version = version;
-  writeJson(root, '.agents/plugins/marketplace.json', codexMarketplace);
-
-  const claudeMarketplace = readJson(root, '.claude-plugin/marketplace.json');
-  claudeMarketplace.plugins[0].version = version;
-  writeJson(root, '.claude-plugin/marketplace.json', claudeMarketplace);
-
-  const codexManifest = readJson(root, 'plugins/agent-trigger-kit/.codex-plugin/plugin.json');
-  codexManifest.version = version;
-  writeJson(root, 'plugins/agent-trigger-kit/.codex-plugin/plugin.json', codexManifest);
-
-  const claudeManifest = readJson(root, 'plugins/agent-trigger-kit/.claude-plugin/plugin.json');
-  claudeManifest.version = version;
-  writeJson(root, 'plugins/agent-trigger-kit/.claude-plugin/plugin.json', claudeManifest);
-}
-
 function writeChangelog(root, text) {
   write(root, 'CHANGELOG.md', text);
 }
