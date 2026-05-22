@@ -10,6 +10,32 @@ function read(path) {
   return readFileSync(join(repoRoot, path), 'utf8');
 }
 
+function parseChangelogPatchVersions(changelog) {
+  return [...changelog.matchAll(/^## (\d+)\.(\d+)\.(\d+)(?:\b|$)/gm)].map((match) => ({
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  }));
+}
+
+function versionLabel(version) {
+  return `${version.major}.${version.minor}.${version.patch}`;
+}
+
+function assertNoPatchVersionGaps(versions) {
+  for (let index = 0; index < versions.length - 1; index += 1) {
+    const current = versions[index];
+    const next = versions[index + 1];
+    if (current.major !== next.major || current.minor !== next.minor) continue;
+
+    assert.equal(
+      next.patch,
+      current.patch - 1,
+      `changelog jumps from ${versionLabel(current)} to ${versionLabel(next)}; missing ${current.major}.${current.minor}.${current.patch - 1}`,
+    );
+  }
+}
+
 test('ci runs the quality gate on Ubuntu and macOS with a pinned Claude CLI', () => {
   const ci = read('.github/workflows/ci.yml');
 
@@ -54,9 +80,26 @@ test('open-source polish files document editor, badge, and SemVer expectations',
   assert.match(contributing, /patch/i);
 });
 
-test('changelog documents scratch namespace pre-merge controls in 0.1.11', () => {
+test('changelog documents release history without patch version gaps', () => {
   const changelog = read('CHANGELOG.md');
-  const release = changelog.match(/## 0\.1\.11[\s\S]*?(?=\n## |\n*$)/)?.[0] || '';
+  const versions = parseChangelogPatchVersions(changelog);
+
+  assert.ok(versions.length > 0);
+  assertNoPatchVersionGaps(versions);
+});
+
+test('changelog patch gap detector reports skipped patch versions', () => {
+  assert.throws(
+    () => assertNoPatchVersionGaps(parseChangelogPatchVersions('## 0.1.4\n\n## 0.1.2\n')),
+    /missing 0\.1\.3/,
+  );
+});
+
+test('changelog documents scratch namespace pre-merge controls', () => {
+  const changelog = read('CHANGELOG.md');
+  const release =
+    changelog.match(/## \d+\.\d+\.\d+[\s\S]*?Scratch Namespace Advisory[\s\S]*?(?=\n## |\n*$)/)
+      ?.[0] || '';
 
   assert.match(release, /Scratch Namespace Advisory/);
   assert.match(release, /pull request/i);

@@ -34,23 +34,34 @@ running update commands.
 
 ## Diagnose
 
-1. Confirm install state:
+1. Confirm install state with the preferred install-state evidence:
 
    ```bash
    claude plugin list --json
    ```
 
-2. Confirm the marketplace and plugin manifests:
+   For generated project plugins, confirm `"scope": "project"` and the expected
+   `projectPath`.
+
+2. Confirm the marketplace and plugin manifests when the validate command is
+   reliable in the current environment:
 
    ```bash
    claude plugin validate <repo-root>
    claude plugin validate <repo-root>/plugins/<plugin-name>
    ```
 
+   If `claude plugin validate <path>` hangs, treat the result as inconclusive
+   and use a 20 second timeout wrapper only to keep the session from blocking.
+   Do not make the hanging validate command the only discovery signal.
+
 3. Inspect the cache path from `plugin list --json`.
    - `skills/` present but no slash menu: expected unless `commands/` exists and is declared.
    - source has `commands/` but cache does not: stale snapshot or version issue.
    - `.orphaned_at` exists: install/cache state needs cleanup or reinstall.
+
+4. Restart Claude Code after install or update before deciding that skills or
+   slash commands are missing.
 
 ## Fix Missing Slash Commands
 

@@ -279,6 +279,39 @@ Validate a project trigger layer:
 npx --yes github:CCC0509/agent-trigger-kit validate --root /path/to/project
 ```
 
+### Consumer Trigger Layer Lifecycle
+
+Before updating an existing generated project trigger layer, write down the
+target repo path, current working directory, plugin name, canonical playbook
+path, generated manifest path, agent surfaces in scope, and Agent Trigger Kit
+source or installed version used for generation. If those values cannot be
+named, stop before writing files or running install/update commands.
+
+Use the same pinned Agent Trigger Kit source for generation and static
+validation. Do not let CI float on the GitHub default branch:
+
+```bash
+KIT_SPEC=github:CCC0509/agent-trigger-kit#<tag-or-commit>
+npx --yes "$KIT_SPEC" validate --root <target-repo>
+npx --yes "$KIT_SPEC" version-check \
+  --root <target-repo> \
+  --surface source \
+  <plugin-name>
+npx --yes "$KIT_SPEC" validate \
+  --root <target-repo> \
+  --require-version-bump \
+  --base <base-ref>
+```
+
+Use `--require-version-bump` when the branch changes generated skills, generated
+commands, plugin manifests, or marketplace entries for the plugin. Wrapper typo
+fixes are still plugin-visible changes and still need the aligned plugin version
+bump.
+
+Live discovery is a manual release checklist, not a CI gate. The canonical
+checklist lives in `agent-trigger-kit:cross-agent-trigger-layer`; README and
+consumer project docs should point there instead of duplicating it.
+
 Load the generated project plugin for Claude Code only when the project wants
 Claude skills or slash commands to appear. Run these commands from the
 consuming project root so project-scope state is written to that project:

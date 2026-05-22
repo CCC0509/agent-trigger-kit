@@ -6834,6 +6834,59 @@ test('version and lifecycle skills document provenance-aware Claude fallback', (
   assert.match(codexSkill, /local Codex marketplace source/i);
 });
 
+test('consumer trigger lifecycle guidance documents pinned static gates and manual discovery', () => {
+  const readRepoFile = (path) => readFileSync(join(repoRoot, path), 'utf8');
+  const readme = readRepoFile('README.md');
+  const crossSkill = readRepoFile(
+    'plugins/agent-trigger-kit/skills/cross-agent-trigger-layer/SKILL.md',
+  );
+  const lifecycleSkill = readRepoFile(
+    'plugins/agent-trigger-kit/skills/claude-plugin-lifecycle/SKILL.md',
+  );
+  const versionSkill = readRepoFile('plugins/agent-trigger-kit/skills/version-check/SKILL.md');
+
+  assert.match(
+    readme,
+    /Consumer Trigger Layer Lifecycle[\s\S]*KIT_SPEC=github:CCC0509\/agent-trigger-kit#<tag-or-commit>/,
+  );
+  assert.match(readme, /Consumer Trigger Layer Lifecycle[\s\S]*--surface source/);
+  assert.match(readme, /Consumer Trigger Layer Lifecycle[\s\S]*--base <base-ref>/);
+  assert.doesNotMatch(readme, /Consumer Trigger Layer Lifecycle[\s\S]*--base main/);
+  assert.match(
+    readme,
+    /Consumer Trigger Layer Lifecycle[\s\S]*agent-trigger-kit:cross-agent-trigger-layer/,
+  );
+
+  assert.match(crossSkill, /## Scope First/);
+  assert.match(crossSkill, /target repo path/i);
+  assert.match(crossSkill, /Agent Trigger Kit source or installed version/);
+  assert.match(crossSkill, /unqualified `github:CCC0509\/agent-trigger-kit`/);
+  assert.match(crossSkill, /## Static Gate/);
+  assert.match(crossSkill, /KIT_SPEC=github:CCC0509\/agent-trigger-kit#<tag-or-commit>/);
+  assert.match(crossSkill, /version-check[\s\S]*--surface source/);
+  assert.match(crossSkill, /## Static Gate[\s\S]*--base <base-ref>/);
+  assert.doesNotMatch(crossSkill, /## Static Gate[\s\S]*--base main/);
+  assert.match(crossSkill, /## Manual Live Discovery/);
+  assert.match(crossSkill, /codex debug prompt-input "test"/);
+  assert.match(crossSkill, /claude plugin list --json/);
+  assert.match(crossSkill, /Cursor support is static/);
+  assert.match(crossSkill, /Gemini is out of scope/);
+  assert.match(crossSkill, /## Failure Branches/);
+
+  assert.match(lifecycleSkill, /preferred install-state evidence/);
+  assert.match(lifecycleSkill, /20 second/);
+  assert.match(lifecycleSkill, /inconclusive/);
+  assert.match(lifecycleSkill, /Restart Claude Code/);
+
+  assert.match(versionSkill, /## Generated Consumer Trigger Layers/);
+  assert.match(
+    versionSkill,
+    /For generated consumer trigger layers[\s\S]*KIT_SPEC=github:CCC0509\/agent-trigger-kit#<tag-or-commit>[\s\S]*npx --yes "\$KIT_SPEC" version-check[\s\S]*--surface source/,
+  );
+  assert.match(versionSkill, /temporary Codex project[\s\S]*global config mutation/);
+  assert.match(versionSkill, /global config cleanup was verified/);
+});
+
 test('agent-trigger-kit exposes trigger-layer clean command', () => {
   const commandPath = join(repoRoot, 'plugins/agent-trigger-kit/commands/trigger-layer-clean.md');
 

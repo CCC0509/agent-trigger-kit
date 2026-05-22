@@ -6,10 +6,21 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
-## 0.1.11
+## 0.1.12
 
 - Added a pull request `Scratch Namespace Advisory` check that emits warning annotations
   for tracked `docs/superpowers/` files without blocking ordinary review.
+- Documented the consumer trigger-layer lifecycle with scope-first setup,
+  pinned static validation, and manual live-discovery boundaries.
+- Made `agent-trigger-kit:cross-agent-trigger-layer` the canonical home for the
+  generated project plugin live-discovery checklist.
+- Clarified Claude Code restart and `claude plugin validate` timeout guidance
+  for generated project plugin troubleshooting.
+
+## 0.1.11
+
+- Recorded an internal trigger-layer validate command formatting release with no
+  user-visible behavior changes.
 
 ## 0.1.10
 

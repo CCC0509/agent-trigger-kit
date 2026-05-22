@@ -18,6 +18,10 @@ latest, stale, needs an update, or whether the kit version is correct.
   `--no-include-package` is passed.
 - Version checks are read-only by default. Do not run sync, update, install, or
   cache repair commands unless the user asks to repair or update.
+- For generated consumer trigger layers, `--surface source` is the static source
+  alignment check for package, marketplace, and plugin manifest versions.
+- Run read-only source/cache checks before any temporary Codex project
+  marketplace registration or other user-level global config mutation.
 - When Claude CLI unavailable appears in a Codex shell, the checkout script can
   read Claude filesystem metadata read-only. Treat that as a report, not a
   repair; next steps must be official `claude` CLI commands.
@@ -33,6 +37,19 @@ Choose the narrowest scope before running commands:
   Claude Code means `claude`.
 - If neither wording nor runtime makes the scope clear, ask one short question
   before inspecting installed state.
+
+## Generated Consumer Trigger Layers
+
+For generated consumer trigger layers, use the pinned kit source named during
+scope setup and run source alignment before live discovery:
+
+```bash
+KIT_SPEC=github:CCC0509/agent-trigger-kit#<tag-or-commit>
+npx --yes "$KIT_SPEC" version-check \
+  --root <target-repo> \
+  --surface source \
+  <plugin-name>
+```
 
 ## Checklist
 
@@ -90,5 +107,7 @@ Choose the narrowest scope before running commands:
 
 - Report source versions separately from installed/cache versions.
 - If installed state is stale, say exactly which surface is stale.
+- If a live Codex discovery step mutates global config, report whether the
+  temporary generated project marketplace was removed and whether global config cleanup was verified.
 - If a command is unavailable in the current shell, name the command the user
   should run in the right environment.
