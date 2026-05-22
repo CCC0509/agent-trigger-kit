@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, extname, isAbsolute, join, resolve } from 'node:path';
 
 import { parseArgs } from './lib/args.mjs';
 import {
   effectiveTimeoutMs,
   extractTomlTableNames,
   loadLiveSurfaceMatrix,
-  renderLiveSurfaceMarkdown,
+  parseAllowedUntilDate,
+  stalenessBudgetExpiry,
   validateLiveSurfaceMatrix,
 } from './lib/live-surface-matrix.mjs';
 import { probeCodexCache } from './lib/plugin-state-probe.mjs';
@@ -16,10 +16,11 @@ import {
   collectSourceVersionSnapshot,
   sourceVersionsDiffer,
 } from './lib/source-version-snapshot.mjs';
+import { expandPath } from './lib/path-expand.mjs';
 
 const DEFAULT_MATRIX_PATH = '.agent-trigger-kit/live-surfaces.yaml';
 
-const [mode, ...modeArgs] = process.argv.slice(2);
+const [mode] = process.argv.slice(2);
 const isHelpArg = (value) => value === '--help' || value === '-h';
 
 function printUsage() {
@@ -34,47 +35,6 @@ function printUsage() {
       '  render-matrix  Render live trigger surface matrix documentation',
     ].join('\n'),
   );
-}
-
-if (mode === 'render-matrix') {
-  if (modeArgs.some(isHelpArg)) {
-    printUsage();
-    process.exit(0);
-  }
-
-  const args = parseArgs(modeArgs);
-  const root = resolve(args.root || process.cwd());
-  const matrixPath = args.matrix || DEFAULT_MATRIX_PATH;
-  const output = args.output;
-
-  if (typeof output !== 'string' || output.trim() === '') {
-    console.error('render-matrix requires --output');
-    process.exit(2);
-  }
-
-  const outputPath = resolve(root, output);
-  const outputRelativePath = relative(root, outputPath);
-  if (
-    isAbsolute(output) ||
-    outputRelativePath === '..' ||
-    outputRelativePath.startsWith(`..${sep}`) ||
-    isAbsolute(outputRelativePath)
-  ) {
-    console.error('render-matrix --output must stay within --root');
-    process.exit(2);
-  }
-
-  const matrix = loadLiveSurfaceMatrix({ root, matrixPath });
-  const validation = validateLiveSurfaceMatrix({ root, matrix });
-  if (validation.errors.length > 0) {
-    console.error(validation.errors.join('\n'));
-    process.exit(3);
-  }
-
-  mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, renderLiveSurfaceMarkdown(matrix));
-  console.log(`wrote ${output}`);
-  process.exit(0);
 }
 
 if (isHelpArg(mode)) {
@@ -114,7 +74,7 @@ try {
   });
 }
 
-const validation = validateLiveSurfaceMatrix({ root, matrix });
+const validation = validateLiveSurfaceMatrix({ matrix });
 if (validation.errors.length > 0) {
   exitWithPayload({
     code: 3,
@@ -200,7 +160,7 @@ function validateSourceTruth({ root, matrix, row, sourceSnapshots }) {
   return surfaceResult(row, {
     status: 'validation-error',
     expected: snapshot.expectedVersion,
-    message: snapshot.errorMessage,
+    message: `${snapshot.errorMessage}; live verifier not checked`,
   });
 }
 
@@ -246,7 +206,6 @@ function runSurfaceVerifier({ root, matrix, row, sourceSnapshots, args }) {
       row.marketplace || snapshot.claudeMarketplaceName || marketplaceName;
     const state = readClaudeInstalledMetadata({
       claudeHome: expandRoot(root, verifier.claudeHome),
-      envPath: '',
       expectedVersion,
       marketplaceName: claudeMarketplaceName,
       pluginName,
@@ -291,7 +250,7 @@ function runSurfaceVerifier({ root, matrix, row, sourceSnapshots, args }) {
   }
 
   if (verifier.kind === 'pointer-doc') {
-    return runPointerDoc({ root, row });
+    return runPointerDoc({ root, row, strict: Boolean(args['strict-allowed-drift']) });
   }
 
   if (verifier.kind === 'static-validator') {
@@ -306,7 +265,27 @@ function runSurfaceVerifier({ root, matrix, row, sourceSnapshots, args }) {
 
 function runCodexConfigAbsence({ root, row }) {
   const verifier = row.liveVerifier || {};
-  const configPath = expandPath(root, verifier.configPath || '${CODEX_HOME:-~/.codex}/config.toml');
+  let configPath;
+  try {
+    configPath = expandPath({
+      root,
+      value: verifier.configPath || '${CODEX_HOME:-~/.codex}/config.toml',
+      strictEnv: true,
+    });
+  } catch (error) {
+    return surfaceResult(row, {
+      status: 'config-error',
+      message: `codex config path expansion failed: ${error.message}`,
+    });
+  }
+
+  if (typeof configPath !== 'string' || configPath.trim() === '' || !isAbsolute(configPath)) {
+    return surfaceResult(row, {
+      status: 'config-error',
+      message: `codex config path must expand to an absolute path: ${String(configPath)}`,
+    });
+  }
+
   if (!existsSync(configPath)) {
     return surfaceResult(row, { status: 'clean', message: 'codex config missing' });
   }
@@ -330,7 +309,7 @@ function runCodexConfigAbsence({ root, row }) {
   });
 }
 
-function runPointerDoc({ root, row }) {
+function runPointerDoc({ root, row, strict }) {
   const verifier = row.liveVerifier || {};
   const path = expandRoot(
     root,
@@ -340,19 +319,21 @@ function runPointerDoc({ root, row }) {
     return applyStalenessBudget({
       row,
       result: surfaceResult(row, { status: 'drift', message: `pointer doc missing: ${path}` }),
-      strict: false,
+      strict: true,
     });
   }
 
   const text = readFileSync(path, 'utf8');
-  const clean = /^---\n[\s\S]*?\npointer_only:\s*true\s*(?:\n[\s\S]*?)?\n---/m.test(text);
+  const clean =
+    text.startsWith('---\n') &&
+    /^---\n[\s\S]*?\npointer_only:\s*true\s*(?:\n[\s\S]*?)?\n---/.test(text);
   return applyStalenessBudget({
     row,
     result: surfaceResult(row, {
       status: clean ? 'clean' : 'drift',
       message: clean ? 'pointer doc is pointer-only' : 'pointer doc missing pointer_only: true',
     }),
-    strict: false,
+    strict,
   });
 }
 
@@ -365,11 +346,18 @@ function runAssertion({ root, assertion }) {
   }
 
   const namesBySet = new Map();
-  for (const setName of assertion.sets || []) {
-    namesBySet.set(
-      setName,
-      new Set(collectComponentNames({ root, pluginName: assertion.plugin, setName })),
-    );
+  try {
+    for (const setName of assertion.sets || []) {
+      namesBySet.set(
+        setName,
+        new Set(collectComponentNames({ root, pluginName: assertion.plugin, setName })),
+      );
+    }
+  } catch (error) {
+    return assertionResult(assertion, {
+      status: 'config-error',
+      message: error.message,
+    });
   }
 
   const setNamesByComponent = new Map();
@@ -415,19 +403,79 @@ function collectComponentNames({ root, pluginName, setName }) {
 }
 
 function listDirectories(path) {
-  try {
-    return readdirSync(path).filter((entry) => statSync(join(path, entry)).isDirectory());
-  } catch {
-    return [];
-  }
+  return readDirectoryOrEmpty(path).filter((entry) => statEntry(join(path, entry)).isDirectory());
 }
 
 function listFiles(path) {
+  return readDirectoryOrEmpty(path).filter((entry) => statEntry(join(path, entry)).isFile());
+}
+
+function readDirectoryOrEmpty(path) {
   try {
-    return readdirSync(path).filter((entry) => statSync(join(path, entry)).isFile());
-  } catch {
-    return [];
+    return readdirSync(path);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return [];
+    }
+    throw new Error(`${path}: ${error.message}`);
   }
+}
+
+function statEntry(path) {
+  try {
+    return statSync(path);
+  } catch (error) {
+    throw new Error(`${path}: ${error.message}`);
+  }
+}
+
+function pathExists(path) {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return false;
+    }
+    throw new Error(`${path}: ${error.message}`);
+  }
+}
+
+function inspectDirectoryHasFiles(path) {
+  let pathStats;
+  try {
+    pathStats = lstatSync(path);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return false;
+    }
+    throw new Error(`${path}: ${error.message}`);
+  }
+
+  if (pathStats.isSymbolicLink()) {
+    try {
+      pathStats = statSync(path);
+    } catch (error) {
+      throw new Error(`${path}: ${error.message}`);
+    }
+  }
+
+  if (!pathStats.isDirectory()) {
+    return false;
+  }
+
+  try {
+    return readdirSync(path).length > 0;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return false;
+    }
+    throw new Error(`${path}: ${error.message}`);
+  }
+}
+
+function directoryHasFiles(path) {
+  return inspectDirectoryHasFiles(path);
 }
 
 function frontmatterValue(text, key) {
@@ -488,15 +536,28 @@ function applyStalenessBudget({ row, result, strict }) {
 
   const budget = row.stalenessBudget || {};
   const now = new Date();
-  const allowedUntil = budget['allowed-until'] || budget.allowedUntil || budget.until;
+  const expiry = stalenessBudgetExpiry(budget);
+  const allowedUntil = expiry?.value;
+  let allowedUntilDate = null;
+  if (allowedUntil !== undefined && allowedUntil !== null && allowedUntil !== '') {
+    try {
+      allowedUntilDate = parseAllowedUntilDate(allowedUntil);
+    } catch (error) {
+      return {
+        ...result,
+        status: 'config-error',
+        message: `invalid stalenessBudget ${expiry.key}: ${error.message}`,
+      };
+    }
+  }
   const pointerOnlyAllowed =
     budget.mode === 'pointer-only' &&
-    allowedUntil &&
-    now.getTime() <= parseAllowedUntil(allowedUntil).getTime();
+    allowedUntilDate &&
+    now.getTime() <= allowedUntilDate.getTime();
   const explicitAllowed =
     budget.mode === 'allowed-until' &&
-    allowedUntil &&
-    now.getTime() <= parseAllowedUntil(allowedUntil).getTime();
+    allowedUntilDate &&
+    now.getTime() <= allowedUntilDate.getTime();
 
   if (!pointerOnlyAllowed && !explicitAllowed) {
     return result;
@@ -507,15 +568,6 @@ function applyStalenessBudget({ row, result, strict }) {
     status: 'allowed-drift',
     allowedDriftReason: budget.reason || budget.mode,
   };
-}
-
-function parseAllowedUntil(value) {
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split('-').map(Number);
-    return new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
-  }
-
-  return new Date(value);
 }
 
 function isTimedOut({ startedAt, row, matrix, args }) {
@@ -595,27 +647,7 @@ function exitWithPayload({ code, jsonOutput, payload, human }) {
 
 function expandRoot(root, value) {
   if (!value) return value;
-  return expandPath(root, String(value).replaceAll('${ROOT}', root));
-}
-
-function expandPath(root, value) {
-  if (!value) return value;
-  const expandedVariables = String(value).replace(
-    /\$\{([^}:]+)(:-([^}]*))?\}/g,
-    (_, name, _fallback, fallback) => {
-      if (name === 'ROOT') return root;
-      const envValue = process.env[name];
-      if (fallback !== undefined && (envValue === undefined || envValue === '')) {
-        return fallback;
-      }
-      return envValue ?? '';
-    },
-  );
-  const expandedHome =
-    expandedVariables === '~' || expandedVariables.startsWith('~/')
-      ? join(homedir(), expandedVariables.slice(2))
-      : expandedVariables;
-  return isAbsolute(expandedHome) ? expandedHome : resolve(root, expandedHome);
+  return expandPath({ root, value });
 }
 
 function readClaudeInstalledMetadata({ claudeHome, expectedVersion, marketplaceName, pluginName }) {
@@ -674,7 +706,7 @@ function readClaudeInstalledMetadata({ claudeHome, expectedVersion, marketplaceN
   }
 
   for (const [index, entry] of rawEntries.entries()) {
-    for (const field of ['installPath', 'projectPath']) {
+    for (const field of ['installPath', 'projectPath', 'scope']) {
       if (entry[field] !== undefined && entry[field] !== null && typeof entry[field] !== 'string') {
         return {
           pluginId,
@@ -685,17 +717,17 @@ function readClaudeInstalledMetadata({ claudeHome, expectedVersion, marketplaceN
     }
   }
 
-  return {
-    pluginId,
-    entries: rawEntries.map((entry) => {
+  const entries = [];
+  for (const entry of rawEntries) {
+    try {
       const installPath = entry.installPath || null;
-      const installPathExists = Boolean(installPath && existsSync(installPath));
+      const installPathExists = Boolean(installPath && pathExists(installPath));
       const installPathHasFiles = Boolean(installPath && directoryHasFiles(installPath));
       const warnings = [];
       if (installPath && existsSync(join(installPath, '.orphaned_at'))) {
         warnings.push('orphaned');
       }
-      return {
+      entries.push({
         scope: entry.scope,
         projectPath: entry.projectPath || null,
         version: entry.version,
@@ -704,19 +736,22 @@ function readClaudeInstalledMetadata({ claudeHome, expectedVersion, marketplaceN
         installPathExists,
         installPathHasFiles,
         warnings,
+      });
+    } catch (error) {
+      return {
+        pluginId,
+        entries: [],
+        errorMessage: error.message,
       };
-    }),
+    }
+  }
+
+  return {
+    pluginId,
+    entries,
   };
 }
 
 function isPlainObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function directoryHasFiles(path) {
-  try {
-    return statSync(path).isDirectory() && readdirSync(path).length > 0;
-  } catch {
-    return false;
-  }
 }

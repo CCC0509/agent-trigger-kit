@@ -10,7 +10,7 @@ const commands = {
   init: 'init-project-trigger-layer.mjs',
   'import-claude-skills': 'import-claude-skills.mjs',
   'live-check': { script: 'live-trigger-surface-check.mjs' },
-  'render-matrix': { script: 'live-trigger-surface-check.mjs', args: ['render-matrix'] },
+  'render-matrix': { script: 'render-live-surface-matrix.mjs' },
   validate: 'validate-trigger-layer.mjs',
   'version-check': 'check-plugin-version.mjs',
 };

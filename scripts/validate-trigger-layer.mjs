@@ -440,7 +440,7 @@ function validateLiveSurfaceMatrixIfPresent() {
 
   try {
     const matrix = loadLiveSurfaceMatrix({ root, matrixPath: liveSurfaceMatrixPath });
-    const validation = validateLiveSurfaceMatrix({ root, matrix });
+    const validation = validateLiveSurfaceMatrix({ matrix });
     for (const error of validation.errors) {
       fail(`${liveSurfaceMatrixPath}: ${error}`);
     }

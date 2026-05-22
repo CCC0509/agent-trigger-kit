@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { extname, isAbsolute, join, resolve } from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
+
+import { expandPath } from './path-expand.mjs';
 
 const DEFAULT_MATRIX_PATH = '.agent-trigger-kit/live-surfaces.yaml';
 const DEFAULT_TIMEOUT_MS = 20000;
@@ -112,20 +113,28 @@ export function validateLiveSurfaceMatrix({ matrix }) {
       );
     }
 
-    if (surface?.stalenessBudget?.mode === 'pointer-only') {
+    if (
+      surface?.stalenessBudget?.mode === 'pointer-only' ||
+      surface?.stalenessBudget?.mode === 'allowed-until'
+    ) {
       const budget = surface.stalenessBudget;
-      const hasExpiry =
-        budget.until !== undefined ||
-        budget['allowed-until'] !== undefined ||
-        budget.allowedUntil !== undefined;
+      const expiry = stalenessBudgetExpiry(budget);
 
-      if (!hasExpiry) {
+      if (!expiry) {
         errors.push(
-          `surfaces[${index}].stalenessBudget.mode pointer-only requires an expiry field`,
+          `surfaces[${index}].stalenessBudget.mode ${budget.mode} requires an expiry field`,
         );
+      } else {
+        try {
+          parseAllowedUntilDate(expiry.value);
+        } catch (error) {
+          errors.push(
+            `surfaces[${index}].stalenessBudget has invalid stalenessBudget ${expiry.key}: ${error.message}`,
+          );
+        }
       }
 
-      if (!budget.reason) {
+      if (budget.mode === 'pointer-only' && !budget.reason) {
         errors.push(`surfaces[${index}].stalenessBudget.mode pointer-only requires reason`);
       }
     }
@@ -192,9 +201,10 @@ export function extractTomlTableNames(text) {
   const plugins = [];
   const marketplaces = [];
   const tableHeaderPattern = /^\s*\[([^\]\r\n]+)\]\s*(?:#.*)?$/gm;
+  const textWithoutMultilineStrings = stripTomlMultilineStrings(text);
   let match;
 
-  while ((match = tableHeaderPattern.exec(text)) !== null) {
+  while ((match = tableHeaderPattern.exec(textWithoutMultilineStrings)) !== null) {
     const tableName = match[1];
     if (tableName.startsWith('plugins.')) {
       plugins.push(unquoteTomlKey(tableName.slice('plugins.'.length)));
@@ -204,6 +214,48 @@ export function extractTomlTableNames(text) {
   }
 
   return { plugins, marketplaces };
+}
+
+export function stalenessBudgetExpiry(budget = {}) {
+  if (budget['allowed-until'] !== undefined) {
+    return { key: 'allowed-until', value: budget['allowed-until'] };
+  }
+
+  if (budget.allowedUntil !== undefined) {
+    return { key: 'allowedUntil', value: budget.allowedUntil };
+  }
+
+  if (budget.until !== undefined) {
+    return { key: 'until', value: budget.until };
+  }
+
+  return null;
+}
+
+export function parseAllowedUntilDate(value) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    const result = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+    if (
+      result.getUTCFullYear() !== year ||
+      result.getUTCMonth() !== month - 1 ||
+      result.getUTCDate() !== day
+    ) {
+      throw new Error(String(value));
+    }
+    return result;
+  }
+
+  const result = new Date(value);
+  if (Number.isNaN(result.getTime())) {
+    throw new Error(String(value));
+  }
+
+  return result;
+}
+
+function stripTomlMultilineStrings(text) {
+  return text.replace(/"""[\s\S]*?"""/g, '').replace(/'''[\s\S]*?'''/g, '');
 }
 
 function applyMatrixDefaults({ root, matrix }) {
@@ -243,31 +295,6 @@ function expandLiveVerifierPaths({ root, liveVerifier }) {
       liveVerifier[key] = expandPath({ root, value: liveVerifier[key] });
     }
   }
-}
-
-function expandPath({ root, value }) {
-  const expandedVariables = value.replace(
-    /\$\{([^}:]+)(:-([^}]*))?\}/g,
-    (_, name, _fallback, fallback) => {
-      if (name === 'ROOT') {
-        return root;
-      }
-
-      const envValue = process.env[name];
-      if (fallback !== undefined && (envValue === undefined || envValue === '')) {
-        return fallback;
-      }
-
-      return envValue ?? '';
-    },
-  );
-
-  const expandedHome =
-    expandedVariables === '~' || expandedVariables.startsWith('~/')
-      ? join(homedir(), expandedVariables.slice(2))
-      : expandedVariables;
-
-  return isAbsolute(expandedHome) ? expandedHome : resolve(root, expandedHome);
 }
 
 function validateRequiredFields({ errors, value, fields, label }) {
