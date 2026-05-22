@@ -44,6 +44,7 @@ writeFileSync(
   `#!/bin/sh
 # This hook protects main-bound Agent Trigger Kit work. Disable or edit it when
 # pushing to another integration target.
+npm run check:scratch-namespace
 npm run ops:premerge-version-check -- --base origin/main
 `,
 );

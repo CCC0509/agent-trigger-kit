@@ -230,6 +230,7 @@ test('install hooks writes a main-bound pre-push hook', () => {
   const hook = readFileSync(hookPath, 'utf8');
   assert.match(hook, /^#!\/bin\/sh/);
   assert.match(hook, /main-bound Agent Trigger Kit work/);
+  assert.match(hook, /npm run check:scratch-namespace/);
   assert.match(hook, /npm run ops:premerge-version-check -- --base origin\/main/);
   assert.equal((statSync(hookPath).mode & 0o111) !== 0, true);
 });
@@ -260,6 +261,7 @@ test('install hooks supports gitfile worktrees', () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const hookPath = join(gitDir, 'hooks', 'pre-push');
   assert.equal(existsSync(hookPath), true);
+  assert.match(readFileSync(hookPath, 'utf8'), /check:scratch-namespace/);
   assert.match(readFileSync(hookPath, 'utf8'), /ops:premerge-version-check/);
 });
 

@@ -4,9 +4,9 @@
 into an earlier, review-visible control without breaking branch-local scratch
 spec and plan review.
 
-**Status:** Design spec. This file has graduated from the branch-local scratch
-namespace into `docs/designs/` as the durable record for the implemented PR
-advisory control.
+**Status:** Implemented design note. This file has graduated from the
+branch-local scratch namespace into `docs/designs/` as the durable record for
+the scratch namespace PR gate and related advisory controls.
 
 ## Review Synthesis
 
@@ -29,9 +29,9 @@ control gap between branch review and final integration:
 Current repo verification also found one correction to the review note: current
 `main` and `origin/main` already have `.github/PULL_REQUEST_TEMPLATE.md` and
 `CONTRIBUTING.md`, including scratch namespace checklist and contributor
-guidance. The remaining gap is therefore not "no human review aid exists"; it
-is that human review aids are not enough by themselves and there is no PR-stage
-automated advisory or ready-state blocker.
+guidance. The remaining gap was therefore not "no human review aid exists"; it
+was that human review aids were not enough by themselves and the blocking check
+did not run at PR validation time.
 
 ## Current Controls
 
@@ -42,18 +42,28 @@ automated advisory or ready-state blocker.
 - `scripts/check-scratch-namespace.mjs` runs
   `git ls-files docs/superpowers/` and fails when tracked scratch files exist.
 - `npm run check:scratch-namespace` exposes that check.
-- `.github/workflows/ci.yml` runs the scratch namespace job only on push to
-  `main`.
+- `.github/workflows/ci.yml` runs `npm run check:scratch-namespace` as an
+  independent step in the `validate` job, so PRs fail before merge when tracked
+  scratch files remain.
+- `.github/workflows/ci.yml` keeps a draft-PR advisory job that emits warning
+  annotations for tracked scratch files.
+- `.github/workflows/ci.yml` keeps the push-to-`main` strict job as a
+  belt-and-suspenders guard for protected history.
 - `.github/PULL_REQUEST_TEMPLATE.md` includes a checklist item requiring
   tracked scratch files to be relocated or dropped before merge.
-- `CONTRIBUTING.md` documents branch-local scratch specs and plans.
+- `npm run preflight` mirrors the local quality gate, including scratch
+  namespace validation.
+- `scripts/install-hooks.mjs` installs an optional pre-push hook that runs the
+  scratch namespace check before the pre-merge version check.
+- `CONTRIBUTING.md` documents branch-local scratch specs and plans plus the
+  local preflight and hook commands.
 
 ### Gap
 
-There is no automated pull-request signal before merge. A branch can carry
-tracked scratch files for review, keep them until the final commit, and still
-look green in required PR checks. The push-to-`main` gate then catches the
-problem only after the merge has landed.
+Resolved for ordinary PR validation. A branch that carries tracked scratch
+files now fails the `validate` job before it can merge through the normal PR
+path. If the repository adopts merge queue, the strict check should also cover
+`merge_group` candidate trees.
 
 ## Root Cause
 
@@ -65,39 +75,68 @@ For the ordinary merge that produced `1c6b40c`, checking the branch tip before
 merge would have caught the issue. The merge result was not surprising: the
 branch tip contained the tracked plan, so the merge result contained it too.
 
-The stronger generalized root cause is absence of a pre-integration ready-state
-control. The policy depends on a state transition:
+The stronger generalized root cause was absence of a pre-integration
+ready-state control. The policy depends on a state transition:
 
 1. During review, tracked scratch files are allowed when force-added
    intentionally.
 2. Before merge, every tracked scratch file must be relocated or dropped.
 3. On `main`, tracked scratch files are forbidden.
 
-Automation currently enforces step 3 after integration. It does not help
-enforce step 2 before integration.
+Automation previously enforced step 3 after integration. The implemented fix
+moves step 2 into PR validation while retaining the post-integration guard as a
+backup.
 
 ## Design Principles
 
-- Keep branch-local scratch review valid. A generic required `pull_request`
-  blocker against PR heads would contradict the policy.
+- Keep branch-local scratch review explicit. Force-added scratch docs may exist
+  while a branch is being developed, but a PR that is intended to merge must
+  pass the same scratch namespace invariant that `main` requires.
 - Surface risk early. If a PR tracks scratch files, reviewers should see that
   in the Checks UI and ideally on the affected files.
-- Separate advisory from blocking. Advisory checks are useful during review;
-  blocking checks need an explicit ready signal such as a label or merge queue.
+- Separate advisory from blocking. Advisory checks are useful during draft
+  review; blocking checks belong in the normal `validate` job so maintainers do
+  not need a separate ritual to remember the invariant.
 - Use one source of truth. The same script should power advisory, ready-state,
   and push-to-`main` checks so messages and path handling do not drift.
 - Avoid redundant commands. `npm run check:scratch-namespace` already wraps
   `git ls-files docs/superpowers/`; running both at the same point is not two
   different checks.
 
-## Proposed Controls
+## Implemented Controls
 
-### 1. Advisory PR Check
+### 1. PR Validate Gate
 
-Add a PR-scoped advisory job that reports tracked scratch files without blocking
-ordinary review.
+The `validate` job runs this step as a hard gate:
 
-Preferred implementation:
+```yaml
+- name: Check scratch namespace
+  run: npm run check:scratch-namespace
+```
+
+This keeps the CI UI split into independent lint, format, scratch, test, and
+trigger-layer validation steps. It intentionally does not collapse CI into a
+single `npm run preflight` step, because separate steps provide clearer
+annotations and timing.
+
+### 2. Local Preflight
+
+`npm run preflight` exists for local use:
+
+```bash
+npm run lint && npm run format:check && npm test && npm run validate && npm run check:scratch-namespace
+```
+
+It mirrors the expected local pre-PR quality gate, but CI continues to run the
+commands as separate workflow steps.
+
+### 3. Draft PR Advisory
+
+Keep a PR-scoped advisory job that reports tracked scratch files without adding
+another required check for non-draft PRs. It is scoped to draft PRs, where the
+extra warning annotations are useful while review material is still in flux.
+
+Implementation:
 
 - Extend `scripts/check-scratch-namespace.mjs` with an advisory or annotation
   mode, for example `--advisory` or `--github-warning`.
@@ -106,47 +145,10 @@ Preferred implementation:
   - emit one GitHub annotation per file:
     `::warning file=<path>::Tracked scratch namespace file must be relocated or dropped before merge`,
   - exit `0` so the job is informational.
-- Add a workflow job on `pull_request` that runs the advisory mode.
-- Keep the existing push-to-`main` strict job unchanged.
+- Run the advisory job only when
+  `github.event_name == 'pull_request' && github.event.pull_request.draft == true`.
 
-Alternative implementation:
-
-- Run the existing strict command in a PR job with `continue-on-error: true`.
-- This is less precise because the warning can be buried in logs and the job
-  state is easier to misread.
-
-The advisory job is the first implementation priority because it is cheap,
-matches the policy design, and adds signal exactly to the risky subset of PRs:
-branches that intentionally force-add scratch docs.
-
-### 2. Merge-Ready Blocking Check
-
-Add a ready-state blocker that only fails when the branch is declared ready to
-merge.
-
-Lightweight option:
-
-- Use a label such as `merge-ready`.
-- Add a PR job that always runs, but only performs strict scratch validation
-  when the label is present.
-- When the label is absent, the job exits `0` and says the branch is still in
-  review mode.
-- When the label is present, the job runs `npm run check:scratch-namespace` and
-  fails on tracked scratch files.
-
-Limitations:
-
-- The label must become part of the team's merge ritual, or branch protection
-  must require the ready-state job plus a separate rule that maintainers use the
-  label before merging.
-- GitHub required-check behavior with skipped or conditional jobs needs to be
-  verified in a real PR before relying on it as the only blocker.
-
-This option is a practical middle step before a merge queue. It gives the tree
-an explicit "ready" signal without requiring every PR to be immediately free of
-scratch review artifacts.
-
-### 3. Merge Queue Candidate Check
+### 4. Merge Queue Candidate Check
 
 When the repository adopts GitHub merge queue, add `merge_group` coverage for
 the strict scratch namespace check.
@@ -166,14 +168,14 @@ The scratch namespace job should remain strict for:
 - `push` to `main`
 - `merge_group`
 
-It should remain advisory or ready-gated for ordinary `pull_request` heads.
+The existing `validate` job already handles ordinary `pull_request` heads.
 
 This is the structurally strongest preventive control because entering the
 queue is the explicit ready signal and the checked tree is the integration
 candidate. Its cost is workflow and culture: maintainers must use the queue
 instead of direct merge.
 
-### 4. Optional Local Hooks
+### 5. Optional Local Hooks
 
 Local hooks can reduce misses but must not be the main control.
 
@@ -216,27 +218,27 @@ of dropped.
 
 ## Implementation Outline
 
-1. Extend `scripts/check-scratch-namespace.mjs` with advisory annotation output.
-2. Add tests covering strict failure, advisory success-with-warning output, and
-   one annotation per tracked file.
-3. Add an advisory PR job to `.github/workflows/ci.yml`.
-4. Update `tests/open-source-config.test.mjs` to lock the advisory job shape.
-5. Document the advisory signal in `CONTRIBUTING.md` and the PR template if the
-   existing wording is not explicit enough.
-6. Consider a second implementation step for a `merge-ready` label-gated
-   blocking job.
+1. Add `npm run check:scratch-namespace` to the `validate` job as a separate
+   workflow step.
+2. Add `npm run preflight` for local use.
+3. Add `npm run preflight` to the PR template verification checklist and
+   contributor docs.
+4. Add `npm run check:scratch-namespace` to the optional pre-push hook.
+5. Scope the advisory job to draft PRs and document the push-to-`main` strict
+   job as a belt-and-suspenders guard.
+6. Update tests to parse `.github/workflows/ci.yml` as YAML and lock the
+   workflow semantics without relying on brittle raw text matches.
 7. Defer `merge_group` support until the team decides to use merge queue.
 
 ## Acceptance Criteria
 
-- Ordinary PRs with no tracked `docs/superpowers/` files stay quiet.
-- PRs with force-added scratch files produce visible GitHub warning annotations
-  naming each tracked file.
-- The advisory PR job does not block review.
+- Ordinary PRs with no tracked `docs/superpowers/` files pass the scratch
+  namespace step in the `validate` job.
+- PRs with force-added scratch files fail the `validate` job before merge.
+- Draft PRs with force-added scratch files also produce visible warning
+  annotations naming each tracked file.
 - Pushes to `main` still run the strict check and fail when tracked scratch
   files exist.
-- Any future ready-state blocker has an explicit ready signal and does not
-  reject ordinary review branches solely for carrying scratch docs.
 - The strict script remains the canonical implementation of the file detection
   logic.
 

@@ -10,12 +10,12 @@ Use Node.js 20 or newer.
 ```bash
 git clone https://github.com/CCC0509/agent-trigger-kit.git
 cd agent-trigger-kit
-npm test
-npm run validate
+npm run preflight
 ```
 
-There are no runtime npm dependencies today. The scripts use Node's standard
-library and the built-in `node --test` runner.
+Install dependencies from `package-lock.json`; the scripts use Node's standard
+library, the built-in `node --test` runner, and the package dependencies
+declared in `package.json`.
 
 ## Branches And Pull Requests
 
@@ -28,8 +28,7 @@ library and the built-in `node --test` runner.
 Before opening a pull request, run:
 
 ```bash
-npm test
-npm run validate
+npm run preflight
 ```
 
 If your change affects packaging or the CLI bin, also run:
@@ -107,9 +106,10 @@ To install an opt-in local pre-push hook for main-bound Agent Trigger Kit work:
 node scripts/install-hooks.mjs
 ```
 
-The hook always runs `npm run ops:premerge-version-check -- --base origin/main`.
-When pushing to a sandbox remote or a non-main integration target, use
-`git push --no-verify` or edit the hook for that local checkout.
+The hook always runs `npm run check:scratch-namespace` and
+`npm run ops:premerge-version-check -- --base origin/main`. When pushing to a
+sandbox remote or a non-main integration target, use `git push --no-verify` or
+edit the hook for that local checkout.
 
 ## Code Style
 
