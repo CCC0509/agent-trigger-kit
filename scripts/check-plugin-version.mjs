@@ -4,15 +4,17 @@ import { homedir } from 'node:os';
 import { join, normalize } from 'node:path';
 
 import { parseArgs } from './lib/args.mjs';
-import { createPathOf, readJsonFileIfExistsOrExit } from './lib/fs-json.mjs';
 import { probeClaudeState, probeCodexCache } from './lib/plugin-state-probe.mjs';
+import {
+  collectSourceVersionSnapshot,
+  sourceVersionsDiffer,
+} from './lib/source-version-snapshot.mjs';
 
 const args = parseArgs(process.argv.slice(2), {
   booleanKeys: ['json', 'strict-installed', 'include-package', 'no-include-package'],
   collectPositionals: true,
 });
 const root = normalize(args.root || process.cwd());
-const pathOf = createPathOf(root);
 const codexHome = normalize(
   args['codex-home'] || process.env.CODEX_HOME || join(homedir(), '.codex'),
 );
@@ -46,65 +48,18 @@ const checkCodex = surface === 'all' || surface === 'codex';
 const checkClaude = surface === 'all' || surface === 'claude';
 const sourceOnly = surface === 'source';
 
-function sourceEntry(label, version) {
-  return { label, version: version || 'missing' };
-}
-
-function packageNameMatchesPlugin(packageName) {
-  return packageName === pluginName || packageName?.endsWith(`/${pluginName}`);
-}
-
-function shouldIncludePackage(packageJson) {
-  if (args['include-package']) return true;
-  if (args['no-include-package']) return false;
-  return packageNameMatchesPlugin(packageJson?.name);
-}
-
-const packageJson = readJsonFileIfExistsOrExit(pathOf('package.json'), null);
-const codexMarketplace = readJsonFileIfExistsOrExit(
-  pathOf('.agents/plugins/marketplace.json'),
-  null,
-);
-const claudeMarketplace = readJsonFileIfExistsOrExit(
-  pathOf('.claude-plugin/marketplace.json'),
-  null,
-);
-const codexEntry = codexMarketplace?.plugins?.find((entry) => entry.name === pluginName);
-const claudeEntry = claudeMarketplace?.plugins?.find((entry) => entry.name === pluginName);
-const pluginDir =
-  codexEntry?.source?.path?.replace(/^\.\//, '') || claudeEntry?.source?.replace(/^\.\//, '');
-
-if (!pluginDir) {
-  console.error(`${pluginName}: missing plugin source in marketplace manifests`);
+const sourceSnapshot = collectSourceVersionSnapshot({
+  root,
+  pluginName,
+  includePackage: Boolean(args['include-package']),
+  noIncludePackage: Boolean(args['no-include-package']),
+});
+if (sourceVersionsDiffer(sourceSnapshot)) {
+  console.error(sourceSnapshot.errorMessage);
   process.exit(1);
 }
 
-const codexPlugin = readJsonFileIfExistsOrExit(
-  pathOf(`${pluginDir}/.codex-plugin/plugin.json`),
-  null,
-);
-const claudePlugin = readJsonFileIfExistsOrExit(
-  pathOf(`${pluginDir}/.claude-plugin/plugin.json`),
-  null,
-);
-const sourceVersions = [
-  ...(shouldIncludePackage(packageJson) ? [sourceEntry('package.json', packageJson?.version)] : []),
-  sourceEntry('codex marketplace', codexEntry?.version),
-  sourceEntry('codex plugin', codexPlugin?.version),
-  sourceEntry('claude marketplace', claudeEntry?.version),
-  sourceEntry('claude plugin', claudePlugin?.version),
-];
-
-const uniqueVersions = new Set(sourceVersions.map((entry) => entry.version));
-if (uniqueVersions.size !== 1) {
-  console.error(
-    `source versions differ: ${sourceVersions.map((entry) => `${entry.label}=${entry.version}`).join(', ')}`,
-  );
-  process.exit(1);
-}
-
-const expectedVersion = sourceVersions[0].version;
-const marketplaceName = codexMarketplace?.name || pluginName;
+const { sourceVersions, expectedVersion, marketplaceName, claudeMarketplaceName } = sourceSnapshot;
 if (!jsonOutput) {
   console.log(`expected source version: ${expectedVersion}`);
   console.log('source versions:');
@@ -144,7 +99,7 @@ if (checkClaude) {
     claudeHome,
     envPath: process.env.PATH || '',
     expectedVersion,
-    marketplaceName: claudeMarketplace?.name || marketplaceName,
+    marketplaceName: claudeMarketplaceName,
     pluginName,
   });
   if (probedClaude.cli.status === 'available') {
