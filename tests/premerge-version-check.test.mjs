@@ -121,6 +121,35 @@ function createSourceFixture(root, version = '0.1.0') {
   write(root, 'CHANGELOG.md', `# Changelog\n\n## ${version}\n\n- Initial fixture.`);
 }
 
+function bumpSourceFixture(root, version) {
+  const packageJson = readJson(root, 'package.json');
+  packageJson.version = version;
+  writeJson(root, 'package.json', packageJson);
+
+  const packageLock = readJson(root, 'package-lock.json');
+  packageLock.version = version;
+  packageLock.packages[''].version = version;
+  writeJson(root, 'package-lock.json', packageLock);
+
+  const codexMarketplace = readJson(root, '.agents/plugins/marketplace.json');
+  codexMarketplace.plugins[0].version = version;
+  writeJson(root, '.agents/plugins/marketplace.json', codexMarketplace);
+
+  const claudeMarketplace = readJson(root, '.claude-plugin/marketplace.json');
+  claudeMarketplace.plugins[0].version = version;
+  writeJson(root, '.claude-plugin/marketplace.json', claudeMarketplace);
+
+  const codexPlugin = readJson(root, 'plugins/agent-trigger-kit/.codex-plugin/plugin.json');
+  codexPlugin.version = version;
+  writeJson(root, 'plugins/agent-trigger-kit/.codex-plugin/plugin.json', codexPlugin);
+
+  const claudePlugin = readJson(root, 'plugins/agent-trigger-kit/.claude-plugin/plugin.json');
+  claudePlugin.version = version;
+  writeJson(root, 'plugins/agent-trigger-kit/.claude-plugin/plugin.json', claudePlugin);
+
+  writeChangelog(root, `# Changelog\n\n## ${version}\n\n- Fixture bump.`);
+}
+
 function writeChangelog(root, text) {
   write(root, 'CHANGELOG.md', text);
 }
@@ -307,4 +336,96 @@ test('premerge version check reports base failure before bump checks', () => {
     json.checks.find((check) => check.name === 'plugin-visible-version-bump').status,
     'skipped',
   );
+});
+
+test('premerge version check rejects source-visible changes without a version bump', () => {
+  const root = makeRoot();
+  initGitFixture(root);
+  createSourceFixture(root, '0.1.0');
+  const base = commitAll(root, 'base source fixture');
+  write(root, 'scripts/source-visible-change.mjs', 'export const changed = true;');
+  commitAll(root, 'change source visible script');
+
+  const { result, json } = runPremergeJson(root, ['--base', base]);
+
+  assert.equal(result.status, 1);
+  assert.equal(json.exitReason, 'plugin-visible-version-bump');
+  const bumpCheck = json.checks.find((check) => check.name === 'plugin-visible-version-bump');
+  assert.equal(bumpCheck.status, 'failed');
+  assert.match(bumpCheck.reason, /requires a version bump/i);
+  assert.equal(bumpCheck.details.baseVersion, '0.1.0');
+  assert.equal(bumpCheck.details.currentVersion, '0.1.0');
+  assert.deepEqual(bumpCheck.details.changedFiles, ['scripts/source-visible-change.mjs']);
+});
+
+test('premerge version check accepts source-visible changes with a higher version', () => {
+  const root = makeRoot();
+  initGitFixture(root);
+  createSourceFixture(root, '0.1.0');
+  const base = commitAll(root, 'base source fixture');
+  write(root, 'scripts/source-visible-change.mjs', 'export const changed = true;');
+  bumpSourceFixture(root, '0.1.1');
+  commitAll(root, 'bump after source visible change');
+
+  const { result, json } = runPremergeJson(root, ['--base', base]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(json.overallStatus, 'passed');
+  const bumpCheck = json.checks.find((check) => check.name === 'plugin-visible-version-bump');
+  assert.equal(bumpCheck.status, 'passed');
+  assert.equal(bumpCheck.details.baseVersion, '0.1.0');
+  assert.equal(bumpCheck.details.currentVersion, '0.1.1');
+  assert.deepEqual(bumpCheck.details.changedFiles, [
+    '.agents/plugins/marketplace.json',
+    '.claude-plugin/marketplace.json',
+    'CHANGELOG.md',
+    'package-lock.json',
+    'package.json',
+    'plugins/agent-trigger-kit/.claude-plugin/plugin.json',
+    'plugins/agent-trigger-kit/.codex-plugin/plugin.json',
+    'scripts/source-visible-change.mjs',
+  ]);
+});
+
+test('premerge version check rejects source-visible changes with a lower version', () => {
+  const root = makeRoot();
+  initGitFixture(root);
+  createSourceFixture(root, '0.1.1');
+  const base = commitAll(root, 'base source fixture');
+  write(root, 'scripts/source-visible-change.mjs', 'export const changed = true;');
+  bumpSourceFixture(root, '0.1.0');
+  commitAll(root, 'lower version after source visible change');
+
+  const { result, json } = runPremergeJson(root, ['--base', base]);
+
+  assert.equal(result.status, 1);
+  assert.equal(json.exitReason, 'plugin-visible-version-bump');
+  const bumpCheck = json.checks.find((check) => check.name === 'plugin-visible-version-bump');
+  assert.equal(bumpCheck.status, 'failed');
+  assert.match(bumpCheck.reason, /higher than base version/i);
+  assert.equal(bumpCheck.details.baseVersion, '0.1.1');
+  assert.equal(bumpCheck.details.currentVersion, '0.1.0');
+  assert.match(
+    result.stderr || JSON.stringify(json),
+    /source-visible changes require a version higher than base version/i,
+  );
+});
+
+test('premerge version check ignores non-source-visible changes without a version bump', () => {
+  const root = makeRoot();
+  initGitFixture(root);
+  createSourceFixture(root, '0.1.0');
+  const base = commitAll(root, 'base source fixture');
+  write(root, 'README.md', '# Fixture\n\nNon-source-visible docs change.');
+  commitAll(root, 'change readme only');
+
+  const { result, json } = runPremergeJson(root, ['--base', base]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(json.overallStatus, 'passed');
+  const bumpCheck = json.checks.find((check) => check.name === 'plugin-visible-version-bump');
+  assert.equal(bumpCheck.status, 'passed');
+  assert.equal(bumpCheck.details.baseVersion, '0.1.0');
+  assert.equal(bumpCheck.details.currentVersion, '0.1.0');
+  assert.deepEqual(bumpCheck.details.changedFiles, []);
 });
