@@ -95,17 +95,38 @@ test('scratch namespace policy is documented and reviewable', () => {
 
 test('scratch namespace CI gate is scoped to main pushes', () => {
   const ci = read('.github/workflows/ci.yml');
-  const scratchJob = ci.match(/ {2}scratch-namespace:[\s\S]*/)?.[0] || '';
+  const scratchJob = ci.match(/ {2}scratch-namespace:[\s\S]*?(?=\n {2}[a-zA-Z0-9_-]+:|$)/)?.[0] || '';
 
-  assert.equal((ci.match(/run: npm run check:scratch-namespace/g) || []).length, 1);
+  assert.equal((scratchJob.match(/^ {8}run: npm run check:scratch-namespace$/gm) || []).length, 1);
   assert.match(ci, /scratch-namespace:/);
-  assert.match(ci, /name: Check Scratch Namespace/);
-  assert.match(ci, /needs: validate/);
-  assert.match(ci, /runs-on: ubuntu-latest/);
+  assert.match(scratchJob, /name: Check Scratch Namespace/);
+  assert.match(scratchJob, /needs: validate/);
+  assert.match(scratchJob, /runs-on: ubuntu-latest/);
   assert.doesNotMatch(scratchJob, /cache:\s*npm/);
   assert.doesNotMatch(scratchJob, /npm ci/);
+  assert.doesNotMatch(scratchJob, /--advisory/);
   assert.match(
-    ci,
-    /scratch-namespace:[\s\S]*if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'[\s\S]*run: npm run check:scratch-namespace/,
+    scratchJob,
+    /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/,
   );
+  assert.match(scratchJob, /^ {8}run: npm run check:scratch-namespace$/m);
+});
+
+test('scratch namespace advisory CI job reports PR warnings without blocking review', () => {
+  const ci = read('.github/workflows/ci.yml');
+  const advisoryJob =
+    ci.match(/ {2}scratch-namespace-advisory:[\s\S]*?(?=\n {2}[a-zA-Z0-9_-]+:|$)/)?.[0] ||
+    '';
+
+  assert.match(ci, /scratch-namespace-advisory:/);
+  assert.match(advisoryJob, /name: Scratch Namespace Advisory/);
+  assert.match(advisoryJob, /if: github\.event_name == 'pull_request'/);
+  assert.match(advisoryJob, /runs-on: ubuntu-latest/);
+  assert.match(advisoryJob, /actions\/checkout@v4/);
+  assert.match(advisoryJob, /actions\/setup-node@v4/);
+  assert.match(advisoryJob, /node-version: '20'/);
+  assert.match(advisoryJob, /run: npm run check:scratch-namespace -- --advisory/);
+  assert.doesNotMatch(advisoryJob, /continue-on-error/);
+  assert.doesNotMatch(advisoryJob, /needs: validate/);
+  assert.doesNotMatch(advisoryJob, /npm ci/);
 });
