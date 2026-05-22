@@ -7137,7 +7137,7 @@ exit 0
       pluginName,
     ],
     {
-      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+      env: { ...process.env, PATH: fakeBin },
     },
   );
 

@@ -108,7 +108,8 @@ test('scratch namespace policy is documented and reviewable', () => {
 
 test('scratch namespace CI gate is scoped to main pushes', () => {
   const ci = read('.github/workflows/ci.yml');
-  const scratchJob = ci.match(/ {2}scratch-namespace:[\s\S]*?(?=\n {2}[a-zA-Z0-9_-]+:|$)/)?.[0] || '';
+  const scratchJob =
+    ci.match(/ {2}scratch-namespace:[\s\S]*?(?=\n {2}[a-zA-Z0-9_-]+:|$)/)?.[0] || '';
 
   assert.equal((scratchJob.match(/^ {8}run: npm run check:scratch-namespace$/gm) || []).length, 1);
   assert.match(ci, /scratch-namespace:/);
@@ -128,8 +129,7 @@ test('scratch namespace CI gate is scoped to main pushes', () => {
 test('scratch namespace advisory CI job reports PR warnings without blocking review', () => {
   const ci = read('.github/workflows/ci.yml');
   const advisoryJob =
-    ci.match(/ {2}scratch-namespace-advisory:[\s\S]*?(?=\n {2}[a-zA-Z0-9_-]+:|$)/)?.[0] ||
-    '';
+    ci.match(/ {2}scratch-namespace-advisory:[\s\S]*?(?=\n {2}[a-zA-Z0-9_-]+:|$)/)?.[0] || '';
 
   assert.match(ci, /scratch-namespace-advisory:/);
   assert.match(advisoryJob, /name: Scratch Namespace Advisory/);
