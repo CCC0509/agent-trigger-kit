@@ -1,12 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -148,9 +142,15 @@ test('source visible path rules classify Agent Trigger Kit release surfaces', ()
   assert.equal(isSourceVisiblePath('.claude-plugin/marketplace.json'), true);
   assert.equal(isSourceVisiblePath('package.json'), true);
   assert.equal(isSourceVisiblePath('package-lock.json'), true);
-  assert.equal(isSourceVisiblePath('plugins/agent-trigger-kit/skills/version-check/SKILL.md'), true);
+  assert.equal(
+    isSourceVisiblePath('plugins/agent-trigger-kit/skills/version-check/SKILL.md'),
+    true,
+  );
   assert.equal(isSourceVisiblePath('scripts/premerge-version-check.mjs'), true);
-  assert.equal(isSourceVisiblePath('templates/project-trigger-layer/skill/SKILL.md.template'), true);
+  assert.equal(
+    isSourceVisiblePath('templates/project-trigger-layer/skill/SKILL.md.template'),
+    true,
+  );
 
   assert.equal(isSourceVisiblePath('README.md'), false);
   assert.equal(isSourceVisiblePath('CONTRIBUTING.md'), false);
@@ -193,15 +193,12 @@ test('premerge version check passes a clean source repo reconciled with base', (
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(json.overallStatus, 'passed');
   assert.equal(json.exitReason, null);
-  assert.deepEqual(
-    Object.fromEntries(json.checks.map((check) => [check.name, check.status])),
-    {
-      'source-version-consistency': 'passed',
-      'base-reconciliation': 'passed',
-      'changelog-head-alignment': 'passed',
-      'plugin-visible-version-bump': 'passed',
-    },
-  );
+  assert.deepEqual(Object.fromEntries(json.checks.map((check) => [check.name, check.status])), {
+    'source-version-consistency': 'passed',
+    'base-reconciliation': 'passed',
+    'changelog-head-alignment': 'passed',
+    'plugin-visible-version-bump': 'passed',
+  });
 });
 
 test('premerge version check rejects malformed changelog heads', () => {
