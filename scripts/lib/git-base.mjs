@@ -24,8 +24,12 @@ export function runGit({ root, args }) {
   };
 }
 
-export function shallowFetchHint(operation, details = '') {
-  return `${operation} failed. Run git fetch --unshallow or use fetch-depth: 0 before running --require-version-bump.${details ? ` ${details.trim()}` : ''}`;
+export function shallowFetchHint(
+  operation,
+  details = '',
+  { command = '--require-version-bump' } = {},
+) {
+  return `${operation} failed. Run git fetch --unshallow or use fetch-depth: 0 before running ${command}.${details ? ` ${details.trim()}` : ''}`;
 }
 
 export function showFile({ root, ref, path }) {

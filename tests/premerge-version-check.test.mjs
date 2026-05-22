@@ -18,6 +18,7 @@ import {
   isSourceVisiblePath,
   sourceVisibleChangedFiles,
 } from '../scripts/lib/source-plugin-visible.mjs';
+import { shallowFetchHint } from '../scripts/lib/git-base.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -205,6 +206,16 @@ test('source visible changed files returns only matching paths', () => {
     ]),
     ['package-lock.json', 'plugins/agent-trigger-kit/commands/trigger-layer-init.md'],
   );
+});
+
+test('git shallow fetch hints include the caller command', () => {
+  const hint = shallowFetchHint('git diff --name-only origin/main...HEAD', 'base unavailable', {
+    command: 'ops:premerge-version-check',
+  });
+
+  assert.match(hint, /before running ops:premerge-version-check/);
+  assert.doesNotMatch(hint, /--require-version-bump/);
+  assert.match(hint, /base unavailable/);
 });
 
 test('install hooks writes a main-bound pre-push hook', () => {

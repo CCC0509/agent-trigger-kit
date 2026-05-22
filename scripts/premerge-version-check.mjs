@@ -21,6 +21,7 @@ const CHECK_PRIORITY = [
   'changelog-head-alignment',
   'plugin-visible-version-bump',
 ];
+const CLEAN_SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 if (!base) {
   console.error('--base is required; pass --base origin/main or the target merge base');
@@ -69,10 +70,7 @@ function printAndExit(checks) {
 }
 
 function premergeFetchHint(operation, details = '') {
-  return shallowFetchHint(operation, details).replace(
-    'before running --require-version-bump',
-    'before running ops:premerge-version-check',
-  );
+  return shallowFetchHint(operation, details, { command: 'ops:premerge-version-check' });
 }
 
 function checkSourceVersionConsistency() {
@@ -144,7 +142,7 @@ function changelogHeadVersion() {
   if (/^Unreleased$/i.test(heading)) {
     return { error: 'CHANGELOG.md must not use ## Unreleased as the first release heading' };
   }
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(heading)) {
+  if (!CLEAN_SEMVER_RE.test(heading)) {
     return { error: `CHANGELOG.md head must be clean SemVer x.y.z: ${heading}` };
   }
   return { version: heading };
@@ -253,7 +251,7 @@ function pluginVersionSnapshot(ref) {
 }
 
 function parseCleanSemver(version) {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version || '');
+  const match = CLEAN_SEMVER_RE.exec(version || '');
   if (!match) return null;
   return match.slice(1).map(Number);
 }
