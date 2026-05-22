@@ -31,6 +31,21 @@ is needed, Cursor uses repo-local rules, and Codex currently has no project
 scope, so any Codex project-plugin registration is temporary verification plus
 cleanup.
 
+## Scope First
+
+Before changing a generated consumer trigger layer, name the target repo path,
+current working directory, plugin name, canonical playbook path, generated
+manifest path, agent surfaces in scope, and Agent Trigger Kit source or installed version
+used for generation.
+
+If those values cannot be named, stop before writing files or running
+install/update commands. This is operator discipline; the validator cannot infer
+whether the agent is working in the intended repo.
+
+Use the same pinned Agent Trigger Kit source for generation and validation. For
+`npx`, pin the GitHub package spec to a tag or commit SHA. Do not use an
+unqualified `github:CCC0509/agent-trigger-kit` package spec in CI.
+
 ## Build Order
 
 1. Identify the canonical playbook path and the task names.
@@ -46,21 +61,93 @@ cleanup.
 10. When tasks are removed, run a clean dry-run for the project and plugin before
     applying orphan cleanup.
 
-## Required Checks
+## Static Gate
 
-- `node scripts/validate-trigger-layer.mjs --root <project>`
-- `claude plugin validate <project>`
-- `claude plugin validate <project>/plugins/<plugin-name>`
-- For generated Claude project plugins, confirm `claude plugin list --json`
-  reports `"scope": "project"` and the expected `projectPath` after explicit
-  install.
-- A fresh Codex or `codex debug prompt-input "test"` check when Codex plugin behavior changes.
-- If Codex project-plugin discovery was tested, remove the temporary marketplace
-  and confirm the global config no longer contains the project plugin.
-- A fresh Claude Code session after installing or updating Claude commands.
-- When `.agent-trigger-kit/generated.json` contains `headerChecks`, treat
-  `MISSING header in <file> (check: <name>)` as a committed document lifecycle
-  policy failure, not as trigger-wrapper drift.
+The static gate is CI-safe and does not depend on user-level agent state. For a
+consumer repo, prefer the packaged CLI entrypoint because it runs the same
+canonical validator as `scripts/validate-trigger-layer.mjs`:
+
+```bash
+KIT_SPEC=github:CCC0509/agent-trigger-kit#<tag-or-commit>
+npx --yes "$KIT_SPEC" validate --root <target-repo>
+npx --yes "$KIT_SPEC" version-check \
+  --root <target-repo> \
+  --surface source \
+  <plugin-name>
+npx --yes "$KIT_SPEC" validate \
+  --root <target-repo> \
+  --require-version-bump \
+  --base main
+```
+
+Use `version-check --surface source` when the workflow needs full source version
+alignment but the branch does not have a plugin-visible diff that triggers
+`--require-version-bump`.
+
+Plugin-visible changes include generated skills, generated commands, plugin
+manifests, and marketplace entries for the plugin. Wrapper typo fixes are still
+plugin-visible changes and need an aligned version bump.
+
+## Manual Live Discovery
+
+Live discovery is a manual release checklist, not a CI gate. Run it only after
+the static gate passes, required version bumps are applied, relevant plugins are
+installed or updated, and Claude Code has been restarted after install/update.
+
+Codex:
+
+```bash
+codex debug prompt-input "test"
+```
+
+Confirm the expected `<plugin-name>:<skill-name>` entries. If a generated
+project plugin was temporarily added to Codex global config for discovery,
+remove it afterwards and confirm `~/.codex/config.toml` no longer contains the
+project plugin.
+
+Claude Code:
+
+```bash
+claude plugin list --json
+```
+
+For generated project plugins, confirm `"scope": "project"` and the expected
+`projectPath`. Treat `claude plugin validate <path>` hangs as inconclusive; use
+a 20 second timeout wrapper when needed to keep the session from blocking. Do
+not make a hanging validate command the only discovery signal.
+
+Cursor:
+
+Cursor support is static in this toolkit. Verify `.cursor/rules/*.mdc`
+frontmatter, globs, and canonical references. Do not describe Cursor as having a
+headless runtime discovery gate unless a real probe is added later.
+
+Gemini:
+
+Gemini is out of scope unless the kit adds Gemini templates and validator rules.
+Pointer link checks for existing `GEMINI.md` files are not generated Gemini
+trigger-layer support.
+
+## Failure Branches
+
+If static validation fails, block the PR and repair the generated layer or
+canonical refs before live discovery.
+
+If a consuming project has a stale local validator, replace the workflow with
+the current kit validator or regenerate the trigger layer. Do not patch the
+stale validator by hand unless the project intentionally owns a fork.
+
+If Codex discovery fails, check whether the marketplace root was added instead
+of the plugin subdirectory, whether the installed cache is stale, and whether
+global config cleanup left the plugin disabled or absent.
+
+If Claude discovery fails, check install scope, `projectPath`, cache version,
+declared `commands`, stale snapshots, `.orphaned_at`, and whether Claude Code was
+restarted after update.
+
+If a live discovery step mutates user-level config and the session is
+interrupted, cleanup is required before reporting completion. The final report
+must say whether cleanup was verified.
 
 ## Common Mistakes
 
@@ -72,5 +159,11 @@ cleanup.
   applying generated-wrapper cleanup.
 - Confusing the user-scope Agent Trigger Kit install with generated project ops
   plugins, which should stay project-local.
+- Validating consumer trigger layers with a floating `github:CCC0509/agent-trigger-kit`
+  package spec instead of the pinned kit source named during scope setup.
 - Assuming Codex has project-scoped plugin enablement; it does not, so project
   plugin registration must be temporary and cleaned up.
+- Treating live discovery as a CI gate; Codex and Claude can be probed manually,
+  while Cursor is static-only in this toolkit.
+- Forgetting that Claude Code must restart after plugin install or update before
+  skill and slash-command discovery results are meaningful.

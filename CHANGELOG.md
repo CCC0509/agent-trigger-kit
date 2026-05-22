@@ -6,6 +6,15 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.12
+
+- Documented the consumer trigger-layer lifecycle with scope-first setup,
+  pinned static validation, and manual live-discovery boundaries.
+- Made `agent-trigger-kit:cross-agent-trigger-layer` the canonical home for the
+  generated project plugin live-discovery checklist.
+- Clarified Claude Code restart and `claude plugin validate` timeout guidance
+  for generated project plugin troubleshooting.
+
 ## 0.1.10
 
 - Added opt-in document header checks to trigger-layer validation, configured
