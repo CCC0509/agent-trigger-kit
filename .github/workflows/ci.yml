@@ -54,6 +54,7 @@ jobs:
 
   scratch-namespace-advisory:
     name: Scratch Namespace Advisory
+    # Draft PRs get early advisory annotations too; this job is informational.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 

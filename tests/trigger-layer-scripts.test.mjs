@@ -7137,6 +7137,7 @@ exit 0
       pluginName,
     ],
     {
+      // Isolate the intentionally broken fake CLI so PATH lookup cannot fall through to a real Claude install.
       env: { ...process.env, PATH: fakeBin },
     },
   );

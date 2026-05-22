@@ -23,8 +23,14 @@ function escapeAnnotationProperty(value) {
     .replaceAll(',', '%2C');
 }
 
+function escapeAnnotationData(value) {
+  return value.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+}
+
 function emitWarningAnnotation(file) {
-  console.log(`::warning file=${escapeAnnotationProperty(file)}::${warningMessage}`);
+  console.log(
+    `::warning file=${escapeAnnotationProperty(file)}::${escapeAnnotationData(warningMessage)}`,
+  );
 }
 
 const result = spawnSync('git', ['-C', root, 'ls-files', 'docs/superpowers/'], {
@@ -42,11 +48,9 @@ if (result.status !== 0) {
 const trackedFiles = result.stdout.split(/\r?\n/).filter(Boolean);
 
 if (trackedFiles.length === 0) {
-  if (advisory) {
-    console.log('scratch namespace advisory passed: docs/superpowers/ has no tracked files');
-  } else {
-    console.log('scratch namespace check passed: docs/superpowers/ has no tracked files');
-  }
+  console.log(
+    `scratch namespace ${advisory ? 'advisory' : 'check'} passed: docs/superpowers/ has no tracked files`,
+  );
   process.exit(0);
 }
 
