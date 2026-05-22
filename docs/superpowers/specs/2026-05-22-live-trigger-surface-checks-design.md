@@ -40,6 +40,11 @@ The first supported schema is `schemaVersion: 1`. A checker that does not
 support the declared schema must fail with exit code `3` and a message such as
 `unsupported matrix schemaVersion 2; upgrade Agent Trigger Kit`.
 
+Within a supported schema version, unknown fields are allowed and preserved in
+JSON output when practical. Unknown fields should produce warnings only when a
+known field name is likely misspelled. This keeps the schema forward-compatible
+without forcing a new `schemaVersion` for every additive field.
+
 ### Consumers Own Their Matrix
 
 Agent Trigger Kit owns the schema, reusable parser, live-check CLI, tests, and
@@ -70,8 +75,10 @@ matrix.
 The live-check CLI does not shell out to a skill and does not duplicate
 `check-plugin-version.mjs` logic.
 
-Implementation extracts the reusable source/cache comparison and probe
-normalization into library modules consumed by:
+`scripts/lib/plugin-state-probe.mjs` already owns most installed-state probing,
+including read-only Claude filesystem metadata. Implementation should extract
+the remaining source-version assembly and consistency check from
+`scripts/check-plugin-version.mjs` into a reusable library consumed by:
 
 - `scripts/check-plugin-version.mjs`
 - the `version-check` packaged CLI command
@@ -82,6 +89,13 @@ normalization into library modules consumed by:
 The current `plugins/agent-trigger-kit/skills/version-check/SKILL.md` remains a
 workflow wrapper. It should describe when to call `version-check` or
 `live-check`; it should not become the implementation.
+
+`claude-installed-plugin` must use filesystem metadata from Claude's plugin
+state, such as `installed_plugins.json`, `known_marketplaces.json`, and install
+cache paths. It must not invoke `claude plugin list --json` or any other Claude
+CLI command in v1. The CLI path remains appropriate for manual discovery and for
+existing `check-plugin-version` interactive behavior, but live-check's
+headless-safe verifier is file-based.
 
 ### Live-Check Is Read-Only By Default
 
@@ -122,7 +136,6 @@ generatedDocs:
   markdownTable: docs/agent-trigger-surfaces.md
 defaults:
   timeoutMs: 20000
-  owner: ops
 surfaces:
   - id: codex-user-agent-trigger-kit
     surface: codex
@@ -149,7 +162,6 @@ surfaces:
     liveVerifier:
       kind: claude-installed-plugin
       claudeHome: "${CLAUDE_HOME:-~/.claude}"
-      projectPath: /Users/rd/projects/stock-scanner
     headless: safe
     owner: stock-scanner
     stalenessBudget:
@@ -207,7 +219,7 @@ assertions:
     sets:
       - skills
       - commands
-    severity: drift
+    status: drift
     owner: toolkit
 ```
 
@@ -243,6 +255,11 @@ Required surface fields:
 - `owner`
 - `stalenessBudget`
 
+`defaults` may provide values for optional row fields only. It cannot satisfy
+the required field list above unless the field explicitly says it supports a
+default. In v1, `timeoutMs` supports top-level defaulting; `owner` must remain
+explicit on every row so drift ownership is visible in review.
+
 ## Field Semantics
 
 `surface` is the agent or integration surface: `codex`, `claude`, `cursor`,
@@ -264,11 +281,29 @@ or `local`.
   version.
 - `codex-config-absence`: read Codex config and ensure forbidden project plugin
   IDs are absent.
-- `claude-installed-plugin`: read Claude installed plugin metadata and compare
-  scope, version, and optional `projectPath`.
+- `claude-installed-plugin`: read Claude installed plugin metadata from files
+  and compare scope, version, and expected project path. It does not call the
+  Claude CLI.
 - `static-validator`: delegate to the existing static validator for static-only
   surfaces.
-- `pointer-doc`: check the pointer doc exists and is intentionally pointer-only.
+- `pointer-doc`: check the pointer doc exists and has frontmatter
+  `pointer_only: true`.
+
+For `claude-installed-plugin`, `liveVerifier.projectPath` is optional. When it
+is omitted for a `scope: project` row, the expected project path is the resolved
+`--root` path. When present, `projectPath` supports the same environment and
+token expansion as home paths, including `${VAR}`, `${VAR:-fallback}`, `~`, and
+`${ROOT}`. Committed consumer matrices should prefer omission or `${ROOT}` over
+machine-specific absolute paths.
+
+For `codex-config-absence`, `configPath` defaults to
+`${CODEX_HOME:-~/.codex}/config.toml`. A missing config file is clean. An
+unparsable config file is a validation error. The verifier checks active plugin
+configuration under `[plugins."<plugin-id>"]` tables and active marketplace
+configuration under `[marketplaces.<marketplace-name>]`; it does not scan
+comments or unrelated string values. `forbiddenPluginIds` use exact
+`name@marketplace` string matching. Future aliases may be added explicitly, but
+v1 does not infer partial names.
 
 `headless` is a declared capability, not an afterthought. Initial values:
 
@@ -292,6 +327,10 @@ group by owner so cross-repo checks do not end in ambiguity.
 Rows with allowed staleness still appear in JSON and human output as
 `allowed-drift`, including the owner, reason, and expiration.
 
+`pointer-only` is valid only with `artifactType: pointer-doc` and
+`liveVerifier.kind: pointer-doc`. Using it on cache, config, or generated wrapper
+rows is a matrix configuration error.
+
 ## Assertions
 
 Assertions are matrix-level checks that are not tied to one runtime cache.
@@ -301,12 +340,21 @@ component sets do not share display names. For generated Claude plugins this
 checks skill names and command shim names separately so a plugin does not create
 the same component name twice.
 
+Assertions use the same result status vocabulary as surface rows: `clean`,
+`drift`, `allowed-drift`, `validation-error`, and `timeout`. Matrix authors use
+`status: drift` to say a failed assertion is actionable drift. There is no
+separate `severity` enum in v1.
+
 The Stock Scanner `stock-scanner-ops` project currently has eight skill wrappers
 and eight command shims with the same names. Claude's `plugin details` output
 flattens those into `Skills (16)`. That is not a duplicated source manifest, but
 it is a component-name collision worth making visible. The assertion should
 report it as drift unless the consumer matrix grants a temporary staleness
 budget.
+
+For existing consumers, a staleness budget may downgrade this collision to
+`allowed-drift` for one release cycle. New matrices should treat the collision
+as `drift` immediately.
 
 ## Output
 
@@ -356,8 +404,10 @@ Owner: stock-scanner has 1 actionable drift
 }
 ```
 
-The JSON schema should remain append-only where possible. Consumers should key
-on `status`, `id`, `surface`, `scope`, and `owner`, not free-form messages.
+The JSON contract is guarded by tests for the stable keys `schemaVersion`,
+`plugin`, `status`, `summary`, and `results[*].{id,surface,scope,owner,status}`.
+Consumers should key on those stable fields, not free-form messages. Additive
+fields are allowed.
 
 ## Exit Codes
 
@@ -372,8 +422,8 @@ hard-failing on broken configuration:
 | 3 | Live-check configuration or matrix schema error. Upgrade or repair the matrix/checker. |
 | 124 | Timeout. A bounded live verifier exceeded its configured timeout. |
 
-When multiple classes occur, precedence is `124`, then `3`, then `2`, then `1`,
-then `0`.
+When multiple classes occur, the highest-precedence class wins: `124` beats `3`
+beats `2` beats `1` beats `0`.
 
 ## Timeout Model
 
@@ -387,6 +437,11 @@ Every verifier that can invoke a CLI gets a timeout. The effective value is:
 Timeouts produce exit code `124` and a result status of `timeout`. They are not
 collapsed into ordinary drift because operators need to distinguish "state is
 stale" from "the verifier did not complete."
+
+The v1 `claude-installed-plugin`, `codex-cache`, and `codex-config-absence`
+verifiers are filesystem probes and do not normally need a timeout. Timeout
+support still belongs in the shared verifier harness for static validator
+delegation and future CLI-backed probes.
 
 ## CLI Interface
 
@@ -430,16 +485,26 @@ Important flags:
 - `--fix`: reserved for future opt-in repair. The v1 implementation may reject
   it with a clear "not implemented" message.
 
+If filters such as `--headless-only` and `--owner` select zero rows,
+`live-check` exits `0` and prints `no rows selected`.
+
+Environment expansion is POSIX-style in v1: `${VAR}`, `${VAR:-fallback}`, `~`,
+and `${ROOT}` are supported. Windows-native expansion syntax is out of scope
+until Windows support is explicitly tested.
+
 ## Generated Markdown Table
 
-Agent Trigger Kit may provide:
+Agent Trigger Kit should provide a separate rendering command:
 
 ```bash
-agent-trigger-kit live-check render-matrix \
+agent-trigger-kit render-matrix \
   --root <consumer-repo> \
   --matrix .agent-trigger-kit/live-surfaces.yaml \
   --output docs/agent-trigger-surfaces.md
 ```
+
+Rendering is a write operation and is intentionally separate from the read-only
+`live-check` command.
 
 The generated table is for humans. It should include at least:
 
@@ -457,9 +522,13 @@ V1 should wire checks in this order:
 1. Static source validation in CI and pre-merge:
    `validate`, `version-check --surface source`, and existing
    `ops:premerge-version-check`.
-2. Consumer release/operator step:
+2. Static matrix schema validation:
+   if `.agent-trigger-kit/live-surfaces.yaml` exists, `validate` checks its
+   schema, duplicate IDs, verifier kinds, staleness budget shape, and static
+   cross-field constraints without reading user-level agent state.
+3. Consumer release/operator step:
    `ops:agent-triggers:live-check`.
-3. Optional future hook:
+4. Optional future hook:
    `--headless-only` can run locally or in CI if every selected row is declared
    headless-safe and the environment has the required cache/config paths.
 
@@ -470,11 +539,13 @@ live-check result.
 ## Error Handling
 
 Matrix parse failure, unsupported schema, missing required fields, duplicate row
-IDs, unknown verifier kinds, and expired malformed staleness budgets are
-configuration errors and exit `3`.
+IDs, unknown verifier kinds, malformed staleness budgets, `pointer-only` on a
+non-pointer row, and invalid assertion status values are configuration errors
+and exit `3`.
 
 Source manifest inconsistency, broken generated manifest, unparsable Claude
-metadata, invalid Codex config syntax, or static validator failure exits `2`.
+metadata, invalid Codex config syntax, static validator failure, or stale
+generated Markdown table exits `2`.
 
 Observed stale versions, missing expected cache versions, unexpected project
 scope, forbidden Codex project plugin IDs, and component-name collisions exit
@@ -507,22 +578,26 @@ contents.
 1. Add `scripts/lib/live-surface-matrix.mjs` for schema parsing, defaulting,
    env expansion for home paths, duplicate-ID detection, staleness budget
    evaluation, and generated Markdown rendering.
-2. Extract source version and installed-state normalization from
-   `scripts/check-plugin-version.mjs` into reusable library functions. Keep the
-   existing CLI behavior unchanged.
+2. Extract source-version assembly and consistency checking from
+   `scripts/check-plugin-version.mjs` into reusable library functions. Reuse
+   existing installed-state probes from `scripts/lib/plugin-state-probe.mjs`.
+   Keep the existing CLI behavior unchanged.
 3. Add `scripts/live-trigger-surface-check.mjs` and expose it through
    `scripts/cli.mjs` as `live-check`.
 4. Add verifier implementations for `codex-cache`, `codex-config-absence`,
    `claude-installed-plugin`, `static-validator`, `pointer-doc`, and
    `component-name-disjoint`.
-5. Add focused `node:test` coverage for schema validation, exit-code
+5. Teach `validate` to schema-check `.agent-trigger-kit/live-surfaces.yaml`
+   when present, without reading user-level agent state.
+6. Add focused `node:test` coverage for schema validation, exit-code
    precedence, staleness budgets, timeout behavior, JSON output, read-only
    default behavior, and collision detection.
-6. Add a template matrix under docs or examples, but do not add hard-coded
+7. Add a template matrix under docs or examples, but do not add hard-coded
    consumer rows to Agent Trigger Kit.
-7. Update `README.md`, `cross-agent-trigger-layer`, and `version-check` skill
+8. Update `README.md`, `cross-agent-trigger-layer`, and `version-check` skill
    wrappers to point operators at the matrix-driven live-check workflow.
-8. Bump the aligned Agent Trigger Kit plugin version because CLI scripts and
+9. Bump the aligned Agent Trigger Kit plugin version through the existing
+   premerge/version reconciliation workflow because CLI scripts and
    plugin-visible skill instructions change.
 
 ## Verification Plan
@@ -531,8 +606,10 @@ Unit tests:
 
 - Matrix schema accepts the documented example and rejects missing required
   fields, unknown verifier kinds, duplicate row IDs, and unsupported schemas.
+- Matrix schema allows unknown additive fields for supported schemas.
 - Staleness budgets convert mismatches into `allowed-drift` only until their
   expiration date.
+- `pointer-only` is rejected unless the row is a pointer-doc row.
 - Exit code precedence returns `124 > 3 > 2 > 1 > 0`.
 - Read-only mode does not call update, install, remove, or cache sync commands.
 - `component-name-disjoint` reports skill/command collisions.
@@ -544,7 +621,8 @@ Integration-style tests with temporary homes:
 - Codex cache present/missing versions.
 - Codex config absence allowlist.
 - Claude installed plugin present/stale/projectPath mismatch using temporary
-  `installed_plugins.json`.
+  `installed_plugins.json`, without invoking the Claude CLI.
+- Pointer doc verification requires frontmatter `pointer_only: true`.
 - Static-only Cursor and pointer-only Gemini rows.
 
 Manual verification on a real consumer:
@@ -563,8 +641,3 @@ manually mocked stale.
 
 - Should Agent Trigger Kit provide a `matrix init` command, or is a documented
   template enough for v1?
-- Should `component-name-disjoint` default to warning for existing consumers and
-  drift for new generated layers, or should every collision be drift once the
-  matrix row exists?
-- Should generated Markdown rendering be part of `live-check` or a separate
-  `render-matrix` subcommand from the start?
