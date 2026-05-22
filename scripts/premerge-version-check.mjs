@@ -5,7 +5,8 @@ import { dirname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { parseArgs } from './lib/args.mjs';
-import { isAncestor, shallowFetchHint } from './lib/git-base.mjs';
+import { changedFiles, isAncestor, shallowFetchHint, showFile } from './lib/git-base.mjs';
+import { sourceVisibleChangedFiles } from './lib/source-plugin-visible.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const args = parseArgs(process.argv.slice(2), { booleanKeys: ['json'] });
@@ -170,6 +171,104 @@ function checkChangelogHeadAlignment(sourceCheck) {
   });
 }
 
+function parseJsonText(label, text) {
+  try {
+    return { value: JSON.parse(text), error: null };
+  } catch (error) {
+    return { value: null, error: `${label}: invalid JSON (${error.message})` };
+  }
+}
+
+function marketplaceEntry(json, name) {
+  return (json?.plugins || []).find((plugin) => plugin?.name === name) || null;
+}
+
+function pluginDirFromEntry(entry, surface) {
+  const sourcePath = surface === 'codex' ? entry?.source?.path : entry?.source;
+  return typeof sourcePath === 'string' ? sourcePath.replace(/^\.\//, '') : '';
+}
+
+function packageNameMatchesPlugin(packageName, name) {
+  return packageName === name || packageName?.endsWith(`/${name}`);
+}
+
+function readJsonAtRef(ref, path) {
+  const text = showFile({ root, ref, path });
+  if (!text) return { value: null, error: `${ref}: missing ${path}` };
+  return parseJsonText(`${ref}:${path}`, text);
+}
+
+function pluginVersionSnapshot(ref) {
+  const errors = [];
+  const versions = [];
+  const packageJson = readJsonAtRef(ref, 'package.json');
+  const codexMarketplace = readJsonAtRef(ref, '.agents/plugins/marketplace.json');
+  const claudeMarketplace = readJsonAtRef(ref, '.claude-plugin/marketplace.json');
+
+  for (const result of [packageJson, codexMarketplace, claudeMarketplace]) {
+    if (result.error) errors.push(result.error);
+  }
+
+  const codexEntry = marketplaceEntry(codexMarketplace.value, pluginName);
+  const claudeEntry = marketplaceEntry(claudeMarketplace.value, pluginName);
+  const pluginDir =
+    pluginDirFromEntry(codexEntry, 'codex') || pluginDirFromEntry(claudeEntry, 'claude');
+
+  if (codexEntry?.version) versions.push(codexEntry.version);
+  else errors.push(`${ref}: missing Codex marketplace entry version for ${pluginName}`);
+
+  if (claudeEntry?.version) versions.push(claudeEntry.version);
+  else errors.push(`${ref}: missing Claude marketplace entry version for ${pluginName}`);
+
+  if (packageNameMatchesPlugin(packageJson.value?.name, pluginName)) {
+    if (packageJson.value?.version) versions.push(packageJson.value.version);
+    else errors.push(`${ref}: missing package.json version for ${pluginName}`);
+  }
+
+  if (!pluginDir) {
+    errors.push(`${ref}: missing plugin source path for ${pluginName}`);
+  } else {
+    for (const [label, path] of [
+      ['Codex plugin manifest', `${pluginDir}/.codex-plugin/plugin.json`],
+      ['Claude plugin manifest', `${pluginDir}/.claude-plugin/plugin.json`],
+    ]) {
+      const manifest = readJsonAtRef(ref, path);
+      if (manifest.error) errors.push(manifest.error);
+      if (manifest.value?.version) versions.push(manifest.value.version);
+      else errors.push(`${ref}: missing ${label} version at ${path}`);
+    }
+  }
+
+  const uniqueVersions = new Set(versions);
+  if (errors.length > 0 || uniqueVersions.size !== 1) {
+    return {
+      version: null,
+      error: `${ref}: cannot determine aligned plugin version for ${pluginName}${
+        errors.length > 0 ? ` (${errors.join('; ')})` : ''
+      }`,
+    };
+  }
+
+  return { version: versions[0], error: null };
+}
+
+function parseCleanSemver(version) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version || '');
+  if (!match) return null;
+  return match.slice(1).map(Number);
+}
+
+function compareCleanSemver(leftVersion, rightVersion) {
+  const left = parseCleanSemver(leftVersion);
+  const right = parseCleanSemver(rightVersion);
+  if (!left || !right) return null;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] > right[index]) return 1;
+    if (left[index] < right[index]) return -1;
+  }
+  return 0;
+}
+
 function checkPluginVisibleVersionBump(sourceCheck, baseCheck) {
   if (sourceCheck.status !== 'passed') {
     return skipped('plugin-visible-version-bump', 'source-version-consistency');
@@ -177,8 +276,55 @@ function checkPluginVisibleVersionBump(sourceCheck, baseCheck) {
   if (baseCheck.status !== 'passed') {
     return skipped('plugin-visible-version-bump', 'base-reconciliation');
   }
-  return passed('plugin-visible-version-bump', 'no source-visible changes require a bump', {
-    changedFiles: [],
+
+  const diff = changedFiles({ root, base, head: 'HEAD' });
+  if (!diff.ok) {
+    return failed('plugin-visible-version-bump', 'unable to inspect changed files', {
+      base,
+      hint: premergeFetchHint(`git diff --name-only ${base}...HEAD`, diff.message),
+    });
+  }
+
+  const changedSourceFiles = sourceVisibleChangedFiles(diff.files, pluginName);
+  if (changedSourceFiles.length === 0) {
+    return passed('plugin-visible-version-bump', 'no source-visible changes require a bump', {
+      changedFiles: [],
+    });
+  }
+
+  const baseSnapshot = pluginVersionSnapshot(base);
+  if (baseSnapshot.error) {
+    return failed('plugin-visible-version-bump', baseSnapshot.error, {
+      changedFiles: changedSourceFiles,
+    });
+  }
+
+  const currentVersion = sourceCheck.details.expectedVersion;
+  const comparison = compareCleanSemver(currentVersion, baseSnapshot.version);
+  if (comparison === null) {
+    return failed('plugin-visible-version-bump', 'source versions must be clean SemVer x.y.z', {
+      baseVersion: baseSnapshot.version,
+      currentVersion,
+      changedFiles: changedSourceFiles,
+    });
+  }
+
+  if (comparison <= 0) {
+    return failed(
+      'plugin-visible-version-bump',
+      `version bump required: current version ${currentVersion} must be higher than base version ${baseSnapshot.version}`,
+      {
+        baseVersion: baseSnapshot.version,
+        currentVersion,
+        changedFiles: changedSourceFiles,
+      },
+    );
+  }
+
+  return passed('plugin-visible-version-bump', 'source-visible changes include a version bump', {
+    baseVersion: baseSnapshot.version,
+    currentVersion,
+    changedFiles: changedSourceFiles,
   });
 }
 

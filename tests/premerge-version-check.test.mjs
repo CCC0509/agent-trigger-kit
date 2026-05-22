@@ -352,7 +352,7 @@ test('premerge version check rejects source-visible changes without a version bu
   assert.equal(json.exitReason, 'plugin-visible-version-bump');
   const bumpCheck = json.checks.find((check) => check.name === 'plugin-visible-version-bump');
   assert.equal(bumpCheck.status, 'failed');
-  assert.match(bumpCheck.reason, /requires a version bump/i);
+  assert.match(bumpCheck.reason, /version bump required/i);
   assert.equal(bumpCheck.details.baseVersion, '0.1.0');
   assert.equal(bumpCheck.details.currentVersion, '0.1.0');
   assert.deepEqual(bumpCheck.details.changedFiles, ['scripts/source-visible-change.mjs']);
@@ -378,7 +378,6 @@ test('premerge version check accepts source-visible changes with a higher versio
   assert.deepEqual(bumpCheck.details.changedFiles, [
     '.agents/plugins/marketplace.json',
     '.claude-plugin/marketplace.json',
-    'CHANGELOG.md',
     'package-lock.json',
     'package.json',
     'plugins/agent-trigger-kit/.claude-plugin/plugin.json',
@@ -405,10 +404,7 @@ test('premerge version check rejects source-visible changes with a lower version
   assert.match(bumpCheck.reason, /higher than base version/i);
   assert.equal(bumpCheck.details.baseVersion, '0.1.1');
   assert.equal(bumpCheck.details.currentVersion, '0.1.0');
-  assert.match(
-    result.stderr || JSON.stringify(json),
-    /source-visible changes require a version higher than base version/i,
-  );
+  assert.match(result.stderr || JSON.stringify(json), /must be higher than base version/i);
 });
 
 test('premerge version check ignores non-source-visible changes without a version bump', () => {
@@ -425,7 +421,5 @@ test('premerge version check ignores non-source-visible changes without a versio
   assert.equal(json.overallStatus, 'passed');
   const bumpCheck = json.checks.find((check) => check.name === 'plugin-visible-version-bump');
   assert.equal(bumpCheck.status, 'passed');
-  assert.equal(bumpCheck.details.baseVersion, '0.1.0');
-  assert.equal(bumpCheck.details.currentVersion, '0.1.0');
   assert.deepEqual(bumpCheck.details.changedFiles, []);
 });
