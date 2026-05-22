@@ -51,6 +51,12 @@ npx --yes "$KIT_SPEC" version-check \
   <plugin-name>
 ```
 
+`version-check --surface source` checks source alignment across the package,
+marketplace, and plugin manifest versions. `live-check` checks installed-state drift
+from the consumer-owned matrix in `.agent-trigger-kit/live-surfaces.yaml`;
+it is read-only by default and reports manual next actions instead of updating
+Codex or Claude state.
+
 ## Checklist
 
 1. If the current working directory is an Agent Trigger Kit checkout, run the

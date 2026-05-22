@@ -6,6 +6,12 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.14
+
+- Added matrix-driven live trigger surface checks for consumer repositories,
+  including read-only Codex/Claude drift probes, generated matrix docs, and
+  static matrix validation.
+
 ## 0.1.13
 
 - Added a source-repo pre-merge version reconciliation check for Agent Trigger

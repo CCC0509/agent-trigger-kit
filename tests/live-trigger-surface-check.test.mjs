@@ -131,6 +131,28 @@ function runScript(scriptName, args, options = {}) {
   });
 }
 
+test('docs explain live surface checks for consumer trigger layers', () => {
+  const readRepoFile = (path) => readFileSync(join(repoRoot, path), 'utf8');
+  const readme = readRepoFile('README.md');
+  const crossAgentSkill = readRepoFile(
+    'plugins/agent-trigger-kit/skills/cross-agent-trigger-layer/SKILL.md',
+  );
+  const versionCheckSkill = readRepoFile('plugins/agent-trigger-kit/skills/version-check/SKILL.md');
+
+  assert.match(readme, /live-surfaces\.yaml/);
+  assert.match(readme, /agent-trigger-kit live-check/);
+  assert.match(
+    readme,
+    /agent-trigger-kit render-matrix --root <target-repo> --output docs\/agent-trigger-surfaces\.md/,
+  );
+  assert.match(readme, /read-only by default/i);
+  assert.match(crossAgentSkill, /live-check/);
+  assert.match(crossAgentSkill, /consumer-owned matrix/i);
+  assert.match(crossAgentSkill, /Codex.*global.*residue/is);
+  assert.match(versionCheckSkill, /version-check[\s\S]*source/);
+  assert.match(versionCheckSkill, /live-check[\s\S]*installed-state drift/);
+});
+
 test('source snapshot reports aligned source versions', () => {
   const root = makeRoot();
   const { pluginDir, pluginName, version } = createVersionedPlugin(root, '0.2.3');

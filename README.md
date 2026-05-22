@@ -308,6 +308,31 @@ commands, plugin manifests, or marketplace entries for the plugin. Wrapper typo
 fixes are still plugin-visible changes and still need the aligned plugin version
 bump.
 
+### Live Trigger Surface Checks
+
+Consumers own `.agent-trigger-kit/live-surfaces.yaml`: it names the live Codex,
+Claude, and static trigger surfaces that matter for that repository. Agent
+Trigger Kit owns the matrix schema, parser, static validator integration,
+generated matrix documentation, and the `live-check` command that probes those
+declared surfaces.
+
+Run static checks in CI, then run `live-check` as an operator or release gate on
+the machine whose agent state matters. That distinction is intentional: static
+validation checks committed files, while live checks inspect the installed
+Codex/Claude state visible to a real operator environment.
+
+```bash
+agent-trigger-kit validate --root <target-repo>
+agent-trigger-kit live-check --root <target-repo>
+agent-trigger-kit render-matrix --root <target-repo> --output docs/agent-trigger-surfaces.md
+```
+
+`agent-trigger-kit live-check` is read-only by default. It may print manual
+`nextActions` for stale caches, Codex global residue, or Claude installed-state
+drift, but it does not update Codex or Claude state. Use
+`agent-trigger-kit render-matrix` to refresh the generated Markdown view of the
+consumer-owned matrix.
+
 Live discovery is a manual release checklist, not a CI gate. The canonical
 checklist lives in `agent-trigger-kit:cross-agent-trigger-layer`; README and
 consumer project docs should point there instead of duplicating it.

@@ -25,6 +25,8 @@ function printUsage() {
       '  init           Create or update a project trigger layer',
       '  import-claude-skills  Import existing Claude Code skills into a trigger layer',
       '  validate       Validate a project trigger layer',
+      '  live-check     Check live agent trigger surfaces from a consumer-owned matrix',
+      '  render-matrix  Render live trigger surface matrix documentation',
       '  version-check  Check source and installed plugin versions',
     ].join('\n'),
   );

@@ -88,6 +88,18 @@ Plugin-visible changes include generated skills, generated commands, plugin
 manifests, and marketplace entries for the plugin. Wrapper typo fixes are still
 plugin-visible changes and need an aligned version bump.
 
+## Live Surface Gate
+
+Consumers own `.agent-trigger-kit/live-surfaces.yaml`; treat it as the
+consumer-owned matrix for the trigger surfaces that matter in that repo. Agent
+Trigger Kit owns the schema, parser, static validation, generated matrix docs,
+and `live-check`.
+
+Run `live-check` only after the static gate when a release or operator needs the
+live Codex/Claude state from the machine that matters. It is read-only by
+default: it may report manual `nextActions`, installed-state drift, and Codex
+global config residue, but it does not update Codex or Claude state.
+
 ## Manual Live Discovery
 
 Live discovery is a manual release checklist, not a CI gate. Run it only after
