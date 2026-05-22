@@ -38,6 +38,19 @@ Choose the narrowest scope before running commands:
 - If neither wording nor runtime makes the scope clear, ask one short question
   before inspecting installed state.
 
+## Generated Consumer Trigger Layers
+
+For generated consumer trigger layers, use the pinned kit source named during
+scope setup and run source alignment before live discovery:
+
+```bash
+KIT_SPEC=github:CCC0509/agent-trigger-kit#<tag-or-commit>
+npx --yes "$KIT_SPEC" version-check \
+  --root <target-repo> \
+  --surface source \
+  <plugin-name>
+```
+
 ## Checklist
 
 1. If the current working directory is an Agent Trigger Kit checkout, run the
@@ -50,16 +63,6 @@ Choose the narrowest scope before running commands:
    This always checks source manifest consistency. `codex` adds Codex cache
    state, `claude` adds Claude installed state, `source` checks manifests only,
    and `all` checks both installed surfaces.
-
-For generated consumer trigger layers, use the pinned kit source named during
-scope setup and run source alignment before live discovery:
-
-```bash
-npx --yes "$KIT_SPEC" version-check \
-  --root <target-repo> \
-  --surface source \
-  <plugin-name>
-```
 
 2. If not in a checkout, inspect only the requested installed surface when
    possible:

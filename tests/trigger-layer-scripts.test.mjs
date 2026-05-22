@@ -6850,6 +6850,8 @@ test('consumer trigger lifecycle guidance documents pinned static gates and manu
     /Consumer Trigger Layer Lifecycle[\s\S]*KIT_SPEC=github:CCC0509\/agent-trigger-kit#<tag-or-commit>/,
   );
   assert.match(readme, /Consumer Trigger Layer Lifecycle[\s\S]*--surface source/);
+  assert.match(readme, /Consumer Trigger Layer Lifecycle[\s\S]*--base <base-ref>/);
+  assert.doesNotMatch(readme, /Consumer Trigger Layer Lifecycle[\s\S]*--base main/);
   assert.match(
     readme,
     /Consumer Trigger Layer Lifecycle[\s\S]*agent-trigger-kit:cross-agent-trigger-layer/,
@@ -6862,6 +6864,8 @@ test('consumer trigger lifecycle guidance documents pinned static gates and manu
   assert.match(crossSkill, /## Static Gate/);
   assert.match(crossSkill, /KIT_SPEC=github:CCC0509\/agent-trigger-kit#<tag-or-commit>/);
   assert.match(crossSkill, /version-check[\s\S]*--surface source/);
+  assert.match(crossSkill, /## Static Gate[\s\S]*--base <base-ref>/);
+  assert.doesNotMatch(crossSkill, /## Static Gate[\s\S]*--base main/);
   assert.match(crossSkill, /## Manual Live Discovery/);
   assert.match(crossSkill, /codex debug prompt-input "test"/);
   assert.match(crossSkill, /claude plugin list --json/);
@@ -6874,7 +6878,11 @@ test('consumer trigger lifecycle guidance documents pinned static gates and manu
   assert.match(lifecycleSkill, /inconclusive/);
   assert.match(lifecycleSkill, /Restart Claude Code/);
 
-  assert.match(versionSkill, /For generated consumer trigger layers[\s\S]*--surface source/);
+  assert.match(versionSkill, /## Generated Consumer Trigger Layers/);
+  assert.match(
+    versionSkill,
+    /For generated consumer trigger layers[\s\S]*KIT_SPEC=github:CCC0509\/agent-trigger-kit#<tag-or-commit>[\s\S]*npx --yes "\$KIT_SPEC" version-check[\s\S]*--surface source/,
+  );
   assert.match(versionSkill, /temporary Codex project[\s\S]*global config mutation/);
   assert.match(versionSkill, /global config cleanup was verified/);
 });

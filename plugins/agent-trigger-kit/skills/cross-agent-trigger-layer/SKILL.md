@@ -77,7 +77,7 @@ npx --yes "$KIT_SPEC" version-check \
 npx --yes "$KIT_SPEC" validate \
   --root <target-repo> \
   --require-version-bump \
-  --base main
+  --base <base-ref>
 ```
 
 Use `version-check --surface source` when the workflow needs full source version

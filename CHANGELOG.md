@@ -15,6 +15,11 @@ Claude marketplace, and Claude plugin versions aligned.
 - Clarified Claude Code restart and `claude plugin validate` timeout guidance
   for generated project plugin troubleshooting.
 
+## 0.1.11
+
+- Recorded an internal trigger-layer validate command formatting release with no
+  user-visible behavior changes.
+
 ## 0.1.10
 
 - Added opt-in document header checks to trigger-layer validation, configured

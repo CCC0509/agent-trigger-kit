@@ -300,7 +300,7 @@ npx --yes "$KIT_SPEC" version-check \
 npx --yes "$KIT_SPEC" validate \
   --root <target-repo> \
   --require-version-bump \
-  --base main
+  --base <base-ref>
 ```
 
 Use `--require-version-bump` when the branch changes generated skills, generated

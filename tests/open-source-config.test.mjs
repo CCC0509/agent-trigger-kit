@@ -54,6 +54,12 @@ test('open-source polish files document editor, badge, and SemVer expectations',
   assert.match(contributing, /patch/i);
 });
 
+test('changelog documents release history without patch version gaps', () => {
+  const changelog = read('CHANGELOG.md');
+
+  assert.match(changelog, /## 0\.1\.12[\s\S]*## 0\.1\.11[\s\S]*## 0\.1\.10/);
+});
+
 test('completion workflow documents plugin-visible version bump gate', () => {
   const agents = read('AGENTS.md');
   const readme = read('README.md');
