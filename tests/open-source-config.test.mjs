@@ -98,8 +98,9 @@ test('changelog patch gap detector reports skipped patch versions', () => {
 test('changelog documents scratch namespace pre-merge controls', () => {
   const changelog = read('CHANGELOG.md');
   const release =
-    changelog.match(/## \d+\.\d+\.\d+[\s\S]*?Scratch Namespace Advisory[\s\S]*?(?=\n## |\n*$)/)
-      ?.[0] || '';
+    changelog.match(
+      /## \d+\.\d+\.\d+[\s\S]*?Scratch Namespace Advisory[\s\S]*?(?=\n## |\n*$)/,
+    )?.[0] || '';
 
   assert.match(release, /Scratch Namespace Advisory/);
   assert.match(release, /pull request/i);
