@@ -24,6 +24,11 @@ import {
   hasPlaybookFirstGuidance,
   hasPlaybookFirstSignal,
 } from './lib/playbook-first-guidance.mjs';
+import {
+  loadLiveSurfaceMatrix,
+  renderLiveSurfaceMarkdown,
+  validateLiveSurfaceMatrix,
+} from './lib/live-surface-matrix.mjs';
 
 const args = parseArgs(process.argv.slice(2), { booleanKeys: ['require-version-bump'] });
 const root = normalize(args.root || process.cwd());
@@ -36,6 +41,7 @@ const reportedDuplicateHeadingSlugs = new Set();
 const requireVersionBump = args['require-version-bump'] === true;
 const versionBumpBase = args.base;
 const versionBumpPlugin = typeof args.plugin === 'string' ? args.plugin.trim() : '';
+const liveSurfaceMatrixPath = '.agent-trigger-kit/live-surfaces.yaml';
 
 if (requireVersionBump && (typeof versionBumpBase !== 'string' || versionBumpBase.trim() === '')) {
   console.error('--require-version-bump requires --base <ref>');
@@ -429,6 +435,32 @@ function validateDocumentHeaderChecks() {
   }
 }
 
+function validateLiveSurfaceMatrixIfPresent() {
+  if (!existsSync(pathOf(liveSurfaceMatrixPath))) return;
+
+  try {
+    const matrix = loadLiveSurfaceMatrix({ root, matrixPath: liveSurfaceMatrixPath });
+    const validation = validateLiveSurfaceMatrix({ root, matrix });
+    for (const error of validation.errors) {
+      fail(`${liveSurfaceMatrixPath}: ${error}`);
+    }
+
+    const markdownPath = matrix.generatedDocs?.markdownTable;
+    if (typeof markdownPath !== 'string' || markdownPath.trim() === '') return;
+
+    const expectedMarkdown = renderLiveSurfaceMarkdown(matrix);
+    const markdownFullPath = pathOf(markdownPath);
+    const currentMarkdown = existsSync(markdownFullPath)
+      ? readFileSync(markdownFullPath, 'utf8')
+      : '';
+    if (currentMarkdown !== expectedMarkdown) {
+      fail(`${markdownPath}: generated Markdown is stale; run agent-trigger-kit render-matrix`);
+    }
+  } catch (error) {
+    fail(`${liveSurfaceMatrixPath}: ${error.message}`);
+  }
+}
+
 function runGit(argsToRun) {
   return runGitCommand({ root, args: argsToRun });
 }
@@ -734,6 +766,7 @@ validateMaintenanceContractPointers();
 validatePlaybookFirstGuidance();
 validateDocumentHeaderChecks();
 validateRequiredVersionBump();
+validateLiveSurfaceMatrixIfPresent();
 
 if (failures.length > 0) {
   console.error(failures.join('\n'));

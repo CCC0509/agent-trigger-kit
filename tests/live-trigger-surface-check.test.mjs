@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -114,6 +114,209 @@ test('source snapshot reports aligned source versions', () => {
   ]);
   assert.equal(result.status, 0);
   assert.match(result.stdout, /expected source version: 0\.2\.3/);
+});
+
+test('validate checks live surface matrix schema and generated markdown freshness', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, '0.1.0');
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+generatedDocs:
+  markdownTable: docs/agent-trigger-surfaces.md
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+  write(root, 'docs/agent-trigger-surfaces.md', '| stale |\n| --- |\n');
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /docs\/agent-trigger-surfaces\.md: generated Markdown is stale/);
+});
+
+test('validate checks malformed live surface matrix without raw stack trace', () => {
+  const root = makeRoot();
+  createVersionedPlugin(root, '0.1.0');
+  write(root, '.agent-trigger-kit/live-surfaces.yaml', 'schemaVersion: [\n');
+
+  const result = runScript('validate-trigger-layer.mjs', ['--root', root]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /\.agent-trigger-kit\/live-surfaces\.yaml/);
+  assert.doesNotMatch(result.stderr, /\n\s+at /);
+});
+
+test('render-matrix writes generated Markdown from matrix', () => {
+  const root = makeRoot();
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+generatedDocs:
+  markdownTable: docs/agent-trigger-surfaces.md
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', [
+    'render-matrix',
+    '--root',
+    root,
+    '--matrix',
+    '.agent-trigger-kit/live-surfaces.yaml',
+    '--output',
+    'docs/agent-trigger-surfaces.md',
+  ]);
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /wrote docs\/agent-trigger-surfaces\.md/);
+  assert.match(
+    readFileSync(join(root, 'docs/agent-trigger-surfaces.md'), 'utf8'),
+    /\| codex \| user \|/,
+  );
+});
+
+test('render-matrix rejects output paths outside root', () => {
+  const root = makeRoot();
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', [
+    'render-matrix',
+    '--root',
+    root,
+    '--output',
+    '../outside.md',
+  ]);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /render-matrix --output must stay within --root/);
+});
+
+test('render-matrix rejects absolute output paths', () => {
+  const root = makeRoot();
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+
+  const result = runScript('live-trigger-surface-check.mjs', [
+    'render-matrix',
+    '--root',
+    root,
+    '--output',
+    join(root, 'docs/agent-trigger-surfaces.md'),
+  ]);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /render-matrix --output must stay within --root/);
+});
+
+test('cli routes render-matrix command to live surface script', () => {
+  const root = makeRoot();
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces:
+  - id: codex-demo-ops
+    surface: codex
+    scope: user
+    plugin: demo-ops
+    marketplace: demo-ops
+    artifactType: plugin-cache
+    sourceTruth: source-version
+    liveVerifier:
+      kind: codex-cache
+    headless: safe
+    owner: demo
+    stalenessBudget:
+      mode: none
+`,
+  );
+
+  const result = runScript('cli.mjs', [
+    'render-matrix',
+    '--root',
+    root,
+    '--matrix',
+    '.agent-trigger-kit/live-surfaces.yaml',
+    '--output',
+    'docs/agent-trigger-surfaces.md',
+  ]);
+
+  assert.equal(result.status, 0);
+  assert.match(
+    readFileSync(join(root, 'docs/agent-trigger-surfaces.md'), 'utf8'),
+    /\| codex \| user \|/,
+  );
 });
 
 test('source snapshot defaults omitted root to the current working directory', () => {

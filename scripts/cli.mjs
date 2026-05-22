@@ -9,6 +9,8 @@ const commands = {
   clean: 'clean-generated-trigger-layer.mjs',
   init: 'init-project-trigger-layer.mjs',
   'import-claude-skills': 'import-claude-skills.mjs',
+  'live-check': { script: 'live-trigger-surface-check.mjs' },
+  'render-matrix': { script: 'live-trigger-surface-check.mjs', args: ['render-matrix'] },
   validate: 'validate-trigger-layer.mjs',
   'version-check': 'check-plugin-version.mjs',
 };
@@ -33,14 +35,17 @@ if (!command || command === '--help' || command === '-h') {
   process.exit(command ? 0 : 2);
 }
 
-const scriptName = commands[command];
-if (!scriptName) {
+const commandEntry = commands[command];
+if (!commandEntry) {
   console.error(`Unknown command: ${command}`);
   printUsage();
   process.exit(2);
 }
 
-const result = spawnSync(process.execPath, [join(scriptDir, scriptName), ...commandArgs], {
+const scriptName = typeof commandEntry === 'string' ? commandEntry : commandEntry.script;
+const commandPrefixArgs = typeof commandEntry === 'string' ? [] : commandEntry.args || [];
+const dispatchArgs = [join(scriptDir, scriptName), ...commandPrefixArgs, ...commandArgs];
+const result = spawnSync(process.execPath, dispatchArgs, {
   stdio: 'inherit',
 });
 
