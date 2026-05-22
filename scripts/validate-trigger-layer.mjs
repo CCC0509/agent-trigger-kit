@@ -1,9 +1,14 @@
 #!/usr/bin/env node
-import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';
 
 import { parseArgs } from './lib/args.mjs';
+import {
+  normalizeGitPath,
+  runGit as runGitCommand,
+  shallowFetchHint,
+  showFile as showGitFile,
+} from './lib/git-base.mjs';
 import { createPathOf } from './lib/fs-json.mjs';
 import {
   generatedPluginEntry,
@@ -425,31 +430,11 @@ function validateDocumentHeaderChecks() {
 }
 
 function runGit(argsToRun) {
-  const result = spawnSync('git', argsToRun, { cwd: root, encoding: 'utf8' });
-  if (result.error) {
-    return {
-      ok: false,
-      missingGit: result.error.code === 'ENOENT',
-      message: result.error.message,
-      stdout: '',
-      stderr: '',
-    };
-  }
-  return {
-    ok: result.status === 0,
-    missingGit: false,
-    message: result.stderr || result.stdout,
-    stdout: result.stdout,
-    stderr: result.stderr,
-  };
-}
-
-function shallowFetchHint(operation, details = '') {
-  return `${operation} failed. Run git fetch --unshallow or use fetch-depth: 0 before running --require-version-bump.${details ? ` ${details.trim()}` : ''}`;
+  return runGitCommand({ root, args: argsToRun });
 }
 
 function normalizeGeneratedPath(path) {
-  return path.replaceAll('\\', '/').replace(/^\.\//, '');
+  return normalizeGitPath(path);
 }
 
 function stableStringify(value) {
@@ -464,9 +449,7 @@ function stableStringify(value) {
 }
 
 function showFile(ref, path) {
-  const result = runGit(['show', `${ref}:${path}`]);
-  if (!result.ok) return null;
-  return result.stdout;
+  return showGitFile({ root, ref, path });
 }
 
 function marketplaceEntry(json, pluginName) {
