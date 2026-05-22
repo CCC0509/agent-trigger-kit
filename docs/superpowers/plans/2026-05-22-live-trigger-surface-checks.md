@@ -960,6 +960,7 @@ surfaces:
 
   assert.equal(result.status, 1);
   assert.equal(payload.status, 'drift');
+  assert.equal(payload.results[0].resultType, 'surface');
   assert.equal(payload.results[0].status, 'drift');
   assert.match(payload.results[0].message, /demo-ops@demo-ops/);
 });
