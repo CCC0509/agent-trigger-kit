@@ -6,6 +6,12 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.13
+
+- Added a source-repo pre-merge version reconciliation check for Agent Trigger
+  Kit branches, covering base reconciliation, changelog head alignment,
+  source-visible version bumps, and optional local hook installation.
+
 ## 0.1.12
 
 - Added a pull request `Scratch Namespace Advisory` check that emits warning annotations
