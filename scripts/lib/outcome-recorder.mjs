@@ -261,6 +261,33 @@ export function resolveOutcomeEventRef({
   return match;
 }
 
+export function selectLatestUnmarkedOutcomeEvent({
+  root = process.cwd(),
+  homeDir = homedir(),
+  store = 'user',
+  verb,
+} = {}) {
+  const selectedStore = outcomeStorePath({ root, homeDir, store });
+  const records = readOutcomeRecords(selectedStore.eventsPath);
+  const verbFilter = reportEnum(verb, VERBS, 'verb');
+  const marksByEventId = marksByRelatedId(records);
+  const [selected] = records
+    .map((record, index) => ({ record, index }))
+    .filter(({ record }) => record.kind === 'event')
+    .filter(({ record }) => !verbFilter || record.verb === verbFilter)
+    .filter(({ record }) => !marksByEventId.has(record.id))
+    .sort(compareEventEntriesNewestFirst);
+
+  if (!selected) {
+    throw new OutcomeRecorderError(
+      `no unmarked outcome event found${verbFilter ? ` for verb ${verbFilter}` : ''}`,
+      4,
+    );
+  }
+
+  return selected.record;
+}
+
 export function buildOutcomeReport({
   root = process.cwd(),
   homeDir = homedir(),

@@ -6,7 +6,10 @@ import {
   listOutcomeEvents,
   markOutcomeEvent,
   recordOutcomeEvent,
+  resolveOutcomeEventRef,
+  selectLatestUnmarkedOutcomeEvent,
 } from './lib/outcome-recorder.mjs';
+import { completeMarkOptions, createPromptAdapter } from './lib/outcome-prompt.mjs';
 
 const [verb, ...verbArgs] = process.argv.slice(2);
 
@@ -16,7 +19,7 @@ function printUsage() {
       'Usage:',
       '  agent-trigger-kit outcome record --root <path> --surface <surface> --verb <verb> --outcome <outcome> [--plugin <name>] [--failure-category <category>] [--failure-driver <driver>]',
       '  agent-trigger-kit outcome events --root <path> [--recent <N>] [--verb <verb>] [--surface <surface>] [--unmarked] [--json]',
-      '  agent-trigger-kit outcome mark --root <path> <event-id> --outcome <outcome> [--failure-category <category>] [--failure-driver <driver>] [--note <text>]',
+      '  agent-trigger-kit outcome mark --root <path> (<event-id>|--last) [--verb <verb>] --outcome <outcome> [--failure-category <category>] [--failure-driver <driver>] [--note <text>]',
       '  agent-trigger-kit outcome report --root <path> [--json] [--since <UTC-ISO8601>] [--surface <surface>] [--verb <verb>] [--window-days <days>]',
     ].join('\n'),
   );
@@ -72,23 +75,56 @@ try {
 
   if (verb === 'mark') {
     const args = parseArgs(verbArgs, {
-      booleanKeys: ['project-local'],
+      booleanKeys: ['last', 'project-local'],
       collectPositionals: true,
     });
     const eventId = args._[0];
-    if (!eventId) {
+    const root = requiredArg(args, 'root');
+    const store = storeFromArgs(args);
+    if (args.last === true && eventId) {
+      console.error('--last cannot be combined with an event id');
+      process.exit(2);
+    }
+    if (args.last !== true && !eventId) {
       console.error('Missing required <event-id>');
       process.exit(2);
     }
+    const event =
+      args.last === true
+        ? selectLatestUnmarkedOutcomeEvent({
+            root,
+            store,
+            verb: optionalValueArg(args, 'verb'),
+          })
+        : resolveOutcomeEventRef({ root, store, ref: eventId });
+    const isTty = process.stdin.isTTY === true && process.stdout.isTTY === true;
+    const promptAdapter = isTty ? createPromptAdapter() : null;
+    let markOptions;
+    try {
+      markOptions = await completeMarkOptions({
+        args: {
+          outcome: optionalValueArg(args, 'outcome'),
+          'failure-category': optionalValueArg(args, 'failure-category'),
+          'failure-driver': optionalValueArg(args, 'failure-driver'),
+          'error-code': optionalValueArg(args, 'error-code'),
+          note: optionalValueArg(args, 'note') || optionalValueArg(args, 'reason'),
+        },
+        event,
+        promptAdapter,
+        isTty,
+      });
+    } finally {
+      promptAdapter?.close();
+    }
     const { record } = markOutcomeEvent({
-      root: requiredArg(args, 'root'),
-      store: storeFromArgs(args),
-      relatedId: eventId,
-      outcome: requiredArg(args, 'outcome'),
-      failureCategory: args['failure-category'],
-      failureDriver: args['failure-driver'],
-      errorCode: args['error-code'],
-      note: args.note || args.reason,
+      root,
+      store,
+      relatedId: event.id,
+      outcome: markOptions.outcome,
+      failureCategory: markOptions.failureCategory,
+      failureDriver: markOptions.failureDriver,
+      errorCode: optionalValueArg(args, 'error-code'),
+      note: markOptions.note,
     });
     console.log(`marked outcome event ${record.related_id} as ${record.outcome}`);
     process.exit(0);
