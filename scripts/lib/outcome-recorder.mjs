@@ -25,14 +25,31 @@ export function projectHashForRoot(root) {
 }
 
 export function uuidV7(now = new Date()) {
-  const timestampHex = BigInt(now.getTime()).toString(16).padStart(12, '0').slice(-12);
-  const random = randomBytes(10);
-  const randA = ((random[0] << 8) | random[1]) & 0x0fff;
+  return formatUuidV7(now, randomBytes(10));
+}
+
+export function mintUuidV7(date, entropySeed) {
+  if (typeof entropySeed !== 'string' || entropySeed.trim() === '') {
+    throw new OutcomeRecorderError('entropySeed must be a non-empty string', 2);
+  }
+
+  const entropy = createHash('sha256').update(entropySeed).digest().subarray(0, 10);
+  return formatUuidV7(date, entropy);
+}
+
+function formatUuidV7(date, entropy) {
+  const timestamp = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(timestamp.getTime())) {
+    throw new OutcomeRecorderError('date must be a valid date', 2);
+  }
+
+  const timestampHex = BigInt(timestamp.getTime()).toString(16).padStart(12, '0').slice(-12);
+  const randA = ((entropy[0] << 8) | entropy[1]) & 0x0fff;
   const part3 = (0x7000 | randA).toString(16).padStart(4, '0');
   const part4 =
-    ((random[2] & 0x3f) | 0x80).toString(16).padStart(2, '0') +
-    random[3].toString(16).padStart(2, '0');
-  const part5 = [...random.slice(4, 10)]
+    ((entropy[2] & 0x3f) | 0x80).toString(16).padStart(2, '0') +
+    entropy[3].toString(16).padStart(2, '0');
+  const part5 = [...entropy.slice(4, 10)]
     .map((value) => value.toString(16).padStart(2, '0'))
     .join('');
 

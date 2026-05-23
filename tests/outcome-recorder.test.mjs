@@ -18,6 +18,7 @@ import {
   OutcomeRecorderError,
   buildOutcomeReport,
   markOutcomeEvent,
+  mintUuidV7,
   outcomeStorePath,
   readOutcomeRecords,
   recordOutcomeEvent,
@@ -44,6 +45,11 @@ function readJsonl(path) {
 
 function projectHash(root) {
   return createHash('sha256').update(realpathSync(root)).digest('hex').slice(0, 12);
+}
+
+function uuidTimestampPrefix(date) {
+  const hex = BigInt(date.getTime()).toString(16).padStart(12, '0').slice(-12);
+  return `${hex.slice(0, 8)}-${hex.slice(8)}`;
 }
 
 function runCli(args, options = {}) {
@@ -169,6 +175,27 @@ function createPremergeFixture(root, version = '0.1.0') {
   });
   write(root, 'CHANGELOG.md', `# Changelog\n\n## ${version}\n\n- Fixture.`);
 }
+
+test('mintUuidV7 creates deterministic UUID v7 values from date and seed', () => {
+  const date = new Date('2025-11-15T00:00:00.000Z');
+  const first = mintUuidV7(date, 'claude-cache-stale-2025q4');
+  const second = mintUuidV7(date, 'claude-cache-stale-2025q4');
+  const differentSeed = mintUuidV7(date, 'codex-cache-stale-2025q4');
+  const differentDate = mintUuidV7(
+    new Date('2025-11-16T00:00:00.000Z'),
+    'claude-cache-stale-2025q4',
+  );
+
+  assert.equal(first, second);
+  assert.notEqual(first, differentSeed);
+  assert.notEqual(first, differentDate);
+  assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(first.startsWith(uuidTimestampPrefix(date)), true);
+  assert.equal(
+    differentDate.startsWith(uuidTimestampPrefix(new Date('2025-11-16T00:00:00.000Z'))),
+    true,
+  );
+});
 
 test('outcome recorder appends valid user-level event records', () => {
   const root = makeRoot();

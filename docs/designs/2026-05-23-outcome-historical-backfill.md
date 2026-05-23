@@ -111,15 +111,33 @@ Mapping rules:
 - `verb` is copied from the seed or defaults to `manual_record`.
 - `surface` is copied from the seed.
 - `outcome` is copied from the seed.
+- `exit_code` is copied when present.
 - `failure_category` is copied only when `outcome` is `failure`.
 - `failure_driver`, `plugin`, `project_hash`, `error_code`, and `note` are
   copied when present.
-- `exit_code` is not emitted. Historical entries are manual events, even when
-  `verb` records the operation that originally exposed the incident.
 - `duration_ms`, `correlation_id`, and `related_id` are not emitted in v0.1.
 
 The emitted object is validated with `validateRecord(obj)` after removing
 `incident_id` and `ts_confidence`.
+
+The recorder schema requires `exit_code` for `kind: "event"` records whose
+`verb` is `validate`, `live_check`, `premerge_version_check`, or
+`scratch_namespace_check`. The seed loader enforces this before writing. If the
+historical exit code is unknown, the seed entry must downgrade `verb` to
+`manual_record` rather than synthesizing process evidence.
+
+Auto-emit reachable `(outcome, exit_code)` tuples are a reference for seed
+authors, not a schema constraint:
+
+| Verb                      | Reachable tuples                                                       |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `validate`                | `(success, 0)`, `(failure, 1\|2)`                                      |
+| `live_check`              | `(success, 0)`, `(skipped, 0)`, `(failure, 1)`, `(blocked, 2\|3\|124)` |
+| `premerge_version_check`  | `(success, 0)`, `(failure, 1)`, `(blocked, 2)`                         |
+| `scratch_namespace_check` | `(success, 0)`, `(failure, 1)`, `(blocked, git-state dependent)`       |
+
+Public seeds should avoid `scratch_namespace_check` blocked examples because
+that outcome depends on git inspection state rather than a stable gate code.
 
 ### UUID v7 Deterministic Mint
 
@@ -173,8 +191,9 @@ has no incident field and unknown fields are invalid. It also does not overload
 dedupe key.
 
 Re-running the same seed should report zero new records and leave the JSONL
-file unchanged except for normal retention behavior already owned by the
-recorder.
+file unchanged. Backfill uses append-only writes and intentionally does not
+apply the recorder's normal retention window, because historical records may be
+older than the live recorder retention horizon.
 
 ## Script Behaviour
 
@@ -212,10 +231,14 @@ The script pipeline is:
 5. Mint deterministic UUID v7 ids from `ts` and `incident_id`.
 6. Remove backfill-only fields and build schema v0.1 event records.
 7. Validate each emitted record with `validateRecord(obj)`.
-8. Read existing outcome records and skip ids already present.
-9. Append new records through the recorder write path.
+8. Read existing raw JSONL record ids and skip ids already present.
+9. Append new records with the backfill append-only writer, preserving existing
+   raw JSONL lines.
 10. Print a short summary, including selected seed path, total entries, skipped
     entries, and newly written entries.
+
+Backfill reuses the recorder store path and schema validator, but not the
+recorder retention rewrite path.
 
 The sanitization policy from §3.3 is the seed author's responsibility. The
 script does not attempt mechanical PII or internal-reference detection.
