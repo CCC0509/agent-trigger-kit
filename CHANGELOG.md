@@ -6,6 +6,12 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.1.15
+
+- Added the outcome recorder MVP with manual record/mark/report commands and
+  auto-emission from validate, live-check, premerge, and scratch namespace
+  checks.
+
 ## 0.1.14
 
 - Added matrix-driven live trigger surface checks for consumer repositories,

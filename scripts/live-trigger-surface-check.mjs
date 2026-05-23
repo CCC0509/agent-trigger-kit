@@ -17,8 +17,10 @@ import {
   sourceVersionsDiffer,
 } from './lib/source-version-snapshot.mjs';
 import { expandPath } from './lib/path-expand.mjs';
+import { autoOutcomeDisabled, recordOutcomeSafely, uuidV7 } from './lib/outcome-recorder.mjs';
 
 const DEFAULT_MATRIX_PATH = '.agent-trigger-kit/live-surfaces.yaml';
+const commandStartedAt = Date.now();
 
 const [mode] = process.argv.slice(2);
 const isHelpArg = (value) => value === '--help' || value === '-h';
@@ -43,13 +45,15 @@ if (isHelpArg(mode)) {
 }
 
 const args = parseArgs(process.argv.slice(2), {
-  booleanKeys: ['json', 'headless-only', 'strict-allowed-drift'],
+  booleanKeys: ['json', 'headless-only', 'strict-allowed-drift', 'no-outcome'],
 });
 const root = resolve(args.root || process.cwd());
 const matrixPath = args.matrix || DEFAULT_MATRIX_PATH;
 const jsonOutput = Boolean(args.json);
 
 let matrix;
+let selectedSurfaces = [];
+let selectedAssertions = [];
 try {
   matrix = loadLiveSurfaceMatrix({ root, matrixPath });
 } catch (error) {
@@ -84,8 +88,8 @@ if (validation.errors.length > 0) {
   });
 }
 
-const selectedSurfaces = selectRows(matrix.surfaces || [], args);
-const selectedAssertions = selectRows(matrix.assertions || [], args);
+selectedSurfaces = selectRows(matrix.surfaces || [], args);
+selectedAssertions = selectRows(matrix.assertions || [], args);
 
 if (selectedSurfaces.length === 0 && selectedAssertions.length === 0) {
   const payload = livePayload({ matrix, results: [] });
@@ -94,6 +98,7 @@ if (selectedSurfaces.length === 0 && selectedAssertions.length === 0) {
   } else {
     console.log('no rows selected');
   }
+  emitLiveOutcomes({ matrix, results: [], exitCode: 0 });
   process.exit(0);
 }
 
@@ -136,6 +141,7 @@ if (jsonOutput) {
   printHuman({ payload });
 }
 
+emitLiveOutcomes({ matrix, results, exitCode });
 process.exit(exitCode);
 
 function configErrorResult(message) {
@@ -642,7 +648,97 @@ function exitWithPayload({ code, jsonOutput, payload, human }) {
   } else {
     console.error(human);
   }
+  emitLiveOutcomes({
+    matrix: payload.plugin ? matrix : null,
+    results: payload.results || [],
+    exitCode: code,
+  });
   process.exit(code);
+}
+
+function emitLiveOutcomes({ matrix, results }) {
+  if (autoOutcomeDisabled(args) || results.length === 0) return;
+
+  const correlationId = uuidV7(new Date());
+  const rowById = new Map([
+    ...selectedSurfaces.map((row) => [row.id, row]),
+    ...selectedAssertions.map((row) => [row.id, row]),
+  ]);
+
+  for (const result of results) {
+    const row = rowById.get(result.id) || null;
+    const fields = liveOutcomeFields({ result, row });
+    recordOutcomeSafely({
+      root,
+      plugin: row?.plugin || matrix?.plugin || 'unknown',
+      surface: fields.surface,
+      operationKind: 'live_check',
+      outcome: fields.outcome,
+      failureCategory: fields.failureCategory,
+      failureDriver: fields.failureDriver,
+      durationMs: Date.now() - commandStartedAt,
+      correlationId,
+    });
+  }
+}
+
+function liveOutcomeFields({ result, row }) {
+  const surface = outcomeSurface(result.surface || row?.surface || 'repo');
+
+  if (result.status === 'clean') {
+    return {
+      surface,
+      outcome: 'ok',
+      failureCategory: 'unknown',
+      failureDriver: 'other',
+    };
+  }
+
+  if (result.status === 'allowed-drift') {
+    return {
+      surface,
+      outcome: 'ok',
+      failureCategory: 'surface_drift',
+      failureDriver: 'propagation',
+    };
+  }
+
+  if (result.status === 'drift') {
+    return {
+      surface,
+      outcome: 'fail',
+      ...liveDriftClassification({ result, row }),
+    };
+  }
+
+  return {
+    surface,
+    outcome: 'fail',
+    failureCategory: 'unknown',
+    failureDriver: 'other',
+  };
+}
+
+function liveDriftClassification({ result, row }) {
+  const verifierKind = row?.liveVerifier?.kind;
+  if (verifierKind === 'codex-cache') {
+    return { failureCategory: 'cache_stale', failureDriver: 'propagation' };
+  }
+  if (verifierKind === 'claude-installed-plugin') {
+    return { failureCategory: 'version_mismatch', failureDriver: 'propagation' };
+  }
+  if (verifierKind === 'codex-config-absence') {
+    return { failureCategory: 'surface_residue', failureDriver: 'propagation' };
+  }
+  if (verifierKind === 'pointer-doc' && /missing/i.test(result.message || '')) {
+    return { failureCategory: 'surface_missing', failureDriver: 'propagation' };
+  }
+  return { failureCategory: 'surface_drift', failureDriver: 'propagation' };
+}
+
+function outcomeSurface(surface) {
+  if (['codex', 'claude', 'cursor', 'repo', 'unknown'].includes(surface)) return surface;
+  return 'unknown';
 }
 
 function expandRoot(root, value) {

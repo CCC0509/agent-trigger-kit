@@ -46,18 +46,30 @@ function makeRoot() {
 }
 
 function runScript(scriptName, args, options = {}) {
+  const { env, ...spawnOptions } = options;
   return spawnSync(process.execPath, [join(repoRoot, 'scripts', scriptName), ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
-    ...options,
+    ...spawnOptions,
+    env: {
+      ...process.env,
+      AGENT_TRIGGER_KIT_OUTCOME_DISABLED: '1',
+      ...env,
+    },
   });
 }
 
 function runCli(args, options = {}) {
+  const { env, ...spawnOptions } = options;
   return spawnSync(process.execPath, [join(repoRoot, 'scripts', 'cli.mjs'), ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
-    ...options,
+    ...spawnOptions,
+    env: {
+      ...process.env,
+      AGENT_TRIGGER_KIT_OUTCOME_DISABLED: '1',
+      ...env,
+    },
   });
 }
 
