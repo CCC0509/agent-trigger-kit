@@ -17,8 +17,10 @@ import {
   sourceVersionsDiffer,
 } from './lib/source-version-snapshot.mjs';
 import { expandPath } from './lib/path-expand.mjs';
+import { autoOutcomeDisabled, recordOutcomeSafely, uuidV7 } from './lib/outcome-recorder.mjs';
 
 const DEFAULT_MATRIX_PATH = '.agent-trigger-kit/live-surfaces.yaml';
+const commandStartedAt = Date.now();
 
 const [mode] = process.argv.slice(2);
 const isHelpArg = (value) => value === '--help' || value === '-h';
@@ -43,13 +45,15 @@ if (isHelpArg(mode)) {
 }
 
 const args = parseArgs(process.argv.slice(2), {
-  booleanKeys: ['json', 'headless-only', 'strict-allowed-drift'],
+  booleanKeys: ['json', 'headless-only', 'strict-allowed-drift', 'no-outcome'],
 });
 const root = resolve(args.root || process.cwd());
 const matrixPath = args.matrix || DEFAULT_MATRIX_PATH;
 const jsonOutput = Boolean(args.json);
 
 let matrix;
+let selectedSurfaces = [];
+let selectedAssertions = [];
 try {
   matrix = loadLiveSurfaceMatrix({ root, matrixPath });
 } catch (error) {
@@ -84,8 +88,8 @@ if (validation.errors.length > 0) {
   });
 }
 
-const selectedSurfaces = selectRows(matrix.surfaces || [], args);
-const selectedAssertions = selectRows(matrix.assertions || [], args);
+selectedSurfaces = selectRows(matrix.surfaces || [], args);
+selectedAssertions = selectRows(matrix.assertions || [], args);
 
 if (selectedSurfaces.length === 0 && selectedAssertions.length === 0) {
   const payload = livePayload({ matrix, results: [] });
@@ -94,6 +98,7 @@ if (selectedSurfaces.length === 0 && selectedAssertions.length === 0) {
   } else {
     console.log('no rows selected');
   }
+  emitLiveOutcomes({ matrix, results: [], exitCode: 0 });
   process.exit(0);
 }
 
@@ -136,6 +141,7 @@ if (jsonOutput) {
   printHuman({ payload });
 }
 
+emitLiveOutcomes({ matrix, results, exitCode });
 process.exit(exitCode);
 
 function configErrorResult(message) {
@@ -642,7 +648,126 @@ function exitWithPayload({ code, jsonOutput, payload, human }) {
   } else {
     console.error(human);
   }
+  emitLiveOutcomes({
+    matrix: payload.plugin ? matrix : null,
+    results: payload.results || [],
+    exitCode: code,
+  });
   process.exit(code);
+}
+
+function emitLiveOutcomes({ matrix, results, exitCode = exitCodeForResults(results) }) {
+  if (autoOutcomeDisabled(args)) return;
+
+  const correlationId = uuidV7(new Date());
+  const rowById = new Map([
+    ...selectedSurfaces.map((row) => [row.id, row]),
+    ...selectedAssertions.map((row) => [row.id, row]),
+  ]);
+  const parentFields = liveParentOutcomeFields({ exitCode, results });
+
+  recordOutcomeSafely({
+    root,
+    plugin: matrix?.plugin || 'unknown',
+    surface: 'repo',
+    verb: 'live_check',
+    outcome: parentFields.outcome,
+    failureCategory: parentFields.failureCategory,
+    failureDriver: parentFields.failureDriver,
+    exitCode,
+    durationMs: Date.now() - commandStartedAt,
+    correlationId,
+  });
+
+  for (const result of results) {
+    const row = rowById.get(result.id) || null;
+    const fields = liveOutcomeFields({ result, row });
+    recordOutcomeSafely({
+      root,
+      plugin: row?.plugin || matrix?.plugin || 'unknown',
+      surface: fields.surface,
+      verb: 'live_check',
+      outcome: fields.outcome,
+      failureCategory: fields.failureCategory,
+      failureDriver: fields.failureDriver,
+      exitCode,
+      durationMs: Date.now() - commandStartedAt,
+      correlationId,
+    });
+  }
+}
+
+function liveParentOutcomeFields({ exitCode, results }) {
+  if (results.length === 0) {
+    return { outcome: 'skipped' };
+  }
+
+  if (exitCode === 0) {
+    return { outcome: 'success' };
+  }
+
+  if (exitCode === 2 || exitCode === 3 || exitCode === 124) {
+    return { outcome: 'blocked' };
+  }
+
+  return { outcome: 'failure', failureCategory: 'unknown' };
+}
+
+function liveOutcomeFields({ result, row }) {
+  const surface = outcomeSurface(result.surface || row?.surface || 'repo');
+
+  if (result.status === 'clean') {
+    return {
+      surface,
+      outcome: 'success',
+    };
+  }
+
+  if (result.status === 'allowed-drift') {
+    return {
+      surface,
+      outcome: 'success',
+    };
+  }
+
+  if (result.status === 'drift') {
+    return {
+      surface,
+      outcome: 'failure',
+      ...liveDriftClassification({ result, row }),
+    };
+  }
+
+  return {
+    surface,
+    outcome: 'blocked',
+  };
+}
+
+function liveDriftClassification({ result, row }) {
+  const verifierKind = row?.liveVerifier?.kind;
+  if (verifierKind === 'codex-cache') {
+    return { failureCategory: 'stale_cache', failureDriver: 'cache' };
+  }
+  if (verifierKind === 'claude-installed-plugin') {
+    return { failureCategory: 'version_skew', failureDriver: 'tooling' };
+  }
+  if (verifierKind === 'codex-config-absence') {
+    return { failureCategory: 'surface_residue', failureDriver: 'config' };
+  }
+  if (verifierKind === 'pointer-doc' && /missing/i.test(result.message || '')) {
+    return { failureCategory: 'missing_artifact', failureDriver: 'config' };
+  }
+  return { failureCategory: 'manifest_drift', failureDriver: 'config' };
+}
+
+function outcomeSurface(surface) {
+  if (surface === 'codex' || surface === 'codex_plugin') return 'codex_plugin';
+  if (surface === 'claude' || surface === 'claude_plugin') return 'claude_plugin';
+  if (surface === 'cursor' || surface === 'cursor_rule') return 'cursor_rule';
+  if (surface === 'repo') return 'repo';
+  if (surface === 'external') return 'external';
+  return 'external';
 }
 
 function expandRoot(root, value) {

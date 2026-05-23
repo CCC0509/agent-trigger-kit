@@ -29,8 +29,12 @@ import {
   renderLiveSurfaceMarkdown,
   validateLiveSurfaceMatrix,
 } from './lib/live-surface-matrix.mjs';
+import { autoOutcomeDisabled, recordOutcomeSafely } from './lib/outcome-recorder.mjs';
 
-const args = parseArgs(process.argv.slice(2), { booleanKeys: ['require-version-bump'] });
+const commandStartedAt = Date.now();
+const args = parseArgs(process.argv.slice(2), {
+  booleanKeys: ['require-version-bump', 'no-outcome'],
+});
 const root = normalize(args.root || process.cwd());
 const pathOf = createPathOf(root);
 const failures = [];
@@ -45,7 +49,7 @@ const liveSurfaceMatrixPath = '.agent-trigger-kit/live-surfaces.yaml';
 
 if (requireVersionBump && (typeof versionBumpBase !== 'string' || versionBumpBase.trim() === '')) {
   console.error('--require-version-bump requires --base <ref>');
-  process.exit(2);
+  exitValidate(2);
 }
 
 function fail(message) {
@@ -770,7 +774,59 @@ validateLiveSurfaceMatrixIfPresent();
 
 if (failures.length > 0) {
   console.error(failures.join('\n'));
-  process.exit(1);
+  exitValidate(1);
 }
 
 console.log(`trigger layer validation passed for ${root}`);
+exitValidate(0);
+
+function exitValidate(code) {
+  emitValidateOutcome(code);
+  process.exit(code);
+}
+
+function emitValidateOutcome(code) {
+  if (autoOutcomeDisabled(args)) return;
+
+  const classification = validateOutcomeClassification(code);
+  recordOutcomeSafely({
+    root,
+    plugin: versionBumpPlugin || 'agent-trigger-kit',
+    surface: 'repo',
+    verb: 'validate',
+    outcome: code === 0 ? 'success' : 'failure',
+    exitCode: code,
+    failureCategory: classification.failureCategory,
+    failureDriver: classification.failureDriver,
+    durationMs: Date.now() - commandStartedAt,
+  });
+}
+
+function validateOutcomeClassification(code) {
+  if (code === 0) {
+    return {};
+  }
+
+  if (failures.some(isSurfaceDriftValidationFailure)) {
+    return { failureCategory: 'manifest_drift', failureDriver: 'config' };
+  }
+
+  if (failures.some(isReleasePolicyValidationFailure)) {
+    return { failureCategory: 'release_policy_gap', failureDriver: 'tooling' };
+  }
+
+  return { failureCategory: 'unknown', failureDriver: 'unknown' };
+}
+
+function isReleasePolicyValidationFailure(message) {
+  return /version bump|required by --require-version-bump|plugin-visible|current plugin version/i.test(
+    message,
+  );
+}
+
+function isSurfaceDriftValidationFailure(message) {
+  if (isReleasePolicyValidationFailure(message)) return false;
+  return /generated|manifest|frontmatter|checksum|cursor|command|skill|delegates|duplicate heading|maintenance contract|playbook-first|stale/i.test(
+    message,
+  );
+}

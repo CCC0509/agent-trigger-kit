@@ -3,8 +3,10 @@ import { spawnSync } from 'node:child_process';
 import { normalize } from 'node:path';
 
 import { parseArgs } from './lib/args.mjs';
+import { autoOutcomeDisabled, recordOutcomeSafely } from './lib/outcome-recorder.mjs';
 
-const args = parseArgs(process.argv.slice(2), { booleanKeys: ['advisory'] });
+const commandStartedAt = Date.now();
+const args = parseArgs(process.argv.slice(2), { booleanKeys: ['advisory', 'no-outcome'] });
 if (args.root === true) {
   console.error('--root requires a path value');
   process.exit(2);
@@ -42,7 +44,9 @@ if (result.status !== 0) {
   const stderr = result.stderr?.trim() || result.error?.message || '';
   console.error(`scratch namespace check failed to run git ls-files in ${root}`);
   if (stderr) console.error(stderr);
-  process.exit(status);
+  exitScratch(status, {
+    outcome: 'blocked',
+  });
 }
 
 const trackedFiles = result.stdout.split(/\r?\n/).filter(Boolean);
@@ -51,7 +55,9 @@ if (trackedFiles.length === 0) {
   console.log(
     `scratch namespace ${advisory ? 'advisory' : 'check'} passed: docs/superpowers/ has no tracked files`,
   );
-  process.exit(0);
+  exitScratch(0, {
+    outcome: 'success',
+  });
 }
 
 if (advisory) {
@@ -61,7 +67,9 @@ if (advisory) {
   for (const file of trackedFiles) {
     emitWarningAnnotation(file);
   }
-  process.exit(0);
+  exitScratch(0, {
+    outcome: 'success',
+  });
 }
 
 console.error('Tracked scratch namespace files are not allowed in the final main tree.');
@@ -79,4 +87,25 @@ for (const file of trackedFiles) {
   console.error(`- ${file}`);
 }
 
-process.exit(1);
+exitScratch(1, {
+  outcome: 'failure',
+  failureCategory: 'release_policy_gap',
+  failureDriver: 'human',
+});
+
+function exitScratch(code, { outcome, failureCategory, failureDriver }) {
+  if (!autoOutcomeDisabled(args)) {
+    recordOutcomeSafely({
+      root,
+      plugin: 'agent-trigger-kit',
+      surface: 'repo',
+      verb: 'scratch_namespace_check',
+      outcome,
+      failureCategory,
+      failureDriver,
+      exitCode: code,
+      durationMs: Date.now() - commandStartedAt,
+    });
+  }
+  process.exit(code);
+}

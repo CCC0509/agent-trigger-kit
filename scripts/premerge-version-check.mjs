@@ -6,10 +6,12 @@ import { fileURLToPath } from 'node:url';
 
 import { parseArgs } from './lib/args.mjs';
 import { changedFiles, isAncestor, shallowFetchHint, showFile } from './lib/git-base.mjs';
+import { autoOutcomeDisabled, recordOutcomeSafely } from './lib/outcome-recorder.mjs';
 import { sourceVisibleChangedFiles } from './lib/source-plugin-visible.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const args = parseArgs(process.argv.slice(2), { booleanKeys: ['json'] });
+const commandStartedAt = Date.now();
+const args = parseArgs(process.argv.slice(2), { booleanKeys: ['json', 'no-outcome'] });
 const root = normalize(args.root || process.cwd());
 const base = typeof args.base === 'string' ? args.base.trim() : '';
 const pluginName = typeof args.plugin === 'string' ? args.plugin.trim() : 'agent-trigger-kit';
@@ -25,6 +27,10 @@ const CLEAN_SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 if (!base) {
   console.error('--base is required; pass --base origin/main or the target merge base');
+  emitPremergeOutcome({
+    exitCode: 2,
+    outcome: 'blocked',
+  });
   process.exit(2);
 }
 
@@ -66,7 +72,50 @@ function printAndExit(checks) {
     }
   }
 
-  process.exit(overallStatus === 'passed' ? 0 : 1);
+  const exitCode = overallStatus === 'passed' ? 0 : 1;
+  emitPremergeOutcome({
+    exitCode,
+    ...premergeOutcomeClassification({ checks, overallStatus, exitReason }),
+  });
+  process.exit(exitCode);
+}
+
+function emitPremergeOutcome({ exitCode, outcome, failureCategory, failureDriver }) {
+  if (autoOutcomeDisabled(args)) return;
+  recordOutcomeSafely({
+    root,
+    plugin: pluginName,
+    surface: 'repo',
+    verb: 'premerge_version_check',
+    outcome,
+    failureCategory,
+    failureDriver,
+    exitCode,
+    durationMs: Date.now() - commandStartedAt,
+  });
+}
+
+function premergeOutcomeClassification({ checks, overallStatus, exitReason }) {
+  if (overallStatus === 'passed') {
+    return { outcome: 'success' };
+  }
+
+  const failedCheck = checks.find((check) => check.name === exitReason);
+  if (exitReason === 'source-version-consistency') {
+    return failedCheck?.reason === 'source versions differ'
+      ? { outcome: 'failure', failureCategory: 'version_skew', failureDriver: 'tooling' }
+      : { outcome: 'failure', failureCategory: 'unknown', failureDriver: 'unknown' };
+  }
+
+  if (
+    exitReason === 'base-reconciliation' ||
+    exitReason === 'changelog-head-alignment' ||
+    exitReason === 'plugin-visible-version-bump'
+  ) {
+    return { outcome: 'failure', failureCategory: 'release_policy_gap', failureDriver: 'tooling' };
+  }
+
+  return { outcome: 'failure', failureCategory: 'unknown', failureDriver: 'unknown' };
 }
 
 function premergeFetchHint(operation, details = '') {

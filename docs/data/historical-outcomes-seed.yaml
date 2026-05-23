@@ -1,0 +1,51 @@
+# Public outcome backfill seed.
+#
+# Entries are sanitized synthetic-but-plausible examples that demonstrate the
+# backfill pipeline. exit_code values for verb=validate|live_check|
+# premerge_version_check|scratch_namespace_check are synthesized to satisfy
+# schema v0.1 R3, not preserved from real incidents.
+#
+# Real high-resolution baseline incidents belong in
+# historical-outcomes-seed.local.yaml (gitignored).
+
+- incident_id: validate-success-example
+  ts: '2026-01-02T00:00:00Z'
+  ts_confidence: exact
+  verb: validate
+  surface: repo
+  outcome: success
+  exit_code: 0
+  plugin: agent-trigger-kit
+  note: 'A sanitized trigger-layer validation run completed successfully.'
+
+- incident_id: claude-cache-stale-example
+  ts: '2025-11-15T00:00:00Z'
+  ts_confidence: estimated
+  verb: live_check
+  surface: claude_plugin
+  outcome: failure
+  exit_code: 1
+  failure_category: stale_cache
+  failure_driver: cache
+  plugin: agent-trigger-kit
+  note: 'A sanitized plugin cache held stale trigger data after an update.'
+
+- incident_id: premerge-blocked-example
+  ts: '2026-02-01T00:00:00Z'
+  ts_confidence: estimated
+  verb: premerge_version_check
+  surface: repo
+  outcome: blocked
+  exit_code: 2
+  plugin: agent-trigger-kit
+  note: 'A sanitized premerge check stopped before running because required input was missing.'
+
+- incident_id: manual-external-unknown-example
+  ts: '2025-01-01T00:00:00Z'
+  ts_confidence: unknown
+  verb: manual_record
+  surface: external
+  outcome: failure
+  failure_category: unknown
+  failure_driver: unknown
+  note: 'A sanitized historical incident could not be tied to a specific hook.'

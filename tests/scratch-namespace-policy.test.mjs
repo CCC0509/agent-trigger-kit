@@ -27,6 +27,10 @@ function runScriptArgs(args) {
     {
       cwd: repoRoot,
       encoding: 'utf8',
+      env: {
+        ...process.env,
+        AGENT_TRIGGER_KIT_OUTCOME_DISABLED: '1',
+      },
     },
   );
 }
