@@ -9,6 +9,7 @@ const RETENTION_DAYS = 90;
 const RETENTION_RECORDS = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REPORT_VERSION = '0.1';
+const EVENTS_VERSION = '0.1';
 
 export class OutcomeRecorderError extends Error {
   constructor(message, exitCode = 1) {
@@ -181,6 +182,85 @@ export function markOutcomeEvent(options = {}) {
   return { record, storePath: store.eventsPath };
 }
 
+export function listOutcomeEvents({
+  root = process.cwd(),
+  homeDir = homedir(),
+  store = 'user',
+  recent = 20,
+  verb,
+  surface,
+  unmarked = false,
+  now = new Date(),
+} = {}) {
+  const selectedStore = outcomeStorePath({ root, homeDir, store });
+  const records = readOutcomeRecords(selectedStore.eventsPath);
+  const recentCount = positiveInteger(recent, 'recent');
+  const verbFilter = reportEnum(verb, VERBS, 'verb');
+  const surfaceFilter = reportEnum(surface, SURFACES, 'surface');
+  const marksByEventId = marksByRelatedId(records);
+  const events = records
+    .map((record, index) => ({ record, index }))
+    .filter(({ record }) => record.kind === 'event')
+    .filter(({ record }) => !verbFilter || record.verb === verbFilter)
+    .filter(({ record }) => !surfaceFilter || record.surface === surfaceFilter)
+    .filter(({ record }) => !unmarked || !marksByEventId.has(record.id))
+    .sort(compareEventEntriesNewestFirst)
+    .slice(0, recentCount)
+    .map(({ record }) => eventListRow(record, marksByEventId.get(record.id)));
+
+  return {
+    schema_version: SCHEMA_VERSION,
+    events_version: EVENTS_VERSION,
+    generated_at: now.toISOString(),
+    project_hash: selectedStore.projectHash,
+    store: selectedStore.store,
+    filters: {
+      recent: recentCount,
+      verb: verbFilter,
+      surface: surfaceFilter,
+      unmarked: Boolean(unmarked),
+    },
+    events,
+  };
+}
+
+export function resolveOutcomeEventRef({
+  root = process.cwd(),
+  homeDir = homedir(),
+  store = 'user',
+  ref,
+} = {}) {
+  const selectedStore = outcomeStorePath({ root, homeDir, store });
+  const normalized = normalizeOutcomeRef(ref);
+  const matches = readOutcomeRecords(selectedStore.eventsPath).filter((record) =>
+    record.id.toLowerCase().startsWith(normalized),
+  );
+
+  if (matches.length === 0) {
+    throw new OutcomeRecorderError(
+      `event ${ref} not found; it may have expired under the retention policy`,
+      4,
+    );
+  }
+
+  if (matches.length > 1) {
+    throw new OutcomeRecorderError(
+      `ambiguous outcome id prefix ${ref}; candidates: ${matches.map(formatOutcomeCandidate).join(', ')}`,
+      2,
+    );
+  }
+
+  const [match] = matches;
+  if (match.kind === 'mark') {
+    throw new OutcomeRecorderError(
+      `marks cannot target mark records (${shortId(match.id)}); write a new mark for the related event`,
+      2,
+    );
+  }
+
+  return match;
+}
+
 export function buildOutcomeReport({
   root = process.cwd(),
   homeDir = homedir(),
@@ -294,6 +374,80 @@ function retainRecordEntries(entries, now) {
 function recordTimeMs(record) {
   const timestamp = new Date(record.ts).getTime();
   return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function positiveInteger(value, label) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number <= 0) {
+    throw new OutcomeRecorderError(`${label} must be a positive integer`, 2);
+  }
+  return number;
+}
+
+function marksByRelatedId(records) {
+  const marks = new Map();
+  for (const record of records) {
+    if (record.kind !== 'mark') continue;
+    const bucket = marks.get(record.related_id) || [];
+    bucket.push(record);
+    marks.set(record.related_id, bucket);
+  }
+  return marks;
+}
+
+function compareEventEntriesNewestFirst(a, b) {
+  const time = new Date(b.record.ts).getTime() - new Date(a.record.ts).getTime();
+  return time || b.index - a.index;
+}
+
+function eventListRow(event, marks = []) {
+  const latestMark = latestRecordByTs(marks);
+  return {
+    id: event.id,
+    short_id: shortId(event.id),
+    ts: event.ts,
+    verb: event.verb,
+    outcome: event.outcome,
+    surface: event.surface,
+    failure_category: event.failure_category || null,
+    failure_driver: event.failure_driver || null,
+    plugin: event.plugin || null,
+    marked: marks.length > 0,
+    mark_count: marks.length,
+    latest_mark_ts: latestMark ? latestMark.ts : null,
+  };
+}
+
+function latestRecordByTs(records) {
+  let latest = null;
+  for (const record of records) {
+    if (!latest || new Date(record.ts).getTime() >= new Date(latest.ts).getTime()) {
+      latest = record;
+    }
+  }
+  return latest;
+}
+
+function normalizeOutcomeRef(ref) {
+  if (typeof ref !== 'string' || !/^[0-9a-f-]{4,36}$/i.test(ref)) {
+    throw new OutcomeRecorderError('event id prefix must be 4 to 36 UUID characters', 2);
+  }
+  return ref.toLowerCase();
+}
+
+function shortId(id) {
+  return id.slice(0, 8);
+}
+
+function formatOutcomeCandidate(record) {
+  return [
+    shortId(record.id),
+    record.kind,
+    record.ts,
+    record.verb,
+    record.outcome,
+    record.surface,
+  ].join(' ');
 }
 
 function reportSince({ since, windowDays, now }) {

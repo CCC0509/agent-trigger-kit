@@ -3,6 +3,7 @@ import { parseArgs, requiredArg } from './lib/args.mjs';
 import {
   OutcomeRecorderError,
   buildOutcomeReport,
+  listOutcomeEvents,
   markOutcomeEvent,
   recordOutcomeEvent,
 } from './lib/outcome-recorder.mjs';
@@ -14,6 +15,7 @@ function printUsage() {
     [
       'Usage:',
       '  agent-trigger-kit outcome record --root <path> --surface <surface> --verb <verb> --outcome <outcome> [--plugin <name>] [--failure-category <category>] [--failure-driver <driver>]',
+      '  agent-trigger-kit outcome events --root <path> [--recent <N>] [--verb <verb>] [--surface <surface>] [--unmarked] [--json]',
       '  agent-trigger-kit outcome mark --root <path> <event-id> --outcome <outcome> [--failure-category <category>] [--failure-driver <driver>] [--note <text>]',
       '  agent-trigger-kit outcome report --root <path> [--json] [--since <UTC-ISO8601>] [--surface <surface>] [--verb <verb>] [--window-days <days>]',
     ].join('\n'),
@@ -47,6 +49,24 @@ try {
       note: args.note,
     });
     console.log(`recorded outcome event ${record.id}`);
+    process.exit(0);
+  }
+
+  if (verb === 'events') {
+    const args = parseArgs(verbArgs, { booleanKeys: ['json', 'project-local', 'unmarked'] });
+    const listing = listOutcomeEvents({
+      root: requiredArg(args, 'root'),
+      store: storeFromArgs(args),
+      recent: args.recent === undefined ? undefined : optionalValueArg(args, 'recent'),
+      verb: optionalValueArg(args, 'verb'),
+      surface: optionalValueArg(args, 'surface'),
+      unmarked: args.unmarked === true,
+    });
+    if (args.json) {
+      console.log(JSON.stringify(listing, null, 2));
+    } else {
+      console.log(formatEventList(listing));
+    }
     process.exit(0);
   }
 
@@ -113,6 +133,36 @@ function optionalValueArg(args, key) {
     throw new OutcomeRecorderError(`--${key} requires a value`, 2);
   }
   return args[key];
+}
+
+function formatEventList(listing) {
+  const rows = [
+    ['SHORTID', 'TS', 'VERB', 'OUTCOME', 'SURFACE', 'CATEGORY'],
+    ...listing.events.map((event) => [
+      event.short_id,
+      formatEventTimestamp(event.ts),
+      event.verb,
+      event.outcome,
+      event.surface,
+      event.failure_category || '-',
+    ]),
+  ];
+  const widths = rows[0].map((_, index) =>
+    Math.max(...rows.map((row) => String(row[index]).length)),
+  );
+
+  return rows
+    .map((row) =>
+      row
+        .map((cell, index) => String(cell).padEnd(widths[index]))
+        .join('  ')
+        .trimEnd(),
+    )
+    .join('\n');
+}
+
+function formatEventTimestamp(value) {
+  return new Date(value).toISOString().replace('T', ' ').replace('.000Z', 'Z');
 }
 
 function formatHumanReport(report) {
