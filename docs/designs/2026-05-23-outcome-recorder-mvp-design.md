@@ -1,4 +1,4 @@
-status: v0-draft
+status: v0.1-draft
 date: 2026-05-23
 primary_hypothesis: propagation-reliability
 invalidates_when: recorder schema v2 appears, automated misroute-detection MVP lands, or MVP auto-emit coverage removes validate, live-check, or premerge
@@ -56,19 +56,32 @@ Library responsibilities:
 - Build aggregate report data by failure category, failure driver, plugin,
   surface, operation kind, outcome, and 60-day window.
 
-Expose the library through `agent-trigger-kit outcome <verb>` in `scripts/cli.mjs`.
-The CLI is a thin wrapper over the library.
+Expose the library through `agent-trigger-kit outcome <verb>` in
+`scripts/cli.mjs`. The CLI is a thin wrapper over the library.
 
 CLI verbs:
 
 ```text
 agent-trigger-kit outcome record --root <path> --plugin <name> --surface <surface> --operation-kind <kind> [--outcome ok|fail|unknown] [--failure-category <category>] [--failure-driver <driver>]
-agent-trigger-kit outcome mark --root <path> <event-id> --result success|failed|misroute --failure-category <category> --failure-driver <driver> [--reason <text>]
+agent-trigger-kit outcome mark --root <path> <event-id> --result success|failed|misroute [--failure-category <category>] [--failure-driver <driver>] [--reason <text>]
 agent-trigger-kit outcome report --root <path> [--json] [--window-days 60]
 ```
 
 `outcome record` is for manual evidence only. The three auto-emit entrypoints
 call the library directly instead of shelling out to the CLI.
+
+Manual `outcome record` requires `--plugin`. Auto-emitters derive the plugin
+from their existing plugin argument, matrix row, or command default.
+
+## Mark Semantics
+
+`outcome mark --result success` writes a success mark without
+`failureCategory` or `failureDriver`. If either failure field is supplied with a
+success mark, the CLI exits `2`.
+
+`outcome mark --result failed` and `outcome mark --result misroute` require both
+failure fields. Reports exclude success marks from failure-category and
+failure-driver aggregations.
 
 ## Auto-Emit Coverage
 
@@ -81,6 +94,16 @@ MVP auto-emits from three entrypoint families:
 | premerge family                   | `scripts/premerge-version-check.mjs` and `scripts/check-scratch-namespace.mjs` | yes          | Version reconciliation and scratch namespace checks.  |
 | clean dry-run                     | `scripts/clean-generated-trigger-layer.mjs`                                    | no           | Known gap for orphan cleanup evidence.                |
 | standalone installed-state probes | `scripts/lib/plugin-state-probe.mjs` direct callers                            | no           | Probe results are recorded only through `live-check`. |
+
+## Emission Control
+
+Auto-emission is enabled by default. Any auto-emitting entrypoint skips outcome
+recording when `AGENT_TRIGGER_KIT_OUTCOME_DISABLED=1` is present or when the
+entrypoint receives `--no-outcome`.
+
+The disable switch affects auto-emission only. Direct
+`agent-trigger-kit outcome <verb>` calls still run because they are explicit
+recorder commands.
 
 ## Validate Emission Mapping
 
@@ -97,6 +120,10 @@ individual validation failure.
 
 When multiple validation failures occur, the emitted event uses the first
 matching row in the table order.
+
+Composite validation failures are therefore lower-bound evidence for later
+rows. If one run has both surface drift and release policy failures,
+`release_policy_gap` is undercounted until a human mark refines the event.
 
 ## Live-Check Emission Mapping
 
@@ -181,5 +208,9 @@ record whose serialized line exceeds 1 KB before writing.
 - Project-local storage creates `.agent-trigger-kit/outcomes/.gitignore`.
 - Serialized JSONL records over 1 KB are rejected before append.
 - Existing check exit codes are unchanged by successful recording.
-- Recording failure never converts a passing check into a failing check unless
-  the user invoked `agent-trigger-kit outcome <verb>` directly.
+- `AGENT_TRIGGER_KIT_OUTCOME_DISABLED=1` and `--no-outcome` disable
+  auto-emission.
+- Recorder errors never alter auto-emitting check exit codes in either
+  direction. Auto-emitter recorder errors write to stderr and skip the record.
+- Direct `agent-trigger-kit outcome <verb>` calls return recorder-specific exit
+  codes.

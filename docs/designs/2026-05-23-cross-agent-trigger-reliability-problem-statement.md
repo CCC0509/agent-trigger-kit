@@ -1,4 +1,4 @@
-status: v0.1-draft
+status: v0.2-draft
 date: 2026-05-23
 primary_hypothesis: propagation-reliability
 invalidates_when: 60-day outcome sample has 10+ marked events and fewer than 15% are propagation failures, or 3+ marked events identify one non-propagation driver as the top failure driver, or 120-day outcome sample has fewer than 10 marked events, or a registry MVP lands
@@ -88,9 +88,14 @@ Required mark fields:
 - `eventId`: string
 - `markedAt`: UTC ISO8601 with `Z`
 - `result`: `success`, `failed`, or `misroute`
+- `reason`: optional single-line string, maximum 200 characters
+
+Marks with `result: failed` or `result: misroute` also require:
+
 - `failureCategory`: same enum as event records
 - `failureDriver`: same enum as event records
-- `reason`: optional single-line string, maximum 200 characters
+
+Marks with `result: success` omit `failureCategory` and `failureDriver`.
 
 `reason` is not a registry and is not used for primary metrics. It is capped to
 reduce leakage and to keep reports reviewable.
