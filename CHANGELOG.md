@@ -6,6 +6,38 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.2.0
+
+### Added
+
+- Outcome recorder: append-only JSONL ledger with auto-emit hooks for
+  validate / live-check / premerge-version-check / scratch-namespace-check and
+  manual `outcome record` / `mark` / `report` CLI verbs.
+- Outcome schema v0.1: closed-enum record format with cross-validation rules,
+  deterministic mark-override aggregation, and `validateRecord()` public API.
+- Historical backfill: one-shot `ops:backfill-outcomes` script with
+  deterministic UUID v7 idempotency and `.local.yaml` private override.
+- Outcome report: hypothesis-direct propagation reliability output (success
+  rate, per-surface, per-failure-category) in human and JSON forms with
+  `--since` / `--surface` / `--verb` filters.
+- Outcome mark UX: `outcome events` discovery surface with short-id resolution,
+  `outcome mark --last`, mark-of-mark rejection, and TTY prompt flow with
+  non-TTY safety.
+
+### Schema
+
+- This release introduces canonical event schema v0.1; readers reject unknown
+  fields and future schema versions.
+
+### Known follow-ups
+
+- `outcome report --until`, cross-window comparison
+- `--failure-category` filter
+- Historical baseline durability vs `ts`-based retention (decision deadline:
+  before the first 60-day analysis window closes)
+- `outcome events --has-marks` filter and human `MARKED` column
+- Bulk mark / triage walk
+
 ## 0.1.15
 
 - Added the outcome recorder MVP with manual record/mark/report commands and
