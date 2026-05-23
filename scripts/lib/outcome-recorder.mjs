@@ -3,10 +3,12 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { SCHEMA_VERSION, validateRecord } from './outcome-schema.mjs';
+import { SCHEMA_VERSION, SURFACES, VERBS, validateRecord } from './outcome-schema.mjs';
 
 const RETENTION_DAYS = 90;
 const RETENTION_RECORDS = 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const REPORT_VERSION = '0.1';
 
 export class OutcomeRecorderError extends Error {
   constructor(message, exitCode = 1) {
@@ -183,57 +185,40 @@ export function buildOutcomeReport({
   root = process.cwd(),
   homeDir = homedir(),
   store = 'user',
-  windowDays = 60,
+  windowDays,
+  since,
+  surface,
+  verb,
   now = new Date(),
 } = {}) {
   const selectedStore = outcomeStorePath({ root, homeDir, store });
   const records = readOutcomeRecords(selectedStore.eventsPath);
-  const windowMs = Number(windowDays) * 24 * 60 * 60 * 1000;
-  const cutoff = now.getTime() - windowMs;
-  const events = records.filter(
-    (record) => record.kind === 'event' && new Date(record.ts).getTime() >= cutoff,
-  );
-  const marks = records.filter(
-    (record) => record.kind === 'mark' && new Date(record.ts).getTime() >= cutoff,
-  );
+  const events = records.filter((record) => record.kind === 'event');
+  const marks = records.filter((record) => record.kind === 'mark');
+  const sinceIso = reportSince({ since, windowDays, now });
+  const sinceMs = sinceIso === null ? null : new Date(sinceIso).getTime();
+  const surfaceFilter = reportEnum(surface, SURFACES, 'surface');
+  const verbFilter = reportEnum(verb, VERBS, 'verb');
   const latestMarkByRelatedId = latestMarksByRelatedId(marks);
-
-  const report = {
-    schemaVersion: SCHEMA_VERSION,
-    generatedAt: now.toISOString(),
-    projectHash: selectedStore.projectHash,
-    windowDays: Number(windowDays),
-    totalEvents: events.length,
-    totalMarks: marks.length,
-    byFailureCategory: {},
-    byFailureDriver: {},
-    byPlugin: {},
-    bySurface: {},
-    byVerb: {},
-    byOutcome: {},
-    byMarkOutcome: {},
-  };
-
-  for (const mark of marks) {
-    increment(report.byMarkOutcome, mark.outcome);
-  }
-
+  const effectiveEvents = [];
   for (const event of events) {
-    const effective = latestMarkByRelatedId.get(event.id) || event;
-    increment(report.byPlugin, event.plugin || effective.plugin || 'unknown');
-    increment(report.bySurface, effective.surface);
-    increment(report.byVerb, effective.verb);
-    increment(report.byOutcome, effective.outcome);
-
-    if (effective.outcome === 'failure') {
-      increment(report.byFailureCategory, effective.failure_category);
-      if (effective.failure_driver) {
-        increment(report.byFailureDriver, effective.failure_driver);
-      }
-    }
+    if (sinceMs !== null && new Date(event.ts).getTime() < sinceMs) continue;
+    const effective = effectiveOutcomeEvent(event, latestMarkByRelatedId.get(event.id));
+    if (surfaceFilter && effective.surface !== surfaceFilter) continue;
+    if (verbFilter && effective.verb !== verbFilter) continue;
+    effectiveEvents.push(effective);
   }
 
-  return report;
+  return buildReportObject({
+    now,
+    selectedStore,
+    sinceIso,
+    surface: surfaceFilter,
+    verb: verbFilter,
+    eventsRead: events.length,
+    marksRead: marks.length,
+    effectiveEvents,
+  });
 }
 
 export function readOutcomeRecords(eventsPath) {
@@ -311,6 +296,161 @@ function recordTimeMs(record) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function reportSince({ since, windowDays, now }) {
+  if (since !== undefined && since !== null) {
+    return utcIsoString(since, 'since');
+  }
+
+  if (windowDays === undefined || windowDays === null) {
+    return null;
+  }
+
+  const days = Number(windowDays);
+  if (!Number.isFinite(days) || days < 0) {
+    throw new OutcomeRecorderError('windowDays must be a non-negative number', 2);
+  }
+
+  return new Date(now.getTime() - days * DAY_MS).toISOString();
+}
+
+function reportEnum(value, allowed, label) {
+  if (value === undefined || value === null) return null;
+  if (!allowed.includes(value)) {
+    throw new OutcomeRecorderError(`${label} must be one of ${allowed.join(', ')}`, 2);
+  }
+  return value;
+}
+
+function effectiveOutcomeEvent(event, mark) {
+  if (!mark) return event;
+
+  return compact({
+    ...event,
+    outcome: mark.outcome,
+    surface: mark.surface,
+    failure_category: mark.outcome === 'failure' ? mark.failure_category : undefined,
+    failure_driver: mark.failure_driver,
+    error_code: mark.error_code,
+    plugin: mark.plugin || event.plugin,
+    note: mark.note ?? event.note,
+  });
+}
+
+function buildReportObject({
+  now,
+  selectedStore,
+  sinceIso,
+  surface,
+  verb,
+  eventsRead,
+  marksRead,
+  effectiveEvents,
+}) {
+  const propagationCounts = outcomeCounts();
+  const surfaceRows = new Map();
+  const failureCategories = new Map();
+
+  for (const event of effectiveEvents) {
+    propagationCounts[event.outcome] += 1;
+    const surfaceRow = surfaceRows.get(event.surface) || surfaceCounts(event.surface);
+    surfaceRow[event.outcome] += 1;
+    surfaceRows.set(event.surface, surfaceRow);
+
+    if (event.outcome === 'failure') {
+      incrementMap(failureCategories, event.failure_category);
+    }
+  }
+
+  const signalEvents =
+    propagationCounts.success + propagationCounts.failure + propagationCounts.blocked;
+  const totalFailures = propagationCounts.failure;
+
+  return {
+    schema_version: SCHEMA_VERSION,
+    report_version: REPORT_VERSION,
+    generated_at: now.toISOString(),
+    project_hash: selectedStore.projectHash,
+    store: selectedStore.store,
+    scope: {
+      since: sinceIso,
+      surface,
+      verb,
+      retained_records_only: true,
+      retention_horizon_days: RETENTION_DAYS,
+      retention_record_limit: RETENTION_RECORDS,
+    },
+    totals: {
+      events_read: eventsRead,
+      marks_read: marksRead,
+      effective_events: effectiveEvents.length,
+      signal_events: signalEvents,
+      skipped_events: propagationCounts.skipped,
+    },
+    propagation: {
+      status: signalEvents === 0 ? 'no_signal' : 'ok',
+      success: propagationCounts.success,
+      failure: propagationCounts.failure,
+      blocked: propagationCounts.blocked,
+      skipped: propagationCounts.skipped,
+      denominator: signalEvents,
+      success_rate: rate(propagationCounts.success, signalEvents),
+      failure_rate: rate(propagationCounts.failure, signalEvents),
+      blocked_rate: rate(propagationCounts.blocked, signalEvents),
+    },
+    by_surface: [...surfaceRows.values()].map(finalizeSurfaceRow).sort(compareSurfaceRows),
+    by_failure_category: [...failureCategories.entries()]
+      .map(([category, count]) => ({
+        failure_category: category,
+        count,
+        share_of_failures: rate(count, totalFailures),
+      }))
+      .sort((a, b) => b.count - a.count || a.failure_category.localeCompare(b.failure_category)),
+  };
+}
+
+function outcomeCounts() {
+  return { success: 0, failure: 0, blocked: 0, skipped: 0 };
+}
+
+function surfaceCounts(surface) {
+  return { surface, ...outcomeCounts() };
+}
+
+function finalizeSurfaceRow(row) {
+  const signalEvents = row.success + row.failure + row.blocked;
+  return {
+    surface: row.surface,
+    signal_events: signalEvents,
+    success: row.success,
+    failure: row.failure,
+    blocked: row.blocked,
+    skipped: row.skipped,
+    success_rate: rate(row.success, signalEvents),
+    failure_rate: rate(row.failure, signalEvents),
+    blocked_rate: rate(row.blocked, signalEvents),
+  };
+}
+
+function compareSurfaceRows(a, b) {
+  return (
+    nullLast(a.success_rate, b.success_rate) ||
+    b.failure + b.blocked - (a.failure + a.blocked) ||
+    a.surface.localeCompare(b.surface)
+  );
+}
+
+function nullLast(left, right) {
+  if (left === null && right === null) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return left - right;
+}
+
+function rate(numerator, denominator) {
+  if (denominator === 0) return null;
+  return Number((numerator / denominator).toFixed(4));
+}
+
 function validateOutcomeRecord(record) {
   const result = validateRecord(record);
   if (!result.ok) {
@@ -382,6 +522,18 @@ function isoUtc(value, label) {
   return date.toISOString();
 }
 
+function utcIsoString(value, label) {
+  if (value instanceof Date) {
+    return isoUtc(value, label);
+  }
+
+  if (typeof value !== 'string' || !value.endsWith('Z') || Number.isNaN(Date.parse(value))) {
+    throw new OutcomeRecorderError(`${label} must be a UTC ISO8601 string ending in Z`, 2);
+  }
+
+  return new Date(value).toISOString();
+}
+
 function requiredString(value, label) {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new OutcomeRecorderError(`${label} must be a non-empty string`, 2);
@@ -404,6 +556,6 @@ function oneLine(value) {
   return String(value).replace(/\s+/g, ' ').trim();
 }
 
-function increment(bucket, key) {
-  bucket[key] = (bucket[key] || 0) + 1;
+function incrementMap(bucket, key) {
+  bucket.set(key, (bucket.get(key) || 0) + 1);
 }

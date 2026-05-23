@@ -15,7 +15,7 @@ function printUsage() {
       'Usage:',
       '  agent-trigger-kit outcome record --root <path> --surface <surface> --verb <verb> --outcome <outcome> [--plugin <name>] [--failure-category <category>] [--failure-driver <driver>]',
       '  agent-trigger-kit outcome mark --root <path> <event-id> --outcome <outcome> [--failure-category <category>] [--failure-driver <driver>] [--note <text>]',
-      '  agent-trigger-kit outcome report --root <path> [--json] [--window-days 60]',
+      '  agent-trigger-kit outcome report --root <path> [--json] [--since <UTC-ISO8601>] [--surface <surface>] [--verb <verb>] [--window-days <days>]',
     ].join('\n'),
   );
 }
@@ -79,14 +79,18 @@ try {
     const report = buildOutcomeReport({
       root: requiredArg(args, 'root'),
       store: storeFromArgs(args),
-      windowDays: args['window-days'] ? Number(args['window-days']) : 60,
+      since: optionalValueArg(args, 'since'),
+      surface: optionalValueArg(args, 'surface'),
+      verb: optionalValueArg(args, 'verb'),
+      windowDays:
+        args['window-days'] === undefined
+          ? undefined
+          : Number(optionalValueArg(args, 'window-days')),
     });
     if (args.json) {
       console.log(JSON.stringify(report, null, 2));
     } else {
-      console.log(`events: ${report.totalEvents}`);
-      console.log(`marks: ${report.totalMarks}`);
-      console.log(`failure drivers: ${JSON.stringify(report.byFailureDriver)}`);
+      console.log(formatHumanReport(report));
     }
     process.exit(0);
   }
@@ -101,4 +105,76 @@ try {
   }
   console.error(error.message);
   process.exit(1);
+}
+
+function optionalValueArg(args, key) {
+  if (args[key] === undefined) return undefined;
+  if (args[key] === true) {
+    throw new OutcomeRecorderError(`--${key} requires a value`, 2);
+  }
+  return args[key];
+}
+
+function formatHumanReport(report) {
+  const lines = [
+    'Outcome report',
+    `Project: ${report.project_hash}`,
+    `Scope: retained records, since ${report.scope.since || 'all'}`,
+  ];
+
+  if (report.scope.surface) lines.push(`Surface: ${report.scope.surface}`);
+  if (report.scope.verb) lines.push(`Verb: ${report.scope.verb}`);
+
+  lines.push('');
+
+  if (report.propagation.status === 'no_signal') {
+    lines.push('No signal events found for the selected filters.');
+    if (report.propagation.skipped > 0) {
+      lines.push(`Skipped: ${report.propagation.skipped} (excluded from success-rate denominator)`);
+    }
+    return lines.join('\n');
+  }
+
+  lines.push('Propagation reliability');
+  lines.push(`Signal events: ${report.totals.signal_events}`);
+  lines.push(
+    `Success rate: ${formatPercent(report.propagation.success_rate)} (${report.propagation.success} success / ${report.propagation.denominator} success+failure+blocked)`,
+  );
+  lines.push(`Failures: ${report.propagation.failure}`);
+  lines.push(`Blocked: ${report.propagation.blocked}`);
+  lines.push(`Skipped: ${report.propagation.skipped} (excluded from success-rate denominator)`);
+
+  lines.push('');
+  lines.push('Surface reliability');
+  lines.push('surface signal success failure blocked skipped success_rate');
+  for (const row of report.by_surface) {
+    lines.push(
+      [
+        row.surface,
+        row.signal_events,
+        row.success,
+        row.failure,
+        row.blocked,
+        row.skipped,
+        formatPercent(row.success_rate),
+      ].join(' '),
+    );
+  }
+
+  lines.push('');
+  lines.push('Failure categories');
+  if (report.by_failure_category.length === 0) {
+    lines.push('No failures found for the selected filters.');
+  } else {
+    lines.push('failure_category count share_of_failures');
+    for (const row of report.by_failure_category) {
+      lines.push([row.failure_category, row.count, formatPercent(row.share_of_failures)].join(' '));
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function formatPercent(value) {
+  return value === null ? 'n/a' : `${(value * 100).toFixed(1)}%`;
 }

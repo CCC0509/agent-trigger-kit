@@ -16,7 +16,6 @@ import test from 'node:test';
 
 import {
   OutcomeRecorderError,
-  buildOutcomeReport,
   markOutcomeEvent,
   mintUuidV7,
   outcomeStorePath,
@@ -288,7 +287,7 @@ test('outcome recorder treats plugin as optional schema data', () => {
   assert.equal(Object.hasOwn(record, 'plugin'), false);
 });
 
-test('outcome recorder marks existing events and reports marked failure drivers', () => {
+test('outcome recorder marks existing events and validates mark semantics', () => {
   const root = makeRoot();
   const homeDir = makeHome();
   const first = recordOutcomeEvent({
@@ -351,21 +350,9 @@ test('outcome recorder marks existing events and reports marked failure drivers'
     /mark verb must match related event verb/,
   );
 
-  const report = buildOutcomeReport({
-    root,
-    homeDir,
-    windowDays: 60,
-    now: new Date('2026-05-24T08:00:00.000Z'),
-  });
-
-  assert.equal(report.totalEvents, 2);
-  assert.equal(report.totalMarks, 2);
-  assert.deepEqual(report.byFailureCategory, { misroute: 1 });
-  assert.deepEqual(report.byFailureDriver, { human: 1 });
-  assert.deepEqual(report.byPlugin, { 'demo-ops': 2 });
-  assert.deepEqual(report.byOutcome, { failure: 1, success: 1 });
-  assert.deepEqual(report.byVerb, { live_check: 1, validate: 1 });
-  assert.deepEqual(report.byMarkOutcome, { failure: 1, success: 1 });
+  const records = readOutcomeRecords(outcomeStorePath({ root, homeDir }).eventsPath);
+  assert.equal(records.filter((record) => record.kind === 'event').length, 2);
+  assert.equal(records.filter((record) => record.kind === 'mark').length, 2);
 
   assert.throws(
     () =>
@@ -449,11 +436,12 @@ test('agent-trigger-kit outcome CLI records, reports, and validates mark combina
   const report = runCli(['outcome', 'report', '--root', root, '--json'], { env });
   assert.equal(report.status, 0, report.stderr || report.stdout);
   const payload = JSON.parse(report.stdout);
-  assert.equal(payload.totalEvents, 1);
-  assert.equal(payload.totalMarks, 0);
-  assert.deepEqual(payload.byPlugin, { unknown: 1 });
-  assert.deepEqual(payload.byOutcome, { failure: 1 });
-  assert.deepEqual(payload.byFailureCategory, { missing_artifact: 1 });
+  assert.equal(payload.totals.events_read, 1);
+  assert.equal(payload.totals.marks_read, 0);
+  assert.equal(payload.propagation.failure, 1);
+  assert.deepEqual(payload.by_failure_category, [
+    { failure_category: 'missing_artifact', count: 1, share_of_failures: 1 },
+  ]);
   assert.equal(existsSync(outcomeStorePath({ root, homeDir }).eventsPath), true);
 });
 
