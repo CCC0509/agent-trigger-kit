@@ -13,8 +13,8 @@ function printUsage() {
   console.error(
     [
       'Usage:',
-      '  agent-trigger-kit outcome record --root <path> --plugin <name> --surface <surface> --operation-kind <kind> [--outcome ok|fail|unknown] [--failure-category <category>] [--failure-driver <driver>]',
-      '  agent-trigger-kit outcome mark --root <path> <event-id> --result success|failed|misroute [--failure-category <category>] [--failure-driver <driver>] [--reason <text>]',
+      '  agent-trigger-kit outcome record --root <path> --surface <surface> --verb <verb> --outcome <outcome> [--plugin <name>] [--failure-category <category>] [--failure-driver <driver>]',
+      '  agent-trigger-kit outcome mark --root <path> <event-id> --outcome <outcome> [--failure-category <category>] [--failure-driver <driver>] [--note <text>]',
       '  agent-trigger-kit outcome report --root <path> [--json] [--window-days 60]',
     ].join('\n'),
   );
@@ -35,15 +35,18 @@ try {
     const { record } = recordOutcomeEvent({
       root: requiredArg(args, 'root'),
       store: storeFromArgs(args),
-      plugin: requiredArg(args, 'plugin'),
+      plugin: args.plugin,
       surface: requiredArg(args, 'surface'),
-      operationKind: requiredArg(args, 'operation-kind'),
-      outcome: args.outcome || 'unknown',
-      failureCategory: args['failure-category'] || 'unknown',
-      failureDriver: args['failure-driver'] || 'other',
-      durationMs: args['duration-ms'] ? Number(args['duration-ms']) : 0,
+      verb: requiredArg(args, 'verb'),
+      outcome: requiredArg(args, 'outcome'),
+      failureCategory: args['failure-category'],
+      failureDriver: args['failure-driver'],
+      exitCode: args['exit-code'] === undefined ? undefined : Number(args['exit-code']),
+      durationMs: args['duration-ms'] === undefined ? undefined : Number(args['duration-ms']),
+      errorCode: args['error-code'],
+      note: args.note,
     });
-    console.log(`recorded outcome event ${record.eventId}`);
+    console.log(`recorded outcome event ${record.id}`);
     process.exit(0);
   }
 
@@ -60,13 +63,14 @@ try {
     const { record } = markOutcomeEvent({
       root: requiredArg(args, 'root'),
       store: storeFromArgs(args),
-      eventId,
-      result: requiredArg(args, 'result'),
+      relatedId: eventId,
+      outcome: requiredArg(args, 'outcome'),
       failureCategory: args['failure-category'],
       failureDriver: args['failure-driver'],
-      reason: args.reason,
+      errorCode: args['error-code'],
+      note: args.note || args.reason,
     });
-    console.log(`marked outcome event ${record.eventId} as ${record.result}`);
+    console.log(`marked outcome event ${record.related_id} as ${record.outcome}`);
     process.exit(0);
   }
 

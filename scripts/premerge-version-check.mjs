@@ -29,9 +29,7 @@ if (!base) {
   console.error('--base is required; pass --base origin/main or the target merge base');
   emitPremergeOutcome({
     exitCode: 2,
-    outcome: 'fail',
-    failureCategory: 'unknown',
-    failureDriver: 'other',
+    outcome: 'blocked',
   });
   process.exit(2);
 }
@@ -82,30 +80,31 @@ function printAndExit(checks) {
   process.exit(exitCode);
 }
 
-function emitPremergeOutcome({ outcome, failureCategory, failureDriver }) {
+function emitPremergeOutcome({ exitCode, outcome, failureCategory, failureDriver }) {
   if (autoOutcomeDisabled(args)) return;
   recordOutcomeSafely({
     root,
     plugin: pluginName,
     surface: 'repo',
-    operationKind: 'mutation',
+    verb: 'premerge_version_check',
     outcome,
     failureCategory,
     failureDriver,
+    exitCode,
     durationMs: Date.now() - commandStartedAt,
   });
 }
 
 function premergeOutcomeClassification({ checks, overallStatus, exitReason }) {
   if (overallStatus === 'passed') {
-    return { outcome: 'ok', failureCategory: 'unknown', failureDriver: 'other' };
+    return { outcome: 'success' };
   }
 
   const failedCheck = checks.find((check) => check.name === exitReason);
   if (exitReason === 'source-version-consistency') {
     return failedCheck?.reason === 'source versions differ'
-      ? { outcome: 'fail', failureCategory: 'version_mismatch', failureDriver: 'propagation' }
-      : { outcome: 'fail', failureCategory: 'unknown', failureDriver: 'other' };
+      ? { outcome: 'failure', failureCategory: 'version_skew', failureDriver: 'tooling' }
+      : { outcome: 'failure', failureCategory: 'unknown', failureDriver: 'unknown' };
   }
 
   if (
@@ -113,10 +112,10 @@ function premergeOutcomeClassification({ checks, overallStatus, exitReason }) {
     exitReason === 'changelog-head-alignment' ||
     exitReason === 'plugin-visible-version-bump'
   ) {
-    return { outcome: 'fail', failureCategory: 'release_policy_gap', failureDriver: 'propagation' };
+    return { outcome: 'failure', failureCategory: 'release_policy_gap', failureDriver: 'tooling' };
   }
 
-  return { outcome: 'fail', failureCategory: 'unknown', failureDriver: 'other' };
+  return { outcome: 'failure', failureCategory: 'unknown', failureDriver: 'unknown' };
 }
 
 function premergeFetchHint(operation, details = '') {

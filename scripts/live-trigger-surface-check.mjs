@@ -656,14 +656,28 @@ function exitWithPayload({ code, jsonOutput, payload, human }) {
   process.exit(code);
 }
 
-function emitLiveOutcomes({ matrix, results }) {
-  if (autoOutcomeDisabled(args) || results.length === 0) return;
+function emitLiveOutcomes({ matrix, results, exitCode = exitCodeForResults(results) }) {
+  if (autoOutcomeDisabled(args)) return;
 
   const correlationId = uuidV7(new Date());
   const rowById = new Map([
     ...selectedSurfaces.map((row) => [row.id, row]),
     ...selectedAssertions.map((row) => [row.id, row]),
   ]);
+  const parentFields = liveParentOutcomeFields({ exitCode, results });
+
+  recordOutcomeSafely({
+    root,
+    plugin: matrix?.plugin || 'unknown',
+    surface: 'repo',
+    verb: 'live_check',
+    outcome: parentFields.outcome,
+    failureCategory: parentFields.failureCategory,
+    failureDriver: parentFields.failureDriver,
+    exitCode,
+    durationMs: Date.now() - commandStartedAt,
+    correlationId,
+  });
 
   for (const result of results) {
     const row = rowById.get(result.id) || null;
@@ -672,14 +686,31 @@ function emitLiveOutcomes({ matrix, results }) {
       root,
       plugin: row?.plugin || matrix?.plugin || 'unknown',
       surface: fields.surface,
-      operationKind: 'live_check',
+      verb: 'live_check',
       outcome: fields.outcome,
       failureCategory: fields.failureCategory,
       failureDriver: fields.failureDriver,
+      exitCode,
       durationMs: Date.now() - commandStartedAt,
       correlationId,
     });
   }
+}
+
+function liveParentOutcomeFields({ exitCode, results }) {
+  if (results.length === 0) {
+    return { outcome: 'skipped' };
+  }
+
+  if (exitCode === 0) {
+    return { outcome: 'success' };
+  }
+
+  if (exitCode === 2 || exitCode === 3 || exitCode === 124) {
+    return { outcome: 'blocked' };
+  }
+
+  return { outcome: 'failure', failureCategory: 'unknown' };
 }
 
 function liveOutcomeFields({ result, row }) {
@@ -688,57 +719,55 @@ function liveOutcomeFields({ result, row }) {
   if (result.status === 'clean') {
     return {
       surface,
-      outcome: 'ok',
-      failureCategory: 'unknown',
-      failureDriver: 'other',
+      outcome: 'success',
     };
   }
 
   if (result.status === 'allowed-drift') {
     return {
       surface,
-      outcome: 'ok',
-      failureCategory: 'surface_drift',
-      failureDriver: 'propagation',
+      outcome: 'success',
     };
   }
 
   if (result.status === 'drift') {
     return {
       surface,
-      outcome: 'fail',
+      outcome: 'failure',
       ...liveDriftClassification({ result, row }),
     };
   }
 
   return {
     surface,
-    outcome: 'fail',
-    failureCategory: 'unknown',
-    failureDriver: 'other',
+    outcome: 'blocked',
   };
 }
 
 function liveDriftClassification({ result, row }) {
   const verifierKind = row?.liveVerifier?.kind;
   if (verifierKind === 'codex-cache') {
-    return { failureCategory: 'cache_stale', failureDriver: 'propagation' };
+    return { failureCategory: 'stale_cache', failureDriver: 'cache' };
   }
   if (verifierKind === 'claude-installed-plugin') {
-    return { failureCategory: 'version_mismatch', failureDriver: 'propagation' };
+    return { failureCategory: 'version_skew', failureDriver: 'tooling' };
   }
   if (verifierKind === 'codex-config-absence') {
-    return { failureCategory: 'surface_residue', failureDriver: 'propagation' };
+    return { failureCategory: 'surface_residue', failureDriver: 'config' };
   }
   if (verifierKind === 'pointer-doc' && /missing/i.test(result.message || '')) {
-    return { failureCategory: 'surface_missing', failureDriver: 'propagation' };
+    return { failureCategory: 'missing_artifact', failureDriver: 'config' };
   }
-  return { failureCategory: 'surface_drift', failureDriver: 'propagation' };
+  return { failureCategory: 'manifest_drift', failureDriver: 'config' };
 }
 
 function outcomeSurface(surface) {
-  if (['codex', 'claude', 'cursor', 'repo', 'unknown'].includes(surface)) return surface;
-  return 'unknown';
+  if (surface === 'codex' || surface === 'codex_plugin') return 'codex_plugin';
+  if (surface === 'claude' || surface === 'claude_plugin') return 'claude_plugin';
+  if (surface === 'cursor' || surface === 'cursor_rule') return 'cursor_rule';
+  if (surface === 'repo') return 'repo';
+  if (surface === 'external') return 'external';
+  return 'external';
 }
 
 function expandRoot(root, value) {

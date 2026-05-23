@@ -45,9 +45,7 @@ if (result.status !== 0) {
   console.error(`scratch namespace check failed to run git ls-files in ${root}`);
   if (stderr) console.error(stderr);
   exitScratch(status, {
-    outcome: 'fail',
-    failureCategory: 'unknown',
-    failureDriver: 'other',
+    outcome: 'blocked',
   });
 }
 
@@ -58,9 +56,7 @@ if (trackedFiles.length === 0) {
     `scratch namespace ${advisory ? 'advisory' : 'check'} passed: docs/superpowers/ has no tracked files`,
   );
   exitScratch(0, {
-    outcome: 'ok',
-    failureCategory: 'unknown',
-    failureDriver: 'other',
+    outcome: 'success',
   });
 }
 
@@ -72,9 +68,7 @@ if (advisory) {
     emitWarningAnnotation(file);
   }
   exitScratch(0, {
-    outcome: 'ok',
-    failureCategory: 'unknown',
-    failureDriver: 'other',
+    outcome: 'success',
   });
 }
 
@@ -94,9 +88,9 @@ for (const file of trackedFiles) {
 }
 
 exitScratch(1, {
-  outcome: 'fail',
+  outcome: 'failure',
   failureCategory: 'release_policy_gap',
-  failureDriver: 'propagation',
+  failureDriver: 'human',
 });
 
 function exitScratch(code, { outcome, failureCategory, failureDriver }) {
@@ -105,10 +99,11 @@ function exitScratch(code, { outcome, failureCategory, failureDriver }) {
       root,
       plugin: 'agent-trigger-kit',
       surface: 'repo',
-      operationKind: 'mutation',
+      verb: 'scratch_namespace_check',
       outcome,
       failureCategory,
       failureDriver,
+      exitCode: code,
       durationMs: Date.now() - commandStartedAt,
     });
   }

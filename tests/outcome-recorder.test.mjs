@@ -19,8 +19,10 @@ import {
   buildOutcomeReport,
   markOutcomeEvent,
   outcomeStorePath,
+  readOutcomeRecords,
   recordOutcomeEvent,
 } from '../scripts/lib/outcome-recorder.mjs';
+import { validateRecord } from '../scripts/lib/outcome-schema.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -178,33 +180,31 @@ test('outcome recorder appends valid user-level event records', () => {
     homeDir,
     plugin: 'demo-ops',
     surface: 'repo',
-    operationKind: 'manual',
-    outcome: 'fail',
-    failureCategory: 'surface_drift',
-    failureDriver: 'propagation',
+    verb: 'manual_record',
+    outcome: 'failure',
+    failureCategory: 'manifest_drift',
+    failureDriver: 'tooling',
     durationMs: 17,
     now: startedAt,
   });
 
-  assert.match(
-    record.eventId,
-    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-  );
+  assert.match(record.id, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.deepEqual(validateRecord(record), { ok: true, errors: [] });
   assert.equal(storePath, outcomeStorePath({ root, homeDir }).eventsPath);
   assert.deepEqual(readJsonl(storePath), [
     {
-      schemaVersion: 1,
-      recordType: 'event',
-      eventId: record.eventId,
-      recordedAt: '2026-05-23T08:00:00.000Z',
-      projectHash: projectHash(root),
-      plugin: 'demo-ops',
+      id: record.id,
+      schema_version: '0.1',
+      kind: 'event',
+      ts: '2026-05-23T08:00:00.000Z',
+      verb: 'manual_record',
+      outcome: 'failure',
       surface: 'repo',
-      operationKind: 'manual',
-      durationMs: 17,
-      failureCategory: 'surface_drift',
-      failureDriver: 'propagation',
-      outcome: 'fail',
+      duration_ms: 17,
+      failure_category: 'manifest_drift',
+      failure_driver: 'tooling',
+      project_hash: projectHash(root),
+      plugin: 'demo-ops',
     },
   ]);
 });
@@ -217,10 +217,8 @@ test('outcome recorder supports project-local storage and rejects oversized reco
     store: 'project',
     plugin: 'demo-ops',
     surface: 'repo',
-    operationKind: 'manual',
-    outcome: 'ok',
-    failureCategory: 'unknown',
-    failureDriver: 'other',
+    verb: 'manual_record',
+    outcome: 'success',
     durationMs: 0,
     now: new Date('2026-05-23T08:01:00.000Z'),
   });
@@ -236,16 +234,31 @@ test('outcome recorder supports project-local storage and rejects oversized reco
       recordOutcomeEvent({
         root,
         store: 'project',
-        plugin: 'x'.repeat(1200),
+        plugin: 'demo-ops',
         surface: 'repo',
-        operationKind: 'manual',
-        outcome: 'unknown',
-        failureCategory: 'unknown',
-        failureDriver: 'other',
+        verb: 'manual_record',
+        outcome: 'success',
+        note: 'x'.repeat(1200),
         durationMs: 0,
       }),
-    /exceeds 1024 bytes/,
+    /must not exceed 1024 bytes/,
   );
+});
+
+test('outcome recorder treats plugin as optional schema data', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  const { record } = recordOutcomeEvent({
+    root,
+    homeDir,
+    surface: 'external',
+    verb: 'manual_record',
+    outcome: 'success',
+    now: new Date('2026-05-23T08:01:30.000Z'),
+  });
+
+  assert.deepEqual(validateRecord(record), { ok: true, errors: [] });
+  assert.equal(Object.hasOwn(record, 'plugin'), false);
 });
 
 test('outcome recorder marks existing events and reports marked failure drivers', () => {
@@ -255,11 +268,10 @@ test('outcome recorder marks existing events and reports marked failure drivers'
     root,
     homeDir,
     plugin: 'demo-ops',
-    surface: 'codex',
-    operationKind: 'live_check',
-    outcome: 'fail',
-    failureCategory: 'cache_stale',
-    failureDriver: 'propagation',
+    surface: 'codex_plugin',
+    verb: 'live_check',
+    outcome: 'success',
+    exitCode: 0,
     durationMs: 4,
     now: new Date('2026-05-23T08:02:00.000Z'),
   }).record;
@@ -268,31 +280,49 @@ test('outcome recorder marks existing events and reports marked failure drivers'
     homeDir,
     plugin: 'demo-ops',
     surface: 'repo',
-    operationKind: 'static_check',
-    outcome: 'ok',
-    failureCategory: 'unknown',
-    failureDriver: 'other',
+    verb: 'validate',
+    outcome: 'failure',
+    exitCode: 1,
+    failureCategory: 'stale_cache',
+    failureDriver: 'cache',
     durationMs: 2,
     now: new Date('2026-05-23T08:03:00.000Z'),
   }).record;
 
-  markOutcomeEvent({
+  const failureMark = markOutcomeEvent({
     root,
     homeDir,
-    eventId: first.eventId,
-    result: 'failed',
-    failureCategory: 'cache_stale',
-    failureDriver: 'propagation',
-    reason: 'cache stale after release',
+    relatedId: first.id,
+    outcome: 'failure',
+    failureCategory: 'misroute',
+    failureDriver: 'human',
+    note: 'manual review found the route was wrong',
     now: new Date('2026-05-23T08:04:00.000Z'),
-  });
+  }).record;
   markOutcomeEvent({
     root,
     homeDir,
-    eventId: second.eventId,
-    result: 'success',
+    relatedId: second.id,
+    outcome: 'success',
     now: new Date('2026-05-23T08:05:00.000Z'),
   });
+
+  assert.deepEqual(validateRecord(failureMark), { ok: true, errors: [] });
+  assert.equal(failureMark.related_id, first.id);
+  assert.equal(failureMark.verb, 'live_check');
+  assert.equal(failureMark.surface, 'codex_plugin');
+
+  assert.throws(
+    () =>
+      markOutcomeEvent({
+        root,
+        homeDir,
+        relatedId: first.id,
+        verb: 'validate',
+        outcome: 'success',
+      }),
+    /mark verb must match related event verb/,
+  );
 
   const report = buildOutcomeReport({
     root,
@@ -303,17 +333,20 @@ test('outcome recorder marks existing events and reports marked failure drivers'
 
   assert.equal(report.totalEvents, 2);
   assert.equal(report.totalMarks, 2);
-  assert.deepEqual(report.byFailureDriver, { propagation: 1 });
+  assert.deepEqual(report.byFailureCategory, { misroute: 1 });
+  assert.deepEqual(report.byFailureDriver, { human: 1 });
   assert.deepEqual(report.byPlugin, { 'demo-ops': 2 });
-  assert.deepEqual(report.byOutcome, { fail: 1, ok: 1 });
+  assert.deepEqual(report.byOutcome, { failure: 1, success: 1 });
+  assert.deepEqual(report.byVerb, { live_check: 1, validate: 1 });
+  assert.deepEqual(report.byMarkOutcome, { failure: 1, success: 1 });
 
   assert.throws(
     () =>
       markOutcomeEvent({
         root,
         homeDir,
-        eventId: '018f1d2e-0000-7000-8000-000000000000',
-        result: 'success',
+        relatedId: '018f1d2e-0000-7000-8000-000000000000',
+        outcome: 'success',
       }),
     (error) =>
       error instanceof OutcomeRecorderError &&
@@ -333,14 +366,18 @@ test('agent-trigger-kit outcome CLI records, reports, and validates mark combina
       'record',
       '--root',
       root,
-      '--plugin',
-      'demo-ops',
       '--surface',
-      'repo',
-      '--operation-kind',
-      'manual',
+      'external',
+      '--verb',
+      'manual_record',
       '--outcome',
-      'unknown',
+      'failure',
+      '--failure-category',
+      'missing_artifact',
+      '--failure-driver',
+      'human',
+      '--note',
+      'historical propagation miss',
     ],
     { env },
   );
@@ -355,17 +392,17 @@ test('agent-trigger-kit outcome CLI records, reports, and validates mark combina
       '--root',
       root,
       eventId,
-      '--result',
+      '--outcome',
       'success',
       '--failure-category',
-      'surface_drift',
+      'surface_residue',
       '--failure-driver',
-      'propagation',
+      'config',
     ],
     { env },
   );
   assert.equal(invalidSuccess.status, 2);
-  assert.match(invalidSuccess.stderr, /success marks must not include failure fields/);
+  assert.match(invalidSuccess.stderr, /failure_category is forbidden/);
 
   const missing = runCli(
     [
@@ -374,7 +411,7 @@ test('agent-trigger-kit outcome CLI records, reports, and validates mark combina
       '--root',
       root,
       '018f1d2e-0000-7000-8000-000000000000',
-      '--result',
+      '--outcome',
       'success',
     ],
     { env },
@@ -386,9 +423,60 @@ test('agent-trigger-kit outcome CLI records, reports, and validates mark combina
   assert.equal(report.status, 0, report.stderr || report.stdout);
   const payload = JSON.parse(report.stdout);
   assert.equal(payload.totalEvents, 1);
-  assert.deepEqual(payload.byPlugin, { 'demo-ops': 1 });
-  assert.deepEqual(payload.byOutcome, { unknown: 1 });
+  assert.equal(payload.totalMarks, 0);
+  assert.deepEqual(payload.byPlugin, { unknown: 1 });
+  assert.deepEqual(payload.byOutcome, { failure: 1 });
+  assert.deepEqual(payload.byFailureCategory, { missing_artifact: 1 });
   assert.equal(existsSync(outcomeStorePath({ root, homeDir }).eventsPath), true);
+});
+
+test('outcome reader skips schema-invalid records and reports schema errors', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  const { record, storePath } = recordOutcomeEvent({
+    root,
+    homeDir,
+    plugin: 'demo-ops',
+    surface: 'repo',
+    verb: 'manual_record',
+    outcome: 'success',
+    now: new Date('2026-05-23T08:06:00.000Z'),
+  });
+  const futureRecord = {
+    ...record,
+    id: '018f1d2e-0000-7000-8000-000000000000',
+    schema_version: '0.2',
+  };
+  writeFileSync(
+    storePath,
+    `${JSON.stringify(record)}\nnot json\n${JSON.stringify(futureRecord)}\n`,
+  );
+
+  const messages = [];
+  const originalError = console.error;
+  console.error = (message) => messages.push(String(message));
+  try {
+    assert.deepEqual(readOutcomeRecords(storePath), [record]);
+  } finally {
+    console.error = originalError;
+  }
+
+  assert.match(messages.join('\n'), /outcome\.schema_error: line=2 reason=invalid JSON/);
+  assert.match(messages.join('\n'), /line=3 reason=schema_version must be "0\.1"/);
+
+  const appended = recordOutcomeEvent({
+    root,
+    homeDir,
+    plugin: 'demo-ops',
+    surface: 'repo',
+    verb: 'manual_record',
+    outcome: 'success',
+    now: new Date('2026-05-23T08:07:00.000Z'),
+  }).record;
+  const rewrittenText = readFileSync(storePath, 'utf8');
+  assert.match(rewrittenText, /not json/);
+  assert.match(rewrittenText, /"schema_version":"0\.2"/);
+  assert.match(rewrittenText, new RegExp(appended.id));
 });
 
 test('validate auto-emits one ok event and honors --no-outcome', () => {
@@ -400,11 +488,15 @@ test('validate auto-emits one ok event and honors --no-outcome', () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const records = readJsonl(outcomeStorePath({ root: repoRoot, homeDir }).eventsPath);
   assert.equal(records.length, 1);
-  assert.equal(records[0].recordType, 'event');
+  assert.deepEqual(validateRecord(records[0]), { ok: true, errors: [] });
+  assert.equal(records[0].kind, 'event');
+  assert.equal(records[0].schema_version, '0.1');
   assert.equal(records[0].plugin, 'agent-trigger-kit');
   assert.equal(records[0].surface, 'repo');
-  assert.equal(records[0].operationKind, 'static_check');
-  assert.equal(records[0].outcome, 'ok');
+  assert.equal(records[0].verb, 'validate');
+  assert.equal(records[0].outcome, 'success');
+  assert.equal(records[0].exit_code, 0);
+  assert.equal(Object.hasOwn(records[0], 'failure_category'), false);
 
   const disabledHome = makeHome();
   const disabled = runScript('validate-trigger-layer.mjs', ['--root', repoRoot, '--no-outcome'], {
@@ -417,7 +509,7 @@ test('validate auto-emits one ok event and honors --no-outcome', () => {
   );
 });
 
-test('live-check auto-emits one event per selected row with shared correlation id', () => {
+test('live-check auto-emits parent and child events with shared correlation id', () => {
   const root = makeRoot();
   const homeDir = makeHome();
   createVersionedPlugin(root, '0.1.0');
@@ -468,23 +560,60 @@ surfaces:
 
   assert.equal(result.status, 1, result.stderr || result.stdout);
   const records = readJsonl(outcomeStorePath({ root, homeDir }).eventsPath);
-  assert.equal(records.length, 2);
-  assert.equal(records[0].correlationId, records[1].correlationId);
-  assert.ok(records[0].correlationId);
+  assert.equal(records.length, 3);
+  for (const record of records) {
+    assert.deepEqual(validateRecord(record), { ok: true, errors: [] });
+    assert.equal(record.correlation_id, records[0].correlation_id);
+  }
+  assert.ok(records[0].correlation_id);
   assert.deepEqual(
     records.map((record) => [
       record.plugin,
       record.surface,
-      record.operationKind,
+      record.verb,
       record.outcome,
-      record.failureCategory,
-      record.failureDriver,
+      record.failure_category,
+      record.failure_driver,
     ]),
     [
-      ['demo-ops', 'codex', 'live_check', 'ok', 'unknown', 'other'],
-      ['demo-ops', 'codex', 'live_check', 'fail', 'surface_residue', 'propagation'],
+      ['demo-ops', 'repo', 'live_check', 'failure', 'unknown', undefined],
+      ['demo-ops', 'codex_plugin', 'live_check', 'success', undefined, undefined],
+      ['demo-ops', 'codex_plugin', 'live_check', 'failure', 'surface_residue', 'config'],
     ],
   );
+});
+
+test('live-check auto-emits skipped parent when no rows are selected', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  writeLiveMatrix(
+    root,
+    `
+schemaVersion: 1
+plugin: demo-ops
+surfaces: []
+`,
+  );
+
+  const result = runScript(
+    'live-trigger-surface-check.mjs',
+    ['--root', root, '--owner', 'nobody'],
+    {
+      env: { ...process.env, HOME: homeDir },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /no rows selected/);
+  const records = readJsonl(outcomeStorePath({ root, homeDir }).eventsPath);
+  assert.equal(records.length, 1);
+  assert.deepEqual(validateRecord(records[0]), { ok: true, errors: [] });
+  assert.equal(records[0].plugin, 'demo-ops');
+  assert.equal(records[0].surface, 'repo');
+  assert.equal(records[0].verb, 'live_check');
+  assert.equal(records[0].outcome, 'skipped');
+  assert.equal(records[0].exit_code, 0);
+  assert.equal(Object.hasOwn(records[0], 'failure_category'), false);
 });
 
 test('premerge and scratch namespace checks auto-emit command-level events', () => {
@@ -505,8 +634,10 @@ test('premerge and scratch namespace checks auto-emit command-level events', () 
     outcomeStorePath({ root: premergeRoot, homeDir: premergeHome }).eventsPath,
   );
   assert.equal(premergeRecords.length, 1);
-  assert.equal(premergeRecords[0].operationKind, 'mutation');
-  assert.equal(premergeRecords[0].outcome, 'ok');
+  assert.deepEqual(validateRecord(premergeRecords[0]), { ok: true, errors: [] });
+  assert.equal(premergeRecords[0].verb, 'premerge_version_check');
+  assert.equal(premergeRecords[0].outcome, 'success');
+  assert.equal(premergeRecords[0].exit_code, 0);
 
   const scratchRoot = makeRoot();
   const scratchHome = makeHome();
@@ -520,8 +651,10 @@ test('premerge and scratch namespace checks auto-emit command-level events', () 
     outcomeStorePath({ root: scratchRoot, homeDir: scratchHome }).eventsPath,
   );
   assert.equal(scratchRecords.length, 1);
-  assert.equal(scratchRecords[0].operationKind, 'mutation');
-  assert.equal(scratchRecords[0].outcome, 'ok');
+  assert.deepEqual(validateRecord(scratchRecords[0]), { ok: true, errors: [] });
+  assert.equal(scratchRecords[0].verb, 'scratch_namespace_check');
+  assert.equal(scratchRecords[0].outcome, 'success');
+  assert.equal(scratchRecords[0].exit_code, 0);
 });
 
 test('auto-emitter recorder errors never alter check exit codes', () => {

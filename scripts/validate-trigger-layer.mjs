@@ -793,8 +793,9 @@ function emitValidateOutcome(code) {
     root,
     plugin: versionBumpPlugin || 'agent-trigger-kit',
     surface: 'repo',
-    operationKind: 'static_check',
-    outcome: code === 0 ? 'ok' : 'fail',
+    verb: 'validate',
+    outcome: code === 0 ? 'success' : 'failure',
+    exitCode: code,
     failureCategory: classification.failureCategory,
     failureDriver: classification.failureDriver,
     durationMs: Date.now() - commandStartedAt,
@@ -803,18 +804,18 @@ function emitValidateOutcome(code) {
 
 function validateOutcomeClassification(code) {
   if (code === 0) {
-    return { failureCategory: 'unknown', failureDriver: 'other' };
+    return {};
   }
 
   if (failures.some(isSurfaceDriftValidationFailure)) {
-    return { failureCategory: 'surface_drift', failureDriver: 'propagation' };
+    return { failureCategory: 'manifest_drift', failureDriver: 'config' };
   }
 
   if (failures.some(isReleasePolicyValidationFailure)) {
-    return { failureCategory: 'release_policy_gap', failureDriver: 'propagation' };
+    return { failureCategory: 'release_policy_gap', failureDriver: 'tooling' };
   }
 
-  return { failureCategory: 'unknown', failureDriver: 'other' };
+  return { failureCategory: 'unknown', failureDriver: 'unknown' };
 }
 
 function isReleasePolicyValidationFailure(message) {
