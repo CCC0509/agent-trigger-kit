@@ -25,18 +25,18 @@ events, recorder adoption failed and this hypothesis remains untested.
 
 ## Incident Signals
 
-| ID    | Incident                                                                                           | Category           | Measurable Signal                                                                                                        |
-| ----- | -------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| PR-1  | Source plugin version current while Codex or Claude cache is stale.                                | cache_stale        | `sourceVersion != installedCacheVersion` for the same plugin.                                                            |
-| PR-2  | Claude project plugin cache version differs from source manifest version.                          | version_mismatch   | `claudeProjectVersion != sourcePluginVersion`.                                                                           |
-| PR-3  | Codex keeps a project plugin in user global config after temporary discovery.                      | surface_residue    | Codex config contains a forbidden project plugin id after cleanup.                                                       |
-| PR-4  | Plugin-visible change lands without aligned manifest and changelog bump.                           | release_policy_gap | Premerge version check reports a plugin-visible diff without aligned source versions.                                    |
-| PR-5  | Generated skill descriptions were too sparse before playbook-first guidance and task descriptions. | misroute           | Human-labeled only: no automated proxy in v0; ground truth comes from a `misroute` mark with `failureDriver: discovery`. |
-| PR-6  | Wrapper, command, marketplace, and Cursor rule drift across generated surfaces.                    | surface_drift      | Static validator reports generated file checksum, frontmatter, command, or Cursor rule drift.                            |
-| PR-7  | Scratch namespace or generated docs pollution reaches main-bound work.                             | release_policy_gap | Scratch/premerge check reports a blocked namespace or generated artifact policy violation.                               |
-| PR-8  | Claude plugin lifecycle issues such as stale cache, `.orphaned_at`, or restart-required state.     | cache_stale        | Claude installed-state probe reports source/cache mismatch or orphaned plugin state.                                     |
-| PR-9  | Trigger-layer source changed, but no read-only live evidence proves runtime discovery.             | surface_missing    | Live matrix row for an expected surface is absent, inconclusive, or not discoverable.                                    |
-| PR-10 | Removed tasks leave orphan generated wrappers or commands.                                         | surface_residue    | Clean dry-run reports generated files present on disk but absent from the generated manifest.                            |
+| ID    | Incident                                                                                           | Schema Category    | Measurable Signal                                                                                                       |
+| ----- | -------------------------------------------------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| PR-1  | Source plugin version current while Codex or Claude cache is stale.                                | stale_cache        | `sourceVersion != installedCacheVersion` for the same plugin.                                                           |
+| PR-2  | Claude project plugin cache version differs from source manifest version.                          | version_skew       | `claudeProjectVersion != sourcePluginVersion`.                                                                          |
+| PR-3  | Codex keeps a project plugin in user global config after temporary discovery.                      | surface_residue    | Codex config contains a forbidden project plugin id after cleanup.                                                      |
+| PR-4  | Plugin-visible change lands without aligned manifest and changelog bump.                           | release_policy_gap | Premerge version check reports a plugin-visible diff without aligned source versions.                                   |
+| PR-5  | Generated skill descriptions were too sparse before playbook-first guidance and task descriptions. | misroute           | Human-labeled only: no automated proxy in v0; ground truth comes from a human mark with `failure_category: "misroute"`. |
+| PR-6  | Wrapper, command, marketplace, and Cursor rule drift across generated surfaces.                    | manifest_drift     | Static validator reports generated file checksum, frontmatter, command, or Cursor rule drift.                           |
+| PR-7  | Scratch namespace or generated docs pollution reaches main-bound work.                             | release_policy_gap | Scratch/premerge check reports a blocked namespace or generated artifact policy violation.                              |
+| PR-8  | Claude plugin lifecycle issues such as stale cache, `.orphaned_at`, or restart-required state.     | stale_cache        | Claude installed-state probe reports source/cache mismatch or orphaned plugin state.                                    |
+| PR-9  | Trigger-layer source changed, but no read-only live evidence proves runtime discovery.             | missing_artifact   | Live matrix row for an expected surface is absent, inconclusive, or not discoverable.                                   |
+| PR-10 | Removed tasks leave orphan generated wrappers or commands.                                         | surface_residue    | Clean dry-run reports generated files present on disk but absent from the generated manifest.                           |
 
 ## Secondary Hypotheses
 
@@ -58,47 +58,19 @@ Outcome evidence is human-labeled. Events are facts about checks, routing
 attempts, or release operations. Marks are the ground truth layer applied by a
 human operator.
 
-Each JSONL record uses `schemaVersion: 1`. `recordType` is `event` or `mark`.
-All timestamps are UTC ISO8601 strings ending in `Z`. `eventId` is stable for
-the original event. `projectHash` is the first 12 hex characters of a SHA-256
-hash of the canonical project root path.
+Schema v0.1 is the canonical JSONL record contract for implementation. It
+writes `schema_version`, `kind`, `id`, `ts`, `verb`, `outcome`, `surface`,
+optional `failure_category`, optional `failure_driver`, and related metadata as
+documented in `2026-05-23-outcome-event-schema-v0.1.md`.
 
-Required event fields:
+Older drafts of this problem statement used pre-v0.1 names such as
+`schemaVersion`, `recordType`, `eventId`, `recordedAt`, `markedAt`,
+`operationKind`, `failureCategory`, and `failureDriver`. Those names are
+historical. New report and gate work must use schema v0.1 names.
 
-- `schemaVersion`: `1`
-- `recordType`: `event`
-- `eventId`: string
-- `recordedAt`: UTC ISO8601 with `Z`
-- `projectHash`: string
-- `plugin`: string
-- `surface`: `codex`, `claude`, `cursor`, `repo`, or `unknown`
-- `operationKind`: `static_check`, `live_check`, `generation`, `cleanup`,
-  `mutation`, or `manual`
-- `durationMs`: non-negative integer
-- `failureCategory`: one of `cache_stale`, `version_mismatch`,
-  `surface_missing`, `surface_drift`, `surface_residue`,
-  `release_policy_gap`, `misroute`, `unknown`
-- `failureDriver`: `propagation`, `context_bloat`, `discovery`,
-  `runtime_trust`, or `other`
-
-Required mark fields:
-
-- `schemaVersion`: `1`
-- `recordType`: `mark`
-- `eventId`: string
-- `markedAt`: UTC ISO8601 with `Z`
-- `result`: `success`, `failed`, or `misroute`
-- `reason`: optional single-line string, maximum 200 characters
-
-Marks with `result: failed` or `result: misroute` also require:
-
-- `failureCategory`: same enum as event records
-- `failureDriver`: same enum as event records
-
-Marks with `result: success` omit `failureCategory` and `failureDriver`.
-
-`reason` is not a registry and is not used for primary metrics. It is capped to
-reduce leakage and to keep reports reviewable.
+Gate-level query semantics are documented in
+`2026-05-24-outcome-evidence-gates-v0.3.md`. That design intentionally disables
+gates whose queries would lie under schema v0.1.
 
 ## Storage, Privacy, And Retention
 
@@ -109,8 +81,8 @@ The default store is user-level:
 ```
 
 Payload content, prompts, file contents, and full trigger request bodies are not
-recorded by default. Metadata such as plugin name, surface, operation kind,
-duration, enum category, and enum driver is recorded.
+recorded by default. Metadata such as plugin name, surface, verb, duration,
+enum category, and enum driver is recorded.
 
 Project-local storage is opt-in. If a project-local store is selected, the path
 is `.agent-trigger-kit/outcomes/events.jsonl`, and the CLI must create
@@ -121,10 +93,10 @@ is `.agent-trigger-kit/outcomes/events.jsonl`, and the CLI must create
 !.gitignore
 ```
 
-Retention is rolling 90 days or 1000 records per `projectHash`, whichever limit
+Retention is rolling 90 days or 1000 records per `project_hash`, whichever limit
 is reached first. If an operator marks an event that has already been removed by
 retention, the command exits with code `4` and prints
-`event <eventId> not found; it may have expired under the retention policy`.
+`event <id> not found; it may have expired under the retention policy`.
 Silent no-op marking is not allowed.
 
 ## Reader Contract
@@ -147,21 +119,21 @@ MVP exists, misroute rate is 100% human-labeled.
 ## Hypothesis Falsification
 
 - Demote propagation reliability if the first 60-day sample has at least 10
-  marked events and fewer than 15% have `failureDriver: propagation`.
+  marked events and fewer than 15% are propagation-reliability failures under
+  the incident-signal mapping above. This is a review-level classification, not
+  a v0.1 `failure_driver` enum value.
 
 ## Expansion Gates
 
-- Pause any Graphify or graph-context work if a 60-day sample has fewer than 3
-  events with `failureDriver: context_bloat` and context-bloat events are below
-  20% of marked failed or misrouted events.
+- Pause Graphify or graph-context work unless the v0.3 Graphify gate becomes
+  schema-supported and triggered.
 - Pause registry automation if a 60-day sample has fewer than 3 `misroute`
-  marks and misroutes are below 10% of marked events.
-- Pause ECC-style rule suggestion work if a 60-day sample has fewer than 5
-  repeated events with the same `failureCategory`, `failureDriver`, `plugin`,
-  and `surface`.
-- Keep safety work advisory-only if a 60-day sample has fewer than 3 events with
-  `operationKind: mutation` and `failureCategory: release_policy_gap` or
-  `surface_residue`.
+  marked failures and misroutes are below 10% of marked events.
+- Pause ECC-style rule suggestion work unless the v0.3 ECC gate finds at least 5
+  repeated marked failures with the same `failure_category`, `plugin`, and
+  `surface` 3-tuple.
+- Keep safety work advisory-only unless the v0.3 Safety gate becomes
+  schema-supported and triggered.
 - Revisit the recorder itself if 30 days after adoption fewer than 5 events have
   any human mark, or if 120 days after adoption fewer than 10 events have any
   human mark; without marks, reports cannot validate or refute this problem

@@ -19,6 +19,17 @@ operator environments that matter. If sandbox or restricted-home runs cannot
 write outcome records reliably, the denominator and numerator for these gates
 can both be undercounted.
 
+## Schema Vocabulary Note
+
+This document predates outcome schema v0.1 and originally used
+implementation-shaped field names such as `failureCategory`, `failureDriver`,
+and `operationKind`. Schema v0.1 writes `failure_category`, `failure_driver`,
+and `verb`; it does not preserve a separate operation-kind axis.
+
+For implementation work, use `2026-05-24-outcome-evidence-gates-v0.3.md` as
+the canonical gate semantics. The older trigger descriptions below are retained
+as historical rationale for the v0.2 position, not as executable report queries.
+
 ## Graphify
 
 Current stance: Agent Trigger Kit does not depend on Graphify, does not run a
@@ -29,10 +40,11 @@ Reasoning: All listed incidents except PR-5 are source-to-surface reliability
 failures; PR-5 is discovery-related; no incident is context-bloat. See the
 problem statement incident table.
 
-Re-evaluation trigger: Reopen Graphify integration only when one rolling 60-day
-outcome window has at least 10 marked failed or misrouted events and either 3 or
-more of those events have `failureDriver: context_bloat`, or context-bloat
-events are 20% or more of marked failed or misrouted events.
+Re-evaluation trigger: Reopen Graphify integration only when a schema-supported
+context-bloat evidence axis exists and one rolling 60-day outcome window has at
+least 10 marked failed or misrouted events and either 3 or more context-bloat
+events, or context-bloat events are 20% or more of marked failed or misrouted
+events.
 
 ## ECC
 
@@ -47,8 +59,9 @@ failures. Without marks, an ECC-style loop would learn from unverified events.
 
 Re-evaluation trigger: Reopen ECC-style rule suggestion only when one rolling
 60-day outcome window has at least 20 marked events and at least 5 repeated
-events share the same `failureCategory`, `failureDriver`, `plugin`, and
-`surface` 4-tuple.
+failed events share the same `failure_category`, `plugin`, and `surface`
+3-tuple. `failure_driver` is a breakdown, not part of the primary repetition
+key.
 
 ## Safety
 
@@ -62,24 +75,20 @@ scratch or generated-artifact pollution. PR-10 concerns orphan generated
 surfaces. Those incidents fit static or premerge validation better than a
 separate shield subsystem.
 
-Re-evaluation trigger: Reopen a trigger-admission safety gate only when one
-rolling 60-day outcome window has at least 3 marked events with
-`operationKind: mutation` and `failureCategory: release_policy_gap` or
-`surface_residue`.
+Re-evaluation trigger: Reopen a trigger-admission safety gate only when a
+schema-supported mutation or safety denominator exists and one rolling 60-day
+outcome window has at least 3 marked safety-relevant events with
+`failure_category: "release_policy_gap"` or
+`failure_category: "surface_residue"`.
 
 ## Normalization Follow-Ups
 
-- Define the 60-day window anchor explicitly before dashboarding these gates.
-  Candidate anchors are event timestamp, mark timestamp, or report generation
-  time; event timestamp is the likely default because it describes when the
-  trigger failure happened.
-- Align gate denominators before comparing Graphify, ECC, and safety in one
-  report. Graphify currently uses marked failed or misrouted events, while ECC
-  uses all marked events.
-- Revisit the ECC repetition key if the 4-tuple proves too sparse. A 3-tuple or
-  a wildcardable `failureDriver` may be enough to identify repeated rule
-  suggestion candidates without pushing the gate out of reach.
+- Use `2026-05-24-outcome-evidence-gates-v0.3.md` for the canonical 60-day
+  window anchor, denominator families, ECC repetition key, and gate report
+  shape.
 - Keep outcome auto-emission reliability as a prerequisite for these gates.
-  Restricted-home sandbox write failures, tracked separately in issue #6, can
-  prevent events from reaching the store and make the re-evaluation thresholds
-  appear unmet.
+  Restricted-home sandbox write failures, tracked in issue #6, can prevent
+  events from reaching the store and make re-evaluation thresholds appear unmet.
+- Keep schema-gap gates disabled until a separate schema design proves and names
+  the missing evidence axis. v0.3 intentionally names the Graphify and Safety
+  gaps without freezing v0.2 field names.
