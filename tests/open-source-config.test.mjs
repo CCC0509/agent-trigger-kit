@@ -135,6 +135,42 @@ test('completion workflow documents plugin-visible version bump gate', () => {
   assert.match(readme, /bump.*aligned version/i);
 });
 
+test('session-check guidance is documented for repo sessions and plugin discovery', () => {
+  const readme = read('README.md');
+  const agents = read('AGENTS.md');
+  const claude = read('CLAUDE.md');
+  const skill = read('plugins/agent-trigger-kit/skills/session-check/SKILL.md');
+
+  assert.match(readme, /agent-trigger-kit session-check\b/);
+  assert.match(readme, /agent-trigger-kit session-check --closeout/);
+  assert.match(readme, /agent-trigger-kit session-check --json/);
+  assert.match(readme, /0 healthy/);
+  assert.match(readme, /1 validate fail/);
+  assert.match(readme, /2 usage/);
+  assert.match(readme, /3 degraded outcome store/);
+  assert.match(readme, /4 unmarked events/);
+  assert.match(readme, /read-only/i);
+  assert.match(readme, /no hooks/i);
+  assert.match(readme, /background triggers/i);
+
+  assert.match(agents, /## Session Start/);
+  assert.match(agents, /agent-trigger-kit session-check/);
+  assert.match(agents, /## Session Closeout/);
+  assert.match(agents, /agent-trigger-kit session-check --closeout/);
+  assert.match(agents, /mark or report unmarked events/i);
+
+  assert.match(claude, /## Session Start/);
+  assert.match(claude, /agent-trigger-kit session-check/);
+  assert.match(claude, /## Session Closeout/);
+  assert.match(claude, /agent-trigger-kit session-check --closeout/);
+
+  assert.match(skill, /name: session-check/);
+  assert.match(skill, /starting\/ending a repo session|starting or ending a repo session/i);
+  assert.match(skill, /agent-trigger-kit session-check --closeout/);
+  assert.match(skill, /avoid hooks/i);
+  assert.match(skill, /background automation/i);
+});
+
 test('contributing documents premerge version reconciliation', () => {
   const pkg = JSON.parse(read('package.json'));
   const contributing = read('CONTRIBUTING.md');

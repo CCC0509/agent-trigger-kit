@@ -365,6 +365,74 @@ export function buildOutcomeReport(options = {}) {
   });
 }
 
+export function buildOutcomeSessionSummary(options = {}) {
+  const {
+    root = process.cwd(),
+    homeDir = homedir(),
+    store = 'user',
+    windowDays,
+    since,
+    surface,
+    verb,
+    now = new Date(),
+  } = options;
+  const selectedStore = outcomeStorePath({ root, homeDir, store });
+  const records = readOutcomeRecords(selectedStore.eventsPath);
+  const events = records.filter((record) => record.kind === 'event');
+  const marks = records.filter((record) => record.kind === 'mark');
+  const sinceIso = reportSince({ since, windowDays, now });
+  const sinceMs = sinceIso === null ? null : new Date(sinceIso).getTime();
+  const surfaceFilter = reportEnum(surface, SURFACES, 'surface');
+  const verbFilter = reportEnum(verb, VERBS, 'verb');
+  const latestMarkByRelatedId = latestMarksByRelatedId(marks);
+  const effectiveEvents = [];
+
+  for (const event of events) {
+    const mark = latestMarkByRelatedId.get(event.id) || null;
+    const effective = effectiveOutcomeEvent(event, mark);
+    if (surfaceFilter && effective.surface !== surfaceFilter) continue;
+    if (verbFilter && effective.verb !== verbFilter) continue;
+    if (sinceMs !== null && new Date(event.ts).getTime() < sinceMs) continue;
+    effectiveEvents.push(effective);
+  }
+
+  const failureCategories = new Map();
+  const failureDrivers = new Map();
+
+  for (const event of effectiveEvents) {
+    if (event.outcome !== 'failure') continue;
+    incrementMap(failureCategories, event.failure_category || 'uncategorized');
+    incrementMap(failureDrivers, event.failure_driver || 'uncategorized');
+  }
+
+  const totalFailures = [...failureCategories.values()].reduce((total, count) => total + count, 0);
+
+  return {
+    schema_version: SCHEMA_VERSION,
+    generated_at: now.toISOString(),
+    project_hash: selectedStore.projectHash,
+    store: selectedStore.store,
+    scope: {
+      since: sinceIso,
+      surface: surfaceFilter,
+      verb: verbFilter,
+      retained_records_only: true,
+      retention_horizon_days: RETENTION_DAYS,
+      retention_record_limit: RETENTION_RECORDS,
+    },
+    failure_categories: failureSummaryRows({
+      entries: failureCategories.entries(),
+      label: 'failure_category',
+      totalFailures,
+    }),
+    failure_drivers: failureSummaryRows({
+      entries: failureDrivers.entries(),
+      label: 'failure_driver',
+      totalFailures,
+    }),
+  };
+}
+
 export function readOutcomeRecords(eventsPath) {
   if (!existsSync(eventsPath)) return [];
   const text = readFileSync(eventsPath, 'utf8');
@@ -845,6 +913,16 @@ function finalizeSurfaceRow(row) {
     failure_rate: rate(row.failure, signalEvents),
     blocked_rate: rate(row.blocked, signalEvents),
   };
+}
+
+function failureSummaryRows({ entries, label, totalFailures }) {
+  return [...entries]
+    .map(([value, count]) => ({
+      [label]: value,
+      count,
+      share_of_failures: rate(count, totalFailures),
+    }))
+    .sort((a, b) => b.count - a.count || a[label].localeCompare(b[label]));
 }
 
 function compareSurfaceRows(a, b) {

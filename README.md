@@ -88,6 +88,28 @@ npx --yes github:CCC0509/agent-trigger-kit version-check \
   agent-trigger-kit
 ```
 
+### Session Check
+
+Use `session-check` at the edges of an agent session:
+
+```bash
+agent-trigger-kit session-check
+agent-trigger-kit session-check --closeout
+agent-trigger-kit session-check --json
+```
+
+At session start, `agent-trigger-kit session-check` validates the trigger layer
+and reports session health before changes begin. At closeout,
+`agent-trigger-kit session-check --closeout` also reports unmarked outcome
+events so the agent can mark them or report them before completion. `--json`
+returns the same health signal in structured form.
+
+Exit codes are 0 healthy, 1 validate fail, 2 usage,
+3 degraded outcome store, and 4 unmarked events.
+
+`session-check` is read-only: no hooks, background triggers, or background
+automation.
+
 From a local checkout, use the scripts directly:
 
 ```bash

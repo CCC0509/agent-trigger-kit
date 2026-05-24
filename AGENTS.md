@@ -1,5 +1,14 @@
 # Agent Trigger Kit Agent Instructions
 
+## Session Start
+
+- Before making changes in this repo, run `agent-trigger-kit session-check`.
+
+## Session Closeout
+
+- Before reporting completion, run `agent-trigger-kit session-check --closeout`.
+- Mark or report unmarked events before leaving the session.
+
 ## Completion Workflow
 
 - After completing any change in this repo, run the relevant verification

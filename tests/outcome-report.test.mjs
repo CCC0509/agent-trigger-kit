@@ -8,6 +8,7 @@ import test from 'node:test';
 
 import {
   buildOutcomeReport,
+  buildOutcomeSessionSummary,
   markOutcomeEvent,
   outcomeStorePath,
   recordOutcomeEvent,
@@ -241,6 +242,136 @@ test('outcome report applies latest mark overrides including surface changes', (
   ]);
   assert.deepEqual(report.by_failure_category, [
     { failure_category: 'stale_cache', count: 1, share_of_failures: 1 },
+  ]);
+});
+
+test('outcome session summary aggregates failure drivers from latest effective failures', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  const now = new Date('2026-05-23T10:00:00.000Z');
+  const remediated = emit(root, homeDir, {
+    surface: 'repo',
+    verb: 'live_check',
+    outcome: 'success',
+    exitCode: 0,
+    now: new Date('2026-05-23T08:00:00.000Z'),
+  });
+  emit(root, homeDir, {
+    surface: 'repo',
+    verb: 'live_check',
+    outcome: 'failure',
+    exitCode: 1,
+    failureCategory: 'stale_cache',
+    failureDriver: 'tooling',
+    now: new Date('2026-05-23T08:03:00.000Z'),
+  });
+  const resolved = emit(root, homeDir, {
+    surface: 'repo',
+    verb: 'live_check',
+    outcome: 'failure',
+    exitCode: 1,
+    failureCategory: 'manifest_drift',
+    failureDriver: 'cache',
+    now: new Date('2026-05-23T08:04:00.000Z'),
+  });
+
+  mark(root, homeDir, remediated.id, {
+    outcome: 'failure',
+    failureCategory: 'misroute',
+    failureDriver: 'human',
+    now: new Date('2026-05-23T08:01:00.000Z'),
+  });
+  mark(root, homeDir, remediated.id, {
+    outcome: 'failure',
+    failureCategory: 'stale_cache',
+    failureDriver: 'cache',
+    now: new Date('2026-05-23T08:02:00.000Z'),
+  });
+  mark(root, homeDir, resolved.id, {
+    outcome: 'success',
+    now: new Date('2026-05-23T08:05:00.000Z'),
+  });
+
+  const summary = buildOutcomeSessionSummary({ root, homeDir, now });
+
+  assert.equal(summary.schema_version, '0.1');
+  assert.equal(summary.generated_at, now.toISOString());
+  assert.equal(summary.store, 'user');
+  assert.deepEqual(summary.scope, {
+    since: null,
+    surface: null,
+    verb: null,
+    retained_records_only: true,
+    retention_horizon_days: 90,
+    retention_record_limit: 1000,
+  });
+  assert.deepEqual(summary.failure_categories, [
+    { failure_category: 'stale_cache', count: 2, share_of_failures: 1 },
+  ]);
+  assert.deepEqual(summary.failure_drivers, [
+    { failure_driver: 'cache', count: 1, share_of_failures: 0.5 },
+    { failure_driver: 'tooling', count: 1, share_of_failures: 0.5 },
+  ]);
+});
+
+test('outcome session summary applies since filtering before failure driver aggregation', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  const now = new Date('2026-05-23T10:00:00.000Z');
+  const old = emit(root, homeDir, {
+    surface: 'repo',
+    verb: 'validate',
+    outcome: 'failure',
+    exitCode: 1,
+    failureCategory: 'stale_cache',
+    failureDriver: 'cache',
+    now: new Date('2026-05-23T07:59:59.999Z'),
+  });
+  emit(root, homeDir, {
+    surface: 'repo',
+    verb: 'validate',
+    outcome: 'failure',
+    exitCode: 1,
+    failureCategory: 'manifest_drift',
+    failureDriver: 'tooling',
+    now: new Date('2026-05-23T08:00:00.000Z'),
+  });
+  const includedMarked = emit(root, homeDir, {
+    surface: 'repo',
+    verb: 'validate',
+    outcome: 'success',
+    exitCode: 0,
+    now: new Date('2026-05-23T08:01:00.000Z'),
+  });
+
+  mark(root, homeDir, old.id, {
+    outcome: 'failure',
+    failureCategory: 'misroute',
+    failureDriver: 'human',
+    now: new Date('2026-05-23T08:30:00.000Z'),
+  });
+  mark(root, homeDir, includedMarked.id, {
+    outcome: 'failure',
+    failureCategory: 'stale_cache',
+    failureDriver: 'human',
+    now: new Date('2026-05-23T08:31:00.000Z'),
+  });
+
+  const summary = buildOutcomeSessionSummary({
+    root,
+    homeDir,
+    now,
+    since: '2026-05-23T08:00:00.000Z',
+  });
+
+  assert.equal(summary.scope.since, '2026-05-23T08:00:00.000Z');
+  assert.deepEqual(summary.failure_categories, [
+    { failure_category: 'manifest_drift', count: 1, share_of_failures: 0.5 },
+    { failure_category: 'stale_cache', count: 1, share_of_failures: 0.5 },
+  ]);
+  assert.deepEqual(summary.failure_drivers, [
+    { failure_driver: 'human', count: 1, share_of_failures: 0.5 },
+    { failure_driver: 'tooling', count: 1, share_of_failures: 0.5 },
   ]);
 });
 

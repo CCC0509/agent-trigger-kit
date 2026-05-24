@@ -12,6 +12,7 @@ const commands = {
   'live-check': { script: 'live-trigger-surface-check.mjs' },
   outcome: 'outcome-recorder.mjs',
   'render-matrix': { script: 'render-live-surface-matrix.mjs' },
+  'session-check': 'session-check.mjs',
   validate: 'validate-trigger-layer.mjs',
   'version-check': 'check-plugin-version.mjs',
 };
@@ -29,6 +30,7 @@ function printUsage() {
       '  live-check     Check live agent trigger surfaces from a consumer-owned matrix',
       '  outcome        Record, mark, and report trigger outcome evidence',
       '  render-matrix  Render live trigger surface matrix documentation',
+      '  session-check  Validate trigger layer and outcome closeout state',
       '  version-check  Check source and installed plugin versions',
     ].join('\n'),
   );
