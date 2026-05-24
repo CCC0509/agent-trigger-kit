@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const [command, ...commandArgs] = process.argv.slice(2);
 const commands = {
+  'audit-cleanup': 'audit-cleanup.mjs',
   clean: 'clean-generated-trigger-layer.mjs',
   init: 'init-project-trigger-layer.mjs',
   'import-claude-skills': 'import-claude-skills.mjs',
@@ -24,6 +25,7 @@ function printUsage() {
       'Usage: agent-trigger-kit <command> [args]',
       '',
       'Commands:',
+      '  audit-cleanup Read-only post-merge audit for residue',
       '  clean          Dry-run cleanup checks for generated trigger layer files',
       '  init           Create or update a project trigger layer',
       '  import-claude-skills  Import existing Claude Code skills into a trigger layer',
