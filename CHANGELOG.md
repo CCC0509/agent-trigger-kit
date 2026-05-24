@@ -6,11 +6,14 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
-## Unreleased
+## 0.2.1
 
 - Outcome report gates: JSON-only `outcome report --gates --json` summary for
   Graphify, ECC, and Safety evidence gates with explicit disabled schema-gap
   states and ECC 3-tuple repetition candidates.
+- Session check: top-level `session-check` command for read-only session start
+  and closeout health checks, plus AGENTS / CLAUDE guidance and a discoverable
+  `agent-trigger-kit:session-check` skill.
 
 ## 0.2.0
 
