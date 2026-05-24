@@ -1,12 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import {
-  R_OK,
-  W_OK,
-  accessSync,
-  existsSync,
-  statSync,
-} from 'node:fs';
+import { R_OK, W_OK, accessSync, existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
