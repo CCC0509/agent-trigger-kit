@@ -13,6 +13,7 @@ const commands = {
   outcome: 'outcome-recorder.mjs',
   'render-matrix': { script: 'render-live-surface-matrix.mjs' },
   'session-check': 'session-check.mjs',
+  'spec-graduate': 'spec-graduate.mjs',
   validate: 'validate-trigger-layer.mjs',
   'version-check': 'check-plugin-version.mjs',
 };
@@ -31,6 +32,7 @@ function printUsage() {
       '  outcome        Record, mark, and report trigger outcome evidence',
       '  render-matrix  Render live trigger surface matrix documentation',
       '  session-check  Validate trigger layer and outcome closeout state',
+      '  spec-graduate  Graduate completed branch-local review material into durable docs',
       '  version-check  Check source and installed plugin versions',
     ].join('\n'),
   );
