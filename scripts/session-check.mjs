@@ -301,7 +301,7 @@ function buildNextActions({ root, mode, unmarkedEvents }) {
   return unmarkedEvents.map((event) => ({
     event_id: event.id,
     short_id: event.short_id,
-    command: `agent-trigger-kit outcome mark --root . ${event.short_id}`,
+    command: `agent-trigger-kit outcome mark --root . ${event.id}`,
     cwd: root,
   }));
 }

@@ -187,10 +187,7 @@ test('session-check closeout suggests an executable outcome mark command', () =>
 
   assert.equal(result.status, 4);
   assert.match(result.stdout, /Session closeout check/);
-  assert.match(
-    result.stdout,
-    new RegExp(`agent-trigger-kit outcome mark --root \\. ${event.id.slice(0, 8)}`),
-  );
+  assert.match(result.stdout, new RegExp(`agent-trigger-kit outcome mark --root \\. ${event.id}`));
 });
 
 test('session-check returns validate failure before outcome-state failures', () => {
