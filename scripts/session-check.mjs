@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { R_OK, W_OK, accessSync, existsSync, statSync } from 'node:fs';
+import { R_OK, W_OK, accessSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import {
   listOutcomeEvents,
   outcomeStorePath,
 } from './lib/outcome-recorder.mjs';
+import { validateRecord } from './lib/outcome-schema.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const validatePath = join(scriptDir, 'validate-trigger-layer.mjs');
@@ -147,6 +148,7 @@ export function probeOutcomeStore({ root = process.cwd(), homeDir = homedir() } 
           throw new Error(`outcome events path is not a file: ${storePath.eventsPath}`);
         }
         accessSync(storePath.eventsPath, R_OK | W_OK);
+        validateOutcomeEventsFile(storePath.eventsPath);
       }
       return base;
     }
@@ -270,6 +272,29 @@ function nearestExistingAncestor(path) {
   return cursor;
 }
 
+function validateOutcomeEventsFile(eventsPath) {
+  const text = readFileSync(eventsPath, 'utf8');
+  for (const [index, line] of text.split(/\r?\n/).entries()) {
+    if (!line) continue;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch (error) {
+      throw new Error(
+        `outcome events file has invalid JSON on line ${index + 1}: ${error.message}`,
+      );
+    }
+
+    const result = validateRecord(parsed);
+    if (!result.ok) {
+      throw new Error(
+        `outcome events file has invalid record on line ${index + 1}: ${result.errors.join('; ')}`,
+      );
+    }
+  }
+}
+
 function degradedStore({ storePath, error }) {
   return {
     status: 'degraded',
@@ -301,9 +326,15 @@ function buildNextActions({ root, mode, unmarkedEvents }) {
   return unmarkedEvents.map((event) => ({
     event_id: event.id,
     short_id: event.short_id,
-    command: `agent-trigger-kit outcome mark --root . ${event.id}`,
+    command: `agent-trigger-kit outcome mark --root ${shellQuote(root)} ${event.id}`,
     cwd: root,
   }));
+}
+
+function shellQuote(value) {
+  const text = String(value);
+  if (/^[A-Za-z0-9_./:=+-]+$/.test(text)) return text;
+  return `'${text.replaceAll("'", "'\\''")}'`;
 }
 
 function writeHumanReport({ stdout, payload }) {

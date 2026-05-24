@@ -187,7 +187,10 @@ test('session-check closeout suggests an executable outcome mark command', () =>
 
   assert.equal(result.status, 4);
   assert.match(result.stdout, /Session closeout check/);
-  assert.match(result.stdout, new RegExp(`agent-trigger-kit outcome mark --root \\. ${event.id}`));
+  assert.match(
+    result.stdout,
+    new RegExp(`agent-trigger-kit outcome mark --root ${escapeRegExp(root)} ${event.id}`),
+  );
 });
 
 test('session-check returns validate failure before outcome-state failures', () => {
@@ -252,6 +255,26 @@ test('session-check degrades when existing events path is not writable as a file
   assert.match(result.payload.outcome_store.error.message, /not a file/);
 });
 
+test('session-check degrades when the outcome events file is corrupt', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  createValidTriggerLayer(root);
+  const store = outcomeStorePath({ root, homeDir, store: 'user' });
+  mkdirSync(store.dir, { recursive: true });
+  writeFileSync(store.eventsPath, 'not-json\n');
+
+  const result = runSessionCheck({
+    argv: ['--root', root, '--json'],
+    homeDir,
+    stdout: { write: () => {} },
+    stderr: { write: () => {} },
+  });
+
+  assert.equal(result.exitCode, 3);
+  assert.equal(result.payload.outcome_store.status, 'degraded');
+  assert.match(result.payload.outcome_store.error.message, /invalid JSON/);
+});
+
 test('session-check quiet mode suppresses output while preserving exit code', () => {
   const root = makeRoot();
   const homeDir = makeHome();
@@ -267,6 +290,10 @@ test('session-check quiet mode suppresses output while preserving exit code', ()
   assert.equal(result.stdout, '');
   assert.equal(result.stderr, '');
 });
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 test('session-check JSON exposes stable schema fields for start and closeout modes', () => {
   const root = makeRoot();
