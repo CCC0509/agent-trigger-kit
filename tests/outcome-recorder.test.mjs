@@ -287,6 +287,86 @@ test('outcome recorder treats plugin as optional schema data', () => {
   assert.equal(Object.hasOwn(record, 'plugin'), false);
 });
 
+test('outcome recorder normalizes caller option aliases to schema fields', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  const correlationId = mintUuidV7(
+    new Date('2026-05-23T08:01:45.000Z'),
+    'translation-audit-correlation',
+  );
+
+  const camelEvent = recordOutcomeEvent({
+    root,
+    homeDir,
+    plugin: 'demo-ops',
+    surface: 'repo',
+    verb: 'validate',
+    outcome: 'failure',
+    failureCategory: 'manifest_drift',
+    failureDriver: 'tooling',
+    exitCode: 1,
+    durationMs: 17,
+    errorCode: 'E_MANIFEST_DRIFT',
+    correlationId,
+    now: new Date('2026-05-23T08:02:00.000Z'),
+  }).record;
+
+  assert.equal(camelEvent.failure_category, 'manifest_drift');
+  assert.equal(camelEvent.failure_driver, 'tooling');
+  assert.equal(camelEvent.exit_code, 1);
+  assert.equal(camelEvent.duration_ms, 17);
+  assert.equal(camelEvent.error_code, 'E_MANIFEST_DRIFT');
+  assert.equal(camelEvent.correlation_id, correlationId);
+  assert.equal(Object.hasOwn(camelEvent, 'failureCategory'), false);
+  assert.equal(Object.hasOwn(camelEvent, 'failureDriver'), false);
+  assert.equal(Object.hasOwn(camelEvent, 'exitCode'), false);
+  assert.equal(Object.hasOwn(camelEvent, 'durationMs'), false);
+  assert.equal(Object.hasOwn(camelEvent, 'errorCode'), false);
+  assert.equal(Object.hasOwn(camelEvent, 'correlationId'), false);
+
+  const snakeEvent = recordOutcomeEvent({
+    root,
+    homeDir,
+    plugin: 'demo-ops',
+    surface: 'repo',
+    verb: 'premerge_version_check',
+    outcome: 'failure',
+    failure_category: 'release_policy_gap',
+    failure_driver: 'config',
+    exit_code: 2,
+    duration_ms: 23,
+    error_code: 'E_RELEASE_POLICY',
+    correlation_id: correlationId,
+    now: new Date('2026-05-23T08:03:00.000Z'),
+  }).record;
+
+  assert.equal(snakeEvent.failure_category, 'release_policy_gap');
+  assert.equal(snakeEvent.failure_driver, 'config');
+  assert.equal(snakeEvent.exit_code, 2);
+  assert.equal(snakeEvent.duration_ms, 23);
+  assert.equal(snakeEvent.error_code, 'E_RELEASE_POLICY');
+  assert.equal(snakeEvent.correlation_id, correlationId);
+
+  const mark = markOutcomeEvent({
+    root,
+    homeDir,
+    relatedId: camelEvent.id,
+    outcome: 'failure',
+    failureCategory: 'stale_cache',
+    failureDriver: 'cache',
+    errorCode: 'E_CACHE_STALE',
+    correlationId,
+    now: new Date('2026-05-23T08:04:00.000Z'),
+  }).record;
+
+  assert.equal(mark.related_id, camelEvent.id);
+  assert.equal(mark.failure_category, 'stale_cache');
+  assert.equal(mark.failure_driver, 'cache');
+  assert.equal(mark.error_code, 'E_CACHE_STALE');
+  assert.equal(mark.correlation_id, correlationId);
+  assert.equal(Object.hasOwn(mark, 'relatedId'), false);
+});
+
 test('outcome recorder marks existing events and validates mark semantics', () => {
   const root = makeRoot();
   const homeDir = makeHome();

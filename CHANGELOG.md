@@ -6,6 +6,12 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## Unreleased
+
+- Outcome report gates: JSON-only `outcome report --gates --json` summary for
+  Graphify, ECC, and Safety evidence gates with explicit disabled schema-gap
+  states and ECC 3-tuple repetition candidates.
+
 ## 0.2.0
 
 ### Added

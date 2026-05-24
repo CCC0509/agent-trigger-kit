@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import test from 'node:test';
 import {
   buildOutcomeReport,
   markOutcomeEvent,
+  outcomeStorePath,
   recordOutcomeEvent,
 } from '../scripts/lib/outcome-recorder.mjs';
 
@@ -360,6 +361,298 @@ test('outcome report handles empty and all-skipped stores as no-signal reports',
   assert.equal(skipped.by_surface[0].success_rate, null);
 });
 
+test('outcome report gate summary uses event timestamp window, latest marks, and filters', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  const now = new Date('2026-05-24T10:15:30.000Z');
+
+  const outside = emit(root, homeDir, {
+    surface: 'claude_plugin',
+    verb: 'live_check',
+    outcome: 'failure',
+    exitCode: 1,
+    failureCategory: 'stale_cache',
+    failureDriver: 'cache',
+    now: new Date('2026-03-25T10:15:29.999Z'),
+  });
+  mark(root, homeDir, outside.id, {
+    outcome: 'failure',
+    failureCategory: 'stale_cache',
+    failureDriver: 'cache',
+    now: new Date('2026-05-24T09:00:00.000Z'),
+  });
+
+  const includedFailure = emit(root, homeDir, {
+    surface: 'claude_plugin',
+    verb: 'live_check',
+    outcome: 'success',
+    exitCode: 0,
+    now: new Date('2026-03-25T10:15:30.000Z'),
+  });
+  mark(root, homeDir, includedFailure.id, {
+    outcome: 'failure',
+    failureCategory: 'stale_cache',
+    failureDriver: 'tooling',
+    now: new Date('2026-05-24T09:01:00.000Z'),
+  });
+
+  const includedSkipped = emit(root, homeDir, {
+    surface: 'claude_plugin',
+    verb: 'live_check',
+    outcome: 'skipped',
+    exitCode: 0,
+    now: new Date('2026-05-24T08:00:00.000Z'),
+  });
+  mark(root, homeDir, includedSkipped.id, {
+    outcome: 'skipped',
+    now: new Date('2026-05-24T09:02:00.000Z'),
+  });
+
+  emit(root, homeDir, {
+    surface: 'repo',
+    verb: 'validate',
+    outcome: 'failure',
+    exitCode: 1,
+    failureCategory: 'manifest_drift',
+    now: new Date('2026-05-24T08:30:00.000Z'),
+  });
+
+  const report = buildOutcomeReport({
+    root,
+    homeDir,
+    now,
+    windowDays: 7,
+    surface: 'claude_plugin',
+    gates: true,
+  });
+
+  assert.equal(report.scope.since, '2026-05-17T10:15:30.000Z');
+  assert.equal(report.totals.effective_events, 1);
+  assert.equal(report.gate_report_version, '0.1');
+  assert.deepEqual(report.gates.window, {
+    anchor: 'event_ts',
+    days: 60,
+    start: '2026-03-25T10:15:30.000Z',
+    end: '2026-05-24T10:15:30.000Z',
+    mark_policy: 'latest_retained_mark_at_report_time',
+  });
+  assert.deepEqual(report.gates.marked_event_counts, {
+    marked_events: 2,
+    marked_failures: 1,
+    marked_skipped: 1,
+    unmarked_events: 0,
+  });
+  assert.equal(report.gates.graphify.status, 'disabled');
+  assert.equal(report.gates.graphify.disabled_reason, 'schema_gap.context_bloat_axis_missing');
+  assert.equal(report.gates.graphify.denominator, 1);
+  assert.equal(report.gates.ecc.status, 'insufficient_data');
+  assert.equal(report.gates.ecc.denominator, 2);
+  assert.equal(report.gates.ecc.candidate_pool, 1);
+  assert.equal(report.gates.ecc.eligibility.missing_denominator, 18);
+  assert.equal(report.gates.safety.status, 'disabled');
+  assert.equal(report.gates.safety.disabled_reason, 'schema_gap.mutation_axis_missing');
+  assert.equal(report.gates.safety.denominator, null);
+});
+
+test('outcome report gate summary groups ECC candidates by failure category plugin and surface', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  const now = new Date('2026-05-24T10:15:30.000Z');
+
+  const first = emit(root, homeDir, {
+    plugin: 'foo',
+    surface: 'claude_plugin',
+    verb: 'live_check',
+    outcome: 'failure',
+    exitCode: 1,
+    failureCategory: 'stale_cache',
+    failureDriver: 'cache',
+    now: new Date('2026-05-24T08:00:00.000Z'),
+  });
+  mark(root, homeDir, first.id, {
+    outcome: 'failure',
+    failureCategory: 'stale_cache',
+    failureDriver: 'cache',
+    now: new Date('2026-05-24T09:00:00.000Z'),
+  });
+
+  const second = emit(root, homeDir, {
+    plugin: 'foo',
+    surface: 'claude_plugin',
+    verb: 'live_check',
+    outcome: 'failure',
+    exitCode: 1,
+    failureCategory: 'stale_cache',
+    failureDriver: 'tooling',
+    now: new Date('2026-05-24T08:01:00.000Z'),
+  });
+  mark(root, homeDir, second.id, {
+    outcome: 'failure',
+    failureCategory: 'stale_cache',
+    failureDriver: 'tooling',
+    now: new Date('2026-05-24T09:01:00.000Z'),
+  });
+
+  for (let index = 0; index < 18; index += 1) {
+    const event = emit(root, homeDir, {
+      plugin: 'foo',
+      surface: 'repo',
+      verb: 'validate',
+      outcome: index % 2 === 0 ? 'success' : 'skipped',
+      exitCode: 0,
+      now: new Date(`2026-05-24T08:${String(index + 2).padStart(2, '0')}:00.000Z`),
+    });
+    mark(root, homeDir, event.id, {
+      outcome: event.outcome,
+      now: new Date(`2026-05-24T09:${String(index + 2).padStart(2, '0')}:00.000Z`),
+    });
+  }
+
+  const report = buildOutcomeReport({ root, homeDir, now, windowDays: 60, gates: true });
+
+  assert.equal(report.gates.ecc.status, 'not_triggered');
+  assert.equal(report.gates.ecc.denominator, 20);
+  assert.equal(report.gates.ecc.candidate_pool, 2);
+  assert.equal(report.gates.ecc.numerator, 2);
+  assert.deepEqual(report.gates.ecc.repetition_key, ['failure_category', 'plugin', 'surface']);
+  assert.deepEqual(report.gates.ecc.top_candidates, [
+    {
+      key: {
+        failure_category: 'stale_cache',
+        plugin: 'foo',
+        surface: 'claude_plugin',
+      },
+      count: 2,
+      failure_driver_breakdown: {
+        cache: 1,
+        tooling: 1,
+      },
+      driver_policy: 'wildcard',
+      rule_suggestion_basis:
+        'Repeated stale_cache failures for plugin foo on claude_plugin regardless of driver; inspect driver breakdown before writing a narrow rule.',
+    },
+  ]);
+});
+
+test('outcome report gate summary uses latest mark at report generation time', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  const now = new Date('2026-05-24T10:15:30.000Z');
+
+  const futureOnly = emit(root, homeDir, {
+    plugin: 'foo',
+    surface: 'claude_plugin',
+    verb: 'live_check',
+    outcome: 'success',
+    exitCode: 0,
+    now: new Date('2026-05-24T08:00:00.000Z'),
+  });
+  mark(root, homeDir, futureOnly.id, {
+    outcome: 'failure',
+    failureCategory: 'stale_cache',
+    now: new Date('2026-05-25T00:00:00.000Z'),
+  });
+
+  const pastThenFuture = emit(root, homeDir, {
+    plugin: 'foo',
+    surface: 'claude_plugin',
+    verb: 'live_check',
+    outcome: 'success',
+    exitCode: 0,
+    now: new Date('2026-05-24T08:01:00.000Z'),
+  });
+  mark(root, homeDir, pastThenFuture.id, {
+    outcome: 'failure',
+    failureCategory: 'misroute',
+    failureDriver: 'human',
+    now: new Date('2026-05-24T09:00:00.000Z'),
+  });
+  mark(root, homeDir, pastThenFuture.id, {
+    outcome: 'failure',
+    failureCategory: 'stale_cache',
+    failureDriver: 'cache',
+    now: new Date('2026-05-25T00:01:00.000Z'),
+  });
+
+  const report = buildOutcomeReport({
+    root,
+    homeDir,
+    now,
+    windowDays: 60,
+    surface: 'claude_plugin',
+    gates: true,
+  });
+
+  assert.deepEqual(report.gates.marked_event_counts, {
+    marked_events: 1,
+    marked_failures: 1,
+    marked_skipped: 0,
+    unmarked_events: 1,
+  });
+  assert.equal(report.gates.graphify.denominator, 1);
+  assert.equal(report.gates.ecc.denominator, 1);
+  assert.equal(report.gates.ecc.candidate_pool, 1);
+  assert.equal(report.gates.ecc.numerator, 0);
+  assert.deepEqual(report.gates.ecc.top_candidates, []);
+  assert.deepEqual(report.by_failure_category, [
+    { failure_category: 'stale_cache', count: 2, share_of_failures: 1 },
+  ]);
+});
+
+test('outcome report gate summary skips schema-invalid failures before ECC candidates', () => {
+  const root = makeRoot();
+  const homeDir = makeHome();
+  const now = new Date('2026-05-24T10:15:30.000Z');
+
+  const valid = emit(root, homeDir, {
+    plugin: 'foo',
+    surface: 'claude_plugin',
+    verb: 'live_check',
+    outcome: 'failure',
+    exitCode: 1,
+    failureCategory: 'stale_cache',
+    now: new Date('2026-05-24T08:00:00.000Z'),
+  });
+  mark(root, homeDir, valid.id, {
+    outcome: 'failure',
+    failureCategory: 'stale_cache',
+    now: new Date('2026-05-24T09:00:00.000Z'),
+  });
+
+  const malformed = {
+    id: '018f1d2e-0000-7000-8000-000000000000',
+    schema_version: '0.1',
+    kind: 'event',
+    ts: '2026-05-24T08:01:00.000Z',
+    verb: 'manual_record',
+    outcome: 'failure',
+    surface: 'claude_plugin',
+    project_hash: 'malformed001',
+    plugin: 'foo',
+  };
+  const eventsPath = outcomeStorePath({ root, homeDir }).eventsPath;
+  writeFileSync(eventsPath, `${JSON.stringify(malformed)}\n`, { flag: 'a' });
+
+  const errors = [];
+  const originalError = console.error;
+  console.error = (message) => errors.push(message);
+  let report;
+  try {
+    report = buildOutcomeReport({ root, homeDir, now, windowDays: 60, gates: true });
+  } finally {
+    console.error = originalError;
+  }
+
+  assert.deepEqual(errors, [
+    'outcome.schema_error: line=3 reason=failure_category is required when outcome is failure',
+  ]);
+  assert.equal(report.totals.events_read, 1);
+  assert.equal(report.gates.marked_event_counts.marked_failures, 1);
+  assert.equal(report.gates.ecc.candidate_pool, 1);
+  assert.equal(report.gates.ecc.numerator, 0);
+  assert.deepEqual(report.gates.ecc.top_candidates, []);
+});
+
 test('outcome report CLI emits human text by default and structured JSON with --json', () => {
   const root = makeRoot();
   const homeDir = makeHome();
@@ -398,6 +691,20 @@ test('outcome report CLI emits human text by default and structured JSON with --
   assert.equal(payload.propagation.success_rate, 0.5);
   assert.equal(payload.propagation.failure_rate, 0.5);
   assert.equal(payload.propagation.blocked_rate, 0);
+
+  const gatesWithoutJson = runCli(['outcome', 'report', '--root', root, '--gates'], homeDir);
+  assert.equal(gatesWithoutJson.status, 2);
+  assert.match(gatesWithoutJson.stderr, /--gates requires --json/);
+
+  const plainJson = runCli(['outcome', 'report', '--root', root, '--json'], homeDir);
+  assert.equal(plainJson.status, 0, plainJson.stderr || plainJson.stdout);
+  assert.equal(Object.hasOwn(JSON.parse(plainJson.stdout), 'gates'), false);
+
+  const gateJson = runCli(['outcome', 'report', '--root', root, '--json', '--gates'], homeDir);
+  assert.equal(gateJson.status, 0, gateJson.stderr || gateJson.stdout);
+  const gatePayload = JSON.parse(gateJson.stdout);
+  assert.equal(gatePayload.gate_report_version, '0.1');
+  assert.equal(gatePayload.gates.window.anchor, 'event_ts');
 
   const invalidSurface = runCli(
     ['outcome', 'report', '--root', root, '--surface', 'bogus'],
