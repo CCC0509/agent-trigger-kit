@@ -1,22 +1,28 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { outcomeStorePath, recordOutcomeEvent } from '../scripts/lib/outcome-recorder.mjs';
 import { runSessionCheck } from '../scripts/session-check.mjs';
+import { makeTempDir } from './helpers/tmp.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function makeRoot() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-session-root-'));
+function makeRoot(t) {
+  return makeTempDir(t, 'agent-trigger-kit-session-root-');
 }
 
-function makeHome() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-session-home-'));
+function makeHome(t) {
+  return makeTempDir(t, 'agent-trigger-kit-session-home-');
+}
+
+function restoreWritable(path) {
+  if (existsSync(path)) {
+    chmodSync(path, 0o700);
+  }
 }
 
 function write(root, path, text) {
@@ -140,9 +146,9 @@ function emitUnmarked(root, homeDir, now = new Date('2026-05-23T10:00:00.000Z'))
   }).record;
 }
 
-test('session-check happy path validates a clean trigger layer and empty writable outcome store', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('session-check happy path validates a clean trigger layer and empty writable outcome store', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createValidTriggerLayer(root);
 
   const result = runCli(['session-check', '--root', root, '--json'], homeDir);
@@ -156,9 +162,46 @@ test('session-check happy path validates a clean trigger layer and empty writabl
   assert.equal(payload.unmarked_events.count, 0);
 });
 
-test('session-check exits 4 and reports one unmarked event since the window', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('session-check treats absent outcome dir with unwritable ancestor as healthy read-only state', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
+  createValidTriggerLayer(root);
+  chmodSync(homeDir, 0o500);
+  t.after(() => restoreWritable(homeDir));
+
+  const result = runCli(['session-check', '--root', root, '--json'], homeDir);
+
+  assert.equal(result.status, 0);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.exit_code, 0);
+  assert.equal(payload.outcome_store.status, 'ok');
+  assert.equal(payload.outcome_store.writable, false);
+  assert.equal(payload.outcome_store.writable_reason, 'ancestor not writable');
+  assert.equal(payload.unmarked_events.count, 0);
+});
+
+test('session-check treats readable read-only outcome dir as healthy with write diagnostics', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
+  createValidTriggerLayer(root);
+  const store = outcomeStorePath({ root, homeDir, store: 'user' });
+  mkdirSync(store.dir, { recursive: true });
+  chmodSync(store.dir, 0o500);
+  t.after(() => restoreWritable(store.dir));
+
+  const result = runCli(['session-check', '--root', root, '--json'], homeDir);
+
+  assert.equal(result.status, 0);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.exit_code, 0);
+  assert.equal(payload.outcome_store.status, 'ok');
+  assert.equal(payload.outcome_store.writable, false);
+  assert.equal(payload.outcome_store.writable_reason, 'outcome directory read-only');
+});
+
+test('session-check exits 4 and reports one unmarked event since the window', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createValidTriggerLayer(root);
   emitUnmarked(root, homeDir);
 
@@ -174,9 +217,9 @@ test('session-check exits 4 and reports one unmarked event since the window', ()
   assert.equal(payload.report_summary.failure_categories[0].failure_category, 'missing_artifact');
 });
 
-test('session-check closeout suggests an executable outcome mark command', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('session-check closeout suggests an executable outcome mark command', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createValidTriggerLayer(root);
   const event = emitUnmarked(root, homeDir);
 
@@ -193,9 +236,9 @@ test('session-check closeout suggests an executable outcome mark command', () =>
   );
 });
 
-test('session-check returns validate failure before outcome-state failures', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('session-check returns validate failure before outcome-state failures', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createValidTriggerLayer(root);
   mutateCommandToMissingSkill(root);
   emitUnmarked(root, homeDir);
@@ -213,9 +256,9 @@ test('session-check returns validate failure before outcome-state failures', () 
   assert.match(payload.validation.stderr, /delegates to missing skill demo-ops:deploy-ops/);
 });
 
-test('session-check reports degraded outcome store without crashing', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('session-check reports degraded outcome store without crashing', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createValidTriggerLayer(root);
   writeFileSync(join(homeDir, '.agent-trigger-kit'), 'not a directory\n');
 
@@ -235,9 +278,9 @@ test('session-check reports degraded outcome store without crashing', () => {
   assert.equal(stderr.join(''), '');
 });
 
-test('session-check degrades when existing events path is not writable as a file', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('session-check degrades when existing events path is not writable as a file', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createValidTriggerLayer(root);
   const store = outcomeStorePath({ root, homeDir, store: 'user' });
   mkdirSync(store.dir, { recursive: true });
@@ -255,9 +298,9 @@ test('session-check degrades when existing events path is not writable as a file
   assert.match(result.payload.outcome_store.error.message, /not a file/);
 });
 
-test('session-check degrades when the outcome events file is corrupt', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('session-check degrades when the outcome events file is corrupt', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createValidTriggerLayer(root);
   const store = outcomeStorePath({ root, homeDir, store: 'user' });
   mkdirSync(store.dir, { recursive: true });
@@ -275,9 +318,9 @@ test('session-check degrades when the outcome events file is corrupt', () => {
   assert.match(result.payload.outcome_store.error.message, /invalid JSON/);
 });
 
-test('session-check quiet mode suppresses output while preserving exit code', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('session-check quiet mode suppresses output while preserving exit code', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createValidTriggerLayer(root);
   emitUnmarked(root, homeDir);
 
@@ -295,9 +338,9 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-test('session-check JSON exposes stable schema fields for start and closeout modes', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('session-check JSON exposes stable schema fields for start and closeout modes', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createValidTriggerLayer(root);
 
   const start = runCli(['session-check', '--root', root, '--json'], homeDir);
@@ -321,14 +364,26 @@ test('session-check JSON exposes stable schema fields for start and closeout mod
     'report_summary',
     'next_actions',
   ]);
-  assert.equal(startPayload.schema_version, '0.1');
+  assert.equal(startPayload.schema_version, '0.2');
   assert.equal(startPayload.mode, 'start');
   assert.equal(closeoutPayload.mode, 'closeout');
+  assert.deepEqual(Object.keys(startPayload.outcome_store), [
+    'status',
+    'store',
+    'project_hash',
+    'dir',
+    'events_path',
+    'writable',
+    'writable_reason',
+    'error',
+  ]);
+  assert.equal(typeof startPayload.outcome_store.writable, 'boolean');
+  assert.equal(startPayload.outcome_store.writable_reason, null);
 });
 
-test('session-check rejects invalid since windows and unknown flags as usage errors', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('session-check rejects invalid since windows and unknown flags as usage errors', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createValidTriggerLayer(root);
 
   const invalidSince = runCli(
@@ -346,8 +401,8 @@ test('session-check rejects invalid since windows and unknown flags as usage err
   assert.match(unknown.stderr, /unknown option: --wat/);
 });
 
-test('session-check help exits successfully with usage text', () => {
-  const homeDir = makeHome();
+test('session-check help exits successfully with usage text', (t) => {
+  const homeDir = makeHome(t);
 
   const result = runCli(['session-check', '--help'], homeDir);
 
