@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { makeTempDir } from './helpers/tmp.mjs';
 import {
   OutcomeRecorderError,
   listOutcomeEvents,
@@ -19,12 +18,12 @@ import { completeMarkOptions, createPromptAdapter } from '../scripts/lib/outcome
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function makeRoot() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-mark-ux-root-'));
+function makeRoot(t) {
+  return makeTempDir(t, 'agent-trigger-kit-mark-ux-root-');
 }
 
-function makeHome() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-mark-ux-home-'));
+function makeHome(t) {
+  return makeTempDir(t, 'agent-trigger-kit-mark-ux-home-');
 }
 
 function emit(root, homeDir, fields) {
@@ -54,9 +53,9 @@ function runCli(args, homeDir) {
   });
 }
 
-test('outcome events lists newest raw events with short ids and mark metadata', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome events lists newest raw events with short ids and mark metadata', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const oldest = emit(root, homeDir, {
     id: '018f1d2e-0000-7000-8000-000000000001',
     surface: 'repo',
@@ -120,9 +119,9 @@ test('outcome events lists newest raw events with short ids and mark metadata', 
   );
 });
 
-test('outcome events filters by verb, surface, and unmarked before applying recent', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome events filters by verb, surface, and unmarked before applying recent', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const marked = emit(root, homeDir, {
     surface: 'claude_plugin',
     verb: 'live_check',
@@ -172,9 +171,9 @@ test('outcome events filters by verb, surface, and unmarked before applying rece
   });
 });
 
-test('outcome events CLI prints table output and JSON output', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome events CLI prints table output and JSON output', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const event = emit(root, homeDir, {
     surface: 'repo',
     verb: 'validate',
@@ -199,9 +198,9 @@ test('outcome events CLI prints table output and JSON output', () => {
   assert.equal(payload.events[0].marked, false);
 });
 
-test('outcome events rejects invalid filters', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome events rejects invalid filters', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
 
   for (const [args, pattern] of [
     [['outcome', 'events', '--root', root, '--recent', '0'], /recent must be a positive integer/],
@@ -214,9 +213,9 @@ test('outcome events rejects invalid filters', () => {
   }
 });
 
-test('short-id resolver resolves unique event prefixes and rejects ambiguous prefixes', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('short-id resolver resolves unique event prefixes and rejects ambiguous prefixes', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const first = emit(root, homeDir, {
     id: '018f1d2e-0000-7000-8000-000000000001',
     surface: 'repo',
@@ -247,9 +246,9 @@ test('short-id resolver resolves unique event prefixes and rejects ambiguous pre
   );
 });
 
-test('short-id resolver rejects missing ids and mark-of-mark targets', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('short-id resolver rejects missing ids and mark-of-mark targets', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const event = emit(root, homeDir, {
     id: '018f1d2e-0000-7000-8000-000000000001',
     surface: 'repo',
@@ -281,9 +280,9 @@ test('short-id resolver rejects missing ids and mark-of-mark targets', () => {
   );
 });
 
-test('outcome mark accepts a short-id prefix and writes a mark for the full event id', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome mark accepts a short-id prefix and writes a mark for the full event id', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const event = emit(root, homeDir, {
     id: '018f1d2e-0000-7000-8000-000000000001',
     surface: 'repo',
@@ -318,9 +317,9 @@ test('outcome mark accepts a short-id prefix and writes a mark for the full even
   assert.equal(markRecord.failure_category, 'misroute');
 });
 
-test('outcome mark --last selects the newest unmarked event with an optional verb filter', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome mark --last selects the newest unmarked event with an optional verb filter', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const oldLive = emit(root, homeDir, {
     surface: 'claude_plugin',
     verb: 'live_check',
@@ -372,9 +371,9 @@ test('outcome mark --last selects the newest unmarked event with an optional ver
   assert.equal(marks.at(-1).failure_category, 'stale_cache');
 });
 
-test('outcome mark --last rejects conflicting or missing selections', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome mark --last rejects conflicting or missing selections', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const event = emit(root, homeDir, {
     surface: 'repo',
     verb: 'validate',
@@ -402,9 +401,9 @@ test('outcome mark --last rejects conflicting or missing selections', () => {
   assert.match(missing.stderr, /no unmarked outcome event found/);
 });
 
-test('outcome mark non-tty mode requires explicit outcome and failure category', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome mark non-tty mode requires explicit outcome and failure category', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const event = emit(root, homeDir, {
     surface: 'repo',
     verb: 'validate',

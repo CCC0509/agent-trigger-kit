@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { parse as parseYaml } from 'yaml';
 
+import { makeTempDir } from './helpers/tmp.mjs';
 import { mintUuidV7, outcomeStorePath } from '../scripts/lib/outcome-recorder.mjs';
 import { validateRecord } from '../scripts/lib/outcome-schema.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function makeRoot() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-backfill-'));
+function makeRoot(t) {
+  return makeTempDir(t, 'agent-trigger-kit-backfill-');
 }
 
 function write(root, path, text) {
@@ -53,8 +53,8 @@ function runBackfillArgs(args = []) {
   );
 }
 
-test('historical backfill writes schema-valid records and is idempotent', () => {
-  const root = makeRoot();
+test('historical backfill writes schema-valid records and is idempotent', (t) => {
+  const root = makeRoot(t);
   writePublicSeed(
     root,
     `
@@ -127,8 +127,8 @@ test('historical backfill writes schema-valid records and is idempotent', () => 
   assert.equal(readFileSync(store.eventsPath, 'utf8'), before);
 });
 
-test('historical backfill idempotency sees raw records with matching ids', () => {
-  const root = makeRoot();
+test('historical backfill idempotency sees raw records with matching ids', (t) => {
+  const root = makeRoot(t);
   const incidentId = 'future-schema-existing-id';
   const ts = '2025-04-01T00:00:00Z';
   const id = mintUuidV7(new Date(ts), incidentId);
@@ -153,8 +153,8 @@ test('historical backfill idempotency sees raw records with matching ids', () =>
   assert.equal(readFileSync(store.eventsPath, 'utf8').match(new RegExp(id, 'g')).length, 1);
 });
 
-test('historical backfill rejects invalid seed entries before writing records', () => {
-  const root = makeRoot();
+test('historical backfill rejects invalid seed entries before writing records', (t) => {
+  const root = makeRoot(t);
   writePublicSeed(
     root,
     `
@@ -178,7 +178,7 @@ test('historical backfill rejects invalid seed entries before writing records', 
   assert.equal(existsSync(outcomeStorePath({ root, store: 'project' }).eventsPath), false);
 });
 
-test('historical backfill rejects schema-invalid seed records atomically', () => {
+test('historical backfill rejects schema-invalid seed records atomically', (t) => {
   const scenarios = [
     {
       name: 'missing failure category',
@@ -218,7 +218,7 @@ test('historical backfill rejects schema-invalid seed records atomically', () =>
   ];
 
   for (const scenario of scenarios) {
-    const root = makeRoot();
+    const root = makeRoot(t);
     writePublicSeed(root, scenario.seed);
 
     const result = runBackfill(root);
@@ -228,12 +228,12 @@ test('historical backfill rejects schema-invalid seed records atomically', () =>
   }
 });
 
-test('historical backfill rejects missing root or store option values', () => {
+test('historical backfill rejects missing root or store option values', (t) => {
   const missingRoot = runBackfillArgs(['--root']);
   assert.equal(missingRoot.status, 2);
   assert.match(missingRoot.stderr, /--root requires a path value/);
 
-  const root = makeRoot();
+  const root = makeRoot(t);
   writePublicSeed(
     root,
     `
@@ -249,8 +249,8 @@ test('historical backfill rejects missing root or store option values', () => {
   assert.match(missingStore.stderr, /--store requires a value/);
 });
 
-test('historical backfill rejects duplicate incident ids atomically', () => {
-  const root = makeRoot();
+test('historical backfill rejects duplicate incident ids atomically', (t) => {
+  const root = makeRoot(t);
   writePublicSeed(
     root,
     `
@@ -273,8 +273,8 @@ test('historical backfill rejects duplicate incident ids atomically', () => {
   assert.equal(existsSync(outcomeStorePath({ root, store: 'project' }).eventsPath), false);
 });
 
-test('historical backfill prefers local seed over public seed', () => {
-  const root = makeRoot();
+test('historical backfill prefers local seed over public seed', (t) => {
+  const root = makeRoot(t);
   writePublicSeed(
     root,
     `

@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { makeTempDir } from './helpers/tmp.mjs';
 import {
   isSourceVisiblePath,
   sourceVisibleChangedFiles,
@@ -22,8 +14,8 @@ import { shallowFetchHint } from '../scripts/lib/git-base.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function makeRoot() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-premerge-test-'));
+function makeRoot(t) {
+  return makeTempDir(t, 'agent-trigger-kit-premerge-test-');
 }
 
 function runScript(scriptName, args, options = {}) {
@@ -224,8 +216,8 @@ test('git shallow fetch hints include the caller command', () => {
   assert.match(hint, /base unavailable/);
 });
 
-test('install hooks writes a main-bound pre-push hook', () => {
-  const root = makeRoot();
+test('install hooks writes a main-bound pre-push hook', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
 
   const result = runScript('install-hooks.mjs', ['--root', root]);
@@ -241,8 +233,8 @@ test('install hooks writes a main-bound pre-push hook', () => {
   assert.equal((statSync(hookPath).mode & 0o111) !== 0, true);
 });
 
-test('install hooks refuses to overwrite an existing pre-push hook', () => {
-  const root = makeRoot();
+test('install hooks refuses to overwrite an existing pre-push hook', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
   write(root, '.git/hooks/pre-push', '#!/bin/sh\necho existing hook');
 
@@ -256,9 +248,9 @@ test('install hooks refuses to overwrite an existing pre-push hook', () => {
   );
 });
 
-test('install hooks supports gitfile worktrees', () => {
-  const root = makeRoot();
-  const gitDir = join(makeRoot(), 'actual-git-dir');
+test('install hooks supports gitfile worktrees', (t) => {
+  const root = makeRoot(t);
+  const gitDir = join(makeRoot(t), 'actual-git-dir');
   const init = runGit(root, ['init', '--separate-git-dir', gitDir, root]);
   assert.equal(init.status, 0, init.stderr || init.stdout);
 
@@ -271,8 +263,8 @@ test('install hooks supports gitfile worktrees', () => {
   assert.match(readFileSync(hookPath, 'utf8'), /ops:premerge-version-check/);
 });
 
-test('install hooks fails clearly outside a git checkout', () => {
-  const root = makeRoot();
+test('install hooks fails clearly outside a git checkout', (t) => {
+  const root = makeRoot(t);
 
   const result = runScript('install-hooks.mjs', ['--root', root]);
 
@@ -280,8 +272,8 @@ test('install hooks fails clearly outside a git checkout', () => {
   assert.match(result.stderr, /Cannot determine git hooks path/);
 });
 
-test('premerge version check requires an explicit base', () => {
-  const root = makeRoot();
+test('premerge version check requires an explicit base', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
   createSourceFixture(root);
 
@@ -292,8 +284,8 @@ test('premerge version check requires an explicit base', () => {
   assert.match(result.stderr, /origin\/main/);
 });
 
-test('premerge version check passes a clean source repo reconciled with base', () => {
-  const root = makeRoot();
+test('premerge version check passes a clean source repo reconciled with base', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
   createSourceFixture(root);
   const base = commitAll(root, 'base source fixture');
@@ -311,7 +303,7 @@ test('premerge version check passes a clean source repo reconciled with base', (
   });
 });
 
-test('premerge version check rejects malformed changelog heads', () => {
+test('premerge version check rejects malformed changelog heads', (t) => {
   const cases = [
     {
       name: 'missing changelog',
@@ -356,7 +348,7 @@ test('premerge version check rejects malformed changelog heads', () => {
   ];
 
   for (const testCase of cases) {
-    const root = makeRoot();
+    const root = makeRoot(t);
     initGitFixture(root);
     testCase.writeCase(root);
     const base = commitAll(root, testCase.name);
@@ -373,8 +365,8 @@ test('premerge version check rejects malformed changelog heads', () => {
   }
 });
 
-test('premerge version check skips dependent checks when prerequisites fail', () => {
-  const root = makeRoot();
+test('premerge version check skips dependent checks when prerequisites fail', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
   createSourceFixture(root);
   const codexMarketplace = readJson(root, '.agents/plugins/marketplace.json');
@@ -402,8 +394,8 @@ test('premerge version check skips dependent checks when prerequisites fail', ()
   );
 });
 
-test('premerge version check reports base failure before bump checks', () => {
-  const root = makeRoot();
+test('premerge version check reports base failure before bump checks', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
   createSourceFixture(root);
   commitAll(root, 'base source fixture');
@@ -419,8 +411,8 @@ test('premerge version check reports base failure before bump checks', () => {
   );
 });
 
-test('premerge version check rejects source-visible changes without a version bump', () => {
-  const root = makeRoot();
+test('premerge version check rejects source-visible changes without a version bump', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
   createSourceFixture(root, '0.1.0');
   const base = commitAll(root, 'base source fixture');
@@ -439,8 +431,8 @@ test('premerge version check rejects source-visible changes without a version bu
   assert.deepEqual(bumpCheck.details.changedFiles, ['scripts/source-visible-change.mjs']);
 });
 
-test('premerge version check accepts source-visible changes with a higher version', () => {
-  const root = makeRoot();
+test('premerge version check accepts source-visible changes with a higher version', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
   createSourceFixture(root, '0.1.0');
   const base = commitAll(root, 'base source fixture');
@@ -467,8 +459,8 @@ test('premerge version check accepts source-visible changes with a higher versio
   ]);
 });
 
-test('premerge version check rejects source-visible changes with a lower version', () => {
-  const root = makeRoot();
+test('premerge version check rejects source-visible changes with a lower version', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
   createSourceFixture(root, '0.1.1');
   const base = commitAll(root, 'base source fixture');
@@ -488,8 +480,8 @@ test('premerge version check rejects source-visible changes with a lower version
   assert.match(result.stderr || JSON.stringify(json), /must be higher than base version/i);
 });
 
-test('premerge version check ignores non-source-visible changes without a version bump', () => {
-  const root = makeRoot();
+test('premerge version check ignores non-source-visible changes without a version bump', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
   createSourceFixture(root, '0.1.0');
   const base = commitAll(root, 'base source fixture');

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { R_OK, W_OK, accessSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { R_OK, W_OK, X_OK, accessSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,7 @@ const WINDOW_MS = {
   '24h': 24 * 60 * 60 * 1000,
   '30m': 30 * 60 * 1000,
 };
+const SESSION_CHECK_SCHEMA_VERSION = '0.2';
 
 class SessionCheckUsageError extends Error {
   constructor(message) {
@@ -90,7 +91,7 @@ export function runSessionCheck(options = {}) {
   const exitCode = chooseExitCode({ validation, outcomeStore, unmarkedEvents });
   const nextActions = buildNextActions({ root, mode, unmarkedEvents });
   const payload = {
-    schema_version: '0.1',
+    schema_version: SESSION_CHECK_SCHEMA_VERSION,
     kind: 'session_check',
     generated_at: generatedAt,
     root,
@@ -126,30 +127,35 @@ export function probeOutcomeStore({ root = process.cwd(), homeDir = homedir() } 
     return degradedStore({ storePath, error });
   }
 
+  const writable = probeOutcomeStoreWritable(storePath);
   const base = {
     status: 'ok',
     store: storePath.store,
     project_hash: storePath.projectHash,
     dir: storePath.dir,
     events_path: storePath.eventsPath,
+    writable: writable.writable,
+    writable_reason: writable.reason,
     error: null,
   };
 
   try {
-    if (existsSync(storePath.dir)) {
-      const dirStat = statSync(storePath.dir);
+    const dirStat = statIfPresent(storePath.dir);
+    if (dirStat) {
       if (!dirStat.isDirectory()) {
         throw new Error(`outcome store path is not a directory: ${storePath.dir}`);
       }
-      accessSync(storePath.dir, R_OK | W_OK);
-      if (existsSync(storePath.eventsPath)) {
-        const eventsStat = statSync(storePath.eventsPath);
+      accessSync(storePath.dir, R_OK);
+
+      const eventsStat = statIfPresent(storePath.eventsPath);
+      if (eventsStat) {
         if (!eventsStat.isFile()) {
           throw new Error(`outcome events path is not a file: ${storePath.eventsPath}`);
         }
-        accessSync(storePath.eventsPath, R_OK | W_OK);
+        accessSync(storePath.eventsPath, R_OK);
         validateOutcomeEventsFile(storePath.eventsPath);
       }
+
       return base;
     }
 
@@ -158,7 +164,8 @@ export function probeOutcomeStore({ root = process.cwd(), homeDir = homedir() } 
     if (!ancestorStat.isDirectory()) {
       throw new Error(`outcome store ancestor is not a directory: ${ancestor}`);
     }
-    accessSync(ancestor, W_OK);
+    accessSync(ancestor, X_OK);
+
     return base;
   } catch (error) {
     return {
@@ -264,12 +271,72 @@ function runValidator(root) {
 
 function nearestExistingAncestor(path) {
   let cursor = path;
-  while (!existsSync(cursor)) {
+  while (!statIfPresent(cursor)) {
     const parent = dirname(cursor);
     if (parent === cursor) return cursor;
     cursor = parent;
   }
   return cursor;
+}
+
+function statIfPresent(path) {
+  try {
+    return statSync(path);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function probeOutcomeStoreWritable(storePath) {
+  if (!storePath) return writeProbe(false, 'not checked');
+
+  try {
+    const dirStat = statIfPresent(storePath.dir);
+    if (!dirStat) {
+      const ancestor = nearestExistingAncestor(storePath.dir);
+      const ancestorStat = statSync(ancestor);
+      if (!ancestorStat.isDirectory()) {
+        return writeProbe(false, 'ancestor not a directory');
+      }
+      return accessWritable(ancestor, 'ancestor not writable');
+    }
+
+    if (!dirStat.isDirectory()) {
+      return writeProbe(false, 'outcome directory not a directory');
+    }
+
+    const dirWritable = accessWritable(storePath.dir, 'outcome directory read-only');
+    if (!dirWritable.writable) return dirWritable;
+
+    const eventsStat = statIfPresent(storePath.eventsPath);
+    if (eventsStat) {
+      if (!eventsStat.isFile()) {
+        return writeProbe(false, 'events path not a file');
+      }
+      return accessWritable(storePath.eventsPath, 'events file read-only');
+    }
+
+    return writeProbe(true);
+  } catch (error) {
+    return writeProbe(false, error?.message || 'write probe failed');
+  }
+}
+
+function accessWritable(path, reason) {
+  try {
+    accessSync(path, W_OK);
+    return writeProbe(true);
+  } catch {
+    return writeProbe(false, reason);
+  }
+}
+
+function writeProbe(writable, reason = null) {
+  return {
+    writable,
+    reason: writable ? null : reason,
+  };
 }
 
 function validateOutcomeEventsFile(eventsPath) {
@@ -296,12 +363,15 @@ function validateOutcomeEventsFile(eventsPath) {
 }
 
 function degradedStore({ storePath, error }) {
+  const writable = probeOutcomeStoreWritable(storePath);
   return {
     status: 'degraded',
     store: storePath?.store || 'user',
     project_hash: storePath?.projectHash || null,
     dir: storePath?.dir || null,
     events_path: storePath?.eventsPath || null,
+    writable: writable.writable,
+    writable_reason: writable.reason,
     error: serializeError(error),
   };
 }
@@ -353,6 +423,10 @@ function writeHumanReport({ stdout, payload }) {
   stdout.write('Outcome store\n');
   stdout.write(`- Status: ${payload.outcome_store.status}\n`);
   stdout.write(`- Path: ${payload.outcome_store.events_path || '(unavailable)'}\n`);
+  const writableText = payload.outcome_store.writable
+    ? 'yes'
+    : `no (${payload.outcome_store.writable_reason || 'unknown'})`;
+  stdout.write(`- Writable: ${writableText}\n`);
   if (payload.outcome_store.error) {
     stdout.write(`- Error: ${payload.outcome_store.error.message}\n`);
   }
@@ -402,7 +476,7 @@ function helpResult({ now, stdout, quiet }) {
   return {
     exitCode: 0,
     payload: {
-      schema_version: '0.1',
+      schema_version: SESSION_CHECK_SCHEMA_VERSION,
       kind: 'session_check',
       generated_at: now.toISOString(),
       root: null,
@@ -416,6 +490,8 @@ function helpResult({ now, stdout, quiet }) {
         project_hash: null,
         dir: null,
         events_path: null,
+        writable: false,
+        writable_reason: 'not checked',
         error: null,
       },
       unmarked_events: { count: 0, events: [] },
@@ -428,7 +504,7 @@ function helpResult({ now, stdout, quiet }) {
 function usageResult({ error, now, stdout, stderr, quiet, json }) {
   const message = error instanceof SessionCheckUsageError ? error.message : String(error);
   const payload = {
-    schema_version: '0.1',
+    schema_version: SESSION_CHECK_SCHEMA_VERSION,
     kind: 'session_check',
     generated_at: now.toISOString(),
     root: null,
@@ -442,6 +518,8 @@ function usageResult({ error, now, stdout, stderr, quiet, json }) {
       project_hash: null,
       dir: null,
       events_path: null,
+      writable: false,
+      writable_reason: 'not checked',
       error: { name: 'SessionCheckUsageError', code: null, message },
     },
     unmarked_events: { count: 0, events: [] },

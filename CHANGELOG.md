@@ -6,6 +6,15 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.2.2
+
+- Session check: treats readable read-only outcome stores as healthy, reports
+  outcome-store writability as diagnostic JSON and human output, and keeps the
+  existing exit-code table unchanged.
+- Scratch hygiene: replaces fixed `/private/tmp/agent-trigger-kit-*` examples
+  with disposable temp paths and cleans test-created temp directories after
+  each run.
+
 ## 0.2.1
 
 - Outcome report gates: JSON-only `outcome report --gates --json` summary for

@@ -6,18 +6,17 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { makeTempDir } from './helpers/tmp.mjs';
 import {
   assertNoDuplicateHeadingSlugs,
   findDuplicateHeadingSlugs,
@@ -41,8 +40,8 @@ import { writeTriggerLayer } from '../scripts/lib/trigger-layer.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function makeRoot() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-test-'));
+function makeRoot(t) {
+  return makeTempDir(t, 'agent-trigger-kit-test-');
 }
 
 function runScript(scriptName, args, options = {}) {
@@ -764,8 +763,8 @@ test('generated manifest carries v1 header checks forward', () => {
   assert.deepEqual(normalized.plugins['demo-ops'].headerChecks, headerChecks);
 });
 
-test('document header checks pass when a required header appears within the configured top lines', () => {
-  const root = makeRoot();
+test('document header checks pass when a required header appears within the configured top lines', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     'docs/superpowers/plans/feature.md',
@@ -791,8 +790,8 @@ Body.
   assert.deepEqual(failures, []);
 });
 
-test('document header checks fail when the header is missing from the top lines', () => {
-  const root = makeRoot();
+test('document header checks fail when the header is missing from the top lines', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     'docs/superpowers/plans/feature.md',
@@ -823,8 +822,8 @@ Status: Draft
   ]);
 });
 
-test('document header checks respect exclude globs', () => {
-  const root = makeRoot();
+test('document header checks respect exclude globs', (t) => {
+  const root = makeRoot(t);
   write(root, 'docs/superpowers/plans/current.md', '# Current\nStatus: Draft\n');
   write(root, 'docs/superpowers/plans/legacy.md', '# Legacy\n');
 
@@ -836,8 +835,8 @@ test('document header checks respect exclude globs', () => {
   assert.deepEqual(files, ['docs/superpowers/plans/current.md']);
 });
 
-test('document header glob expansion skips symlinked directories', () => {
-  const root = makeRoot();
+test('document header glob expansion skips symlinked directories', (t) => {
+  const root = makeRoot(t);
   write(root, 'docs/superpowers/plans/current.md', '# Current\nStatus: Draft\n');
   symlinkSync(root, join(root, 'docs/superpowers/plans/loop'), 'dir');
 
@@ -848,8 +847,8 @@ test('document header glob expansion skips symlinked directories', () => {
   assert.deepEqual(files, ['docs/superpowers/plans/current.md']);
 });
 
-test('document header checks support enum policies through requirePattern', () => {
-  const root = makeRoot();
+test('document header checks support enum policies through requirePattern', (t) => {
+  const root = makeRoot(t);
   write(root, 'docs/superpowers/specs/feature.md', '# Feature\nStatus: Banana\n');
 
   const failures = collectDocumentHeaderCheckFailures({
@@ -1032,8 +1031,8 @@ test('lintClaudeOnlyToolRefs warns for conservative Claude tool references', () 
   assert.deepEqual(lintClaudeOnlyToolRefs('Use normal shell commands.'), []);
 });
 
-test('import-claude-skills seeds playbook and generated trigger wrappers', () => {
-  const root = makeRoot();
+test('import-claude-skills seeds playbook and generated trigger wrappers', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     '.claude/skills/docs-review/SKILL.md',
@@ -1102,8 +1101,8 @@ Confirm release state.
   assert.equal(validate.status, 0, validate.stderr || validate.stdout);
 });
 
-test('import-claude-skills creates brand-new guided plugin with preserved description signal', () => {
-  const root = makeRoot();
+test('import-claude-skills creates brand-new guided plugin with preserved description signal', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     '.claude/skills/docs-review/SKILL.md',
@@ -1148,8 +1147,8 @@ Read README changes.
   );
 });
 
-test('import-claude-skills does not upgrade existing unflagged plugin', () => {
-  const root = makeRoot();
+test('import-claude-skills does not upgrade existing unflagged plugin', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   writeGeneratedManifestV2(root, {
     'demo-ops': {
@@ -1191,8 +1190,8 @@ Deploy body.
   );
 });
 
-test('import-claude-skills preserves existing custom plugin manifests on non-force import', () => {
-  const root = makeRoot();
+test('import-claude-skills preserves existing custom plugin manifests on non-force import', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   writeGeneratedManifestV2(root, {
     'demo-ops': {
@@ -1259,8 +1258,8 @@ Deploy body.
   );
 });
 
-test('import-claude-skills retains unchanged tracked plugin manifests when preserving them', () => {
-  const root = makeRoot();
+test('import-claude-skills retains unchanged tracked plugin manifests when preserving them', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   writeGeneratedManifestV2(root, {
     'demo-ops': {
@@ -1349,8 +1348,8 @@ Release body.
   assert.equal(forceResult.status, 0, forceResult.stderr || forceResult.stdout);
 });
 
-test('import-claude-skills drops tracked plugin manifests with checksum mismatch when preserving them', () => {
-  const root = makeRoot();
+test('import-claude-skills drops tracked plugin manifests with checksum mismatch when preserving them', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   const codexManifestPath = 'plugins/demo-ops/.codex-plugin/plugin.json';
   const claudeManifestPath = 'plugins/demo-ops/.claude-plugin/plugin.json';
@@ -1417,8 +1416,8 @@ Deploy body.
   );
 });
 
-test('import-claude-skills failed existing-plugin import leaves generated.json unchanged', () => {
-  const root = makeRoot();
+test('import-claude-skills failed existing-plugin import leaves generated.json unchanged', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   writeGeneratedManifestV2(root, {
     'demo-ops': {
@@ -1464,8 +1463,8 @@ Deploy body.
   assert.equal(existsSync(join(root, '.agent-trigger-kit/MAINTENANCE.md')), false);
 });
 
-test('import-claude-skills preserves existing guided plugin flag for imported tasks', () => {
-  const root = makeRoot();
+test('import-claude-skills preserves existing guided plugin flag for imported tasks', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   writeGeneratedManifestV2(root, {
     'demo-ops': {
@@ -1508,8 +1507,8 @@ Deploy body.
   );
 });
 
-test('import-claude-skills deletes source by default after successful import', () => {
-  const root = makeRoot();
+test('import-claude-skills deletes source by default after successful import', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     '.claude/skills/docs-review/SKILL.md',
@@ -1537,8 +1536,8 @@ Body.
   assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), false);
 });
 
-test('import-claude-skills keeps source with --keep-source', () => {
-  const root = makeRoot();
+test('import-claude-skills keeps source with --keep-source', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     '.claude/skills/docs-review/SKILL.md',
@@ -1567,8 +1566,8 @@ Body.
   assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
 });
 
-test('import-claude-skills refuses existing playbook section without replacement flag', () => {
-  const root = makeRoot();
+test('import-claude-skills refuses existing playbook section without replacement flag', (t) => {
+  const root = makeRoot(t);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo\n\n## docs-review\n\nExisting.\n');
   write(
     root,
@@ -1599,8 +1598,8 @@ New body.
   assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), false);
 });
 
-test('import-claude-skills replaces playbook section with explicit flag', () => {
-  const root = makeRoot();
+test('import-claude-skills replaces playbook section with explicit flag', (t) => {
+  const root = makeRoot(t);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo\n\n## docs-review\n\nExisting.\n');
   write(
     root,
@@ -1633,8 +1632,8 @@ New body.
   );
 });
 
-test('import-claude-skills supports importing selected skills', () => {
-  const root = makeRoot();
+test('import-claude-skills supports importing selected skills', (t) => {
+  const root = makeRoot(t);
   for (const skill of ['docs-review', 'deploy-ops']) {
     write(
       root,
@@ -1670,8 +1669,8 @@ ${skill} body.
   assert.equal(existsSync(join(root, '.claude/skills/deploy-ops/SKILL.md')), false);
 });
 
-test('import-claude-skills fails before writes when imported bodies duplicate heading slugs', () => {
-  const root = makeRoot();
+test('import-claude-skills fails before writes when imported bodies duplicate heading slugs', (t) => {
+  const root = makeRoot(t);
   for (const skill of ['docs-review', 'deploy-ops']) {
     write(
       root,
@@ -1710,8 +1709,8 @@ description: ${skill} description.
   assert.equal(existsSync(join(root, '.claude/skills/deploy-ops/SKILL.md')), true);
 });
 
-test('import-claude-skills fails when a selected skill is missing', () => {
-  const root = makeRoot();
+test('import-claude-skills fails when a selected skill is missing', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     '.claude/skills/docs-review/SKILL.md',
@@ -1746,8 +1745,8 @@ Read README changes.
   assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
 });
 
-test('import-claude-skills rejects selected skill names that escape source', () => {
-  const root = makeRoot();
+test('import-claude-skills rejects selected skill names that escape source', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     '.claude/skills/docs-review/SKILL.md',
@@ -1796,9 +1795,9 @@ This should never import.
   assert.equal(existsSync(join(root, '.claude/outside/SKILL.md')), true);
 });
 
-test('import-claude-skills rejects source directories outside root before writes', () => {
-  const root = makeRoot();
-  const outsideRoot = makeRoot();
+test('import-claude-skills rejects source directories outside root before writes', (t) => {
+  const root = makeRoot(t);
+  const outsideRoot = makeRoot(t);
   const outsideSource = join(outsideRoot, '.claude/skills');
   const escapedSource = relative(root, outsideSource);
   write(
@@ -1833,9 +1832,9 @@ Read README changes.
   assert.equal(existsSync(join(outsideSource, 'docs-review/SKILL.md')), true);
 });
 
-test('import-claude-skills rejects symlinked source directories outside root before writes', () => {
-  const root = makeRoot();
-  const outsideRoot = makeRoot();
+test('import-claude-skills rejects symlinked source directories outside root before writes', (t) => {
+  const root = makeRoot(t);
+  const outsideRoot = makeRoot(t);
   const outsideSource = join(outsideRoot, '.claude/skills');
   write(
     outsideRoot,
@@ -1871,9 +1870,9 @@ Read README changes.
   assert.equal(existsSync(join(outsideSource, 'docs-review/SKILL.md')), true);
 });
 
-test('import-claude-skills rejects symlinked skill directories outside source before reads', () => {
-  const root = makeRoot();
-  const outsideRoot = makeRoot();
+test('import-claude-skills rejects symlinked skill directories outside source before reads', (t) => {
+  const root = makeRoot(t);
+  const outsideRoot = makeRoot(t);
   write(
     outsideRoot,
     'docs-review/SKILL.md',
@@ -1908,9 +1907,9 @@ Read README changes.
   assert.equal(existsSync(join(outsideRoot, 'docs-review/SKILL.md')), true);
 });
 
-test('import-claude-skills rejects playbook paths outside root before writes', () => {
-  const root = makeRoot();
-  const outsideRoot = makeRoot();
+test('import-claude-skills rejects playbook paths outside root before writes', (t) => {
+  const root = makeRoot(t);
+  const outsideRoot = makeRoot(t);
   const escapedPlaybook = relative(root, join(outsideRoot, 'demo-ops.md'));
   write(
     root,
@@ -1944,9 +1943,9 @@ Read README changes.
   assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
 });
 
-test('import-claude-skills rejects playbook parent symlinks outside root before writes', () => {
-  const root = makeRoot();
-  const outsideRoot = makeRoot();
+test('import-claude-skills rejects playbook parent symlinks outside root before writes', (t) => {
+  const root = makeRoot(t);
+  const outsideRoot = makeRoot(t);
   write(
     root,
     '.claude/skills/docs-review/SKILL.md',
@@ -1981,8 +1980,8 @@ Read README changes.
   assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
 });
 
-test('import-claude-skills rejects unsafe plugin names before writes', () => {
-  const root = makeRoot();
+test('import-claude-skills rejects unsafe plugin names before writes', (t) => {
+  const root = makeRoot(t);
   const unsafePluginName = `../../outside-plugin-${basename(root)}`;
   const escapedTarget = join(root, 'plugins', unsafePluginName, 'skills/docs-review/SKILL.md');
   write(
@@ -2019,8 +2018,8 @@ Read README changes.
   assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
 });
 
-test('import-claude-skills preflights generated target collisions before writes', () => {
-  const root = makeRoot();
+test('import-claude-skills preflights generated target collisions before writes', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     '.claude/skills/docs-review/SKILL.md',
@@ -2063,8 +2062,8 @@ Read README changes.
   assert.equal(existsSync(join(root, '.claude/skills/docs-review/SKILL.md')), true);
 });
 
-test('import-claude-skills discovers source skills in stable sorted order', () => {
-  const root = makeRoot();
+test('import-claude-skills discovers source skills in stable sorted order', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     '.claude/skills/deploy-ops/SKILL.md',
@@ -2118,8 +2117,8 @@ test('package exposes the agent-trigger-kit bin entry', () => {
   assert.equal(packageJson.bin?.['agent-trigger-kit'], 'scripts/cli.mjs');
 });
 
-test('cli routes init and validate commands to the existing scripts', () => {
-  const root = makeRoot();
+test('cli routes init and validate commands to the existing scripts', (t) => {
+  const root = makeRoot(t);
 
   const init = runCli([
     'init',
@@ -2140,8 +2139,8 @@ test('cli routes init and validate commands to the existing scripts', () => {
   assert.match(validate.stdout, /trigger layer validation passed/);
 });
 
-test('cli forwards init task descriptions', () => {
-  const root = makeRoot();
+test('cli forwards init task descriptions', (t) => {
+  const root = makeRoot(t);
   const result = runCli([
     'init',
     '--root',
@@ -2165,10 +2164,10 @@ test('cli forwards init task descriptions', () => {
   );
 });
 
-test('cli routes version-check to the existing script', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = join(makeRoot(), 'missing-claude-home');
+test('cli routes version-check to the existing script', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = join(makeRoot(t), 'missing-claude-home');
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
@@ -2193,8 +2192,8 @@ test('cli routes version-check to the existing script', () => {
   assert.match(result.stdout, /claude: not initialized/);
 });
 
-test('cli routes clean command to the generated trigger layer cleaner', () => {
-  const root = makeRoot();
+test('cli routes clean command to the generated trigger layer cleaner', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   writeGeneratedManifestV2(root, {
     'demo-ops': {
@@ -2209,8 +2208,8 @@ test('cli routes clean command to the generated trigger layer cleaner', () => {
   assert.match(result.stdout, /clean dry-run: no orphan generated skills for demo-ops/);
 });
 
-test('cli routes import-claude-skills command to the importer', () => {
-  const root = makeRoot();
+test('cli routes import-claude-skills command to the importer', (t) => {
+  const root = makeRoot(t);
   write(
     root,
     '.claude/skills/docs-review/SKILL.md',
@@ -2242,8 +2241,8 @@ Read README changes.
   assert.equal(existsSync(join(root, 'plugins/demo-ops/skills/docs-review/SKILL.md')), true);
 });
 
-test('clean dry-run lists generated skill files missing from a v2 plugin manifest entry', () => {
-  const root = makeRoot();
+test('clean dry-run lists generated skill files missing from a v2 plugin manifest entry', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   write(
     root,
@@ -2282,8 +2281,8 @@ Maintenance contract: \`some/contract.md\`
   );
 });
 
-test('clean --apply deletes orphan generated skill file with marker and removes empty skill directory', () => {
-  const root = makeRoot();
+test('clean --apply deletes orphan generated skill file with marker and removes empty skill directory', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
   const skillDir = 'plugins/demo-ops/skills/deploy-ops';
@@ -2326,8 +2325,8 @@ Maintenance contract: \`some/contract.md\`
   assert.equal(existsSync(join(root, skillDir)), false);
 });
 
-test('clean --apply leaves hand-rolled markerless skill on disk', () => {
-  const root = makeRoot();
+test('clean --apply leaves hand-rolled markerless skill on disk', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
   write(
@@ -2363,8 +2362,8 @@ Hand rolled deploy notes.
   assert.equal(existsSync(join(root, skillPath)), true);
 });
 
-test('clean --apply leaves currently managed skill on disk', () => {
-  const root = makeRoot();
+test('clean --apply leaves currently managed skill on disk', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
   write(
@@ -2400,8 +2399,8 @@ Maintenance contract: \`some/contract.md\`
   assert.equal(existsSync(join(root, skillPath)), true);
 });
 
-test('clean --apply deletes only selected plugin orphan and leaves other plugin orphan on disk', () => {
-  const root = makeRoot();
+test('clean --apply deletes only selected plugin orphan and leaves other plugin orphan on disk', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugins(root, ['demo-ops', 'other-ops']);
   const selectedSkillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
   const otherSkillPath = 'plugins/other-ops/skills/deploy-ops/SKILL.md';
@@ -2451,8 +2450,8 @@ Maintenance contract: \`some/contract.md\`
   assert.equal(existsSync(join(root, otherSkillPath)), true);
 });
 
-test('clean --apply leaves non-empty skill directory after deleting SKILL.md', () => {
-  const root = makeRoot();
+test('clean --apply leaves non-empty skill directory after deleting SKILL.md', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
   const extraPath = 'plugins/demo-ops/skills/deploy-ops/README.md';
@@ -2492,8 +2491,8 @@ Maintenance contract: \`some/contract.md\`
   assert.deepEqual(readdirSync(join(root, skillDir)), ['README.md']);
 });
 
-test('clean --apply does not modify generated.json', () => {
-  const root = makeRoot();
+test('clean --apply does not modify generated.json', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
   const manifestPath = '.agent-trigger-kit/generated.json';
@@ -2530,8 +2529,8 @@ Maintenance contract: \`some/contract.md\`
   assert.equal(readFileSync(join(root, manifestPath), 'utf8'), before);
 });
 
-test('clean dry-run still does not delete files', () => {
-  const root = makeRoot();
+test('clean dry-run still does not delete files', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
   write(
@@ -2569,8 +2568,8 @@ Maintenance contract: \`some/contract.md\`
   assert.equal(existsSync(join(root, skillPath)), true);
 });
 
-test('clean dry-run skips hand-rolled skills without a maintenance contract marker', () => {
-  const root = makeRoot();
+test('clean dry-run skips hand-rolled skills without a maintenance contract marker', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   write(
     root,
@@ -2603,8 +2602,8 @@ Hand rolled deploy notes.
   assert.equal(result.stdout.trim(), 'clean dry-run: no orphan generated skills for demo-ops');
 });
 
-test('clean dry-run skips currently managed generated skills', () => {
-  const root = makeRoot();
+test('clean dry-run skips currently managed generated skills', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   const skillPath = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
   write(
@@ -2638,8 +2637,8 @@ Maintenance contract: \`some/contract.md\`
   assert.equal(result.stdout.trim(), 'clean dry-run: no orphan generated skills for demo-ops');
 });
 
-test('clean dry-run supports a v1 generated manifest for the selected plugin', () => {
-  const root = makeRoot();
+test('clean dry-run supports a v1 generated manifest for the selected plugin', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   write(
     root,
@@ -2678,8 +2677,8 @@ Maintenance contract: \`some/contract.md\`
   );
 });
 
-test('clean dry-run checks only the selected v2 plugin entry', () => {
-  const root = makeRoot();
+test('clean dry-run checks only the selected v2 plugin entry', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugins(root, ['demo-ops', 'other-ops']);
   write(
     root,
@@ -2717,8 +2716,8 @@ Maintenance contract: \`some/contract.md\`
   assert.doesNotMatch(result.stdout, /other-ops/);
 });
 
-test('clean dry-run fails clearly when the selected plugin is absent from the generated manifest', () => {
-  const root = makeRoot();
+test('clean dry-run fails clearly when the selected plugin is absent from the generated manifest', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugins(root, ['demo-ops', 'other-ops']);
   writeGeneratedManifestV2(root, {
     'other-ops': {
@@ -2748,8 +2747,8 @@ test('clean dry-run rejects bare --root value', () => {
   assert.doesNotMatch(result.stderr, /TypeError|stack|at file:/i);
 });
 
-test('clean dry-run rejects bare --plugin value', () => {
-  const root = makeRoot();
+test('clean dry-run rejects bare --plugin value', (t) => {
+  const root = makeRoot(t);
 
   const result = runScript('clean-generated-trigger-layer.mjs', ['--root', root, '--plugin']);
 
@@ -2758,8 +2757,8 @@ test('clean dry-run rejects bare --plugin value', () => {
   assert.doesNotMatch(result.stderr, /generated manifest|clean dry-run|TypeError|stack|at file:/i);
 });
 
-test('clean dry-run rejects unsafe plugin names before scanning paths', () => {
-  const root = makeRoot();
+test('clean dry-run rejects unsafe plugin names before scanning paths', (t) => {
+  const root = makeRoot(t);
   writeGeneratedManifestV2(root, {
     '../..': {
       pluginVersion: '0.1.0',
@@ -2779,8 +2778,8 @@ test('clean dry-run rejects unsafe plugin names before scanning paths', () => {
   assert.equal(result.stdout, '');
 });
 
-test('clean dry-run reports invalid generated manifest JSON clearly', () => {
-  const root = makeRoot();
+test('clean dry-run reports invalid generated manifest JSON clearly', (t) => {
+  const root = makeRoot(t);
   createMinimalPlugin(root);
   write(root, '.agent-trigger-kit/generated.json', '{ malformed json');
 
@@ -2796,8 +2795,8 @@ test('clean dry-run reports invalid generated manifest JSON clearly', () => {
   assert.match(result.stderr, /invalid JSON|JSON/i);
 });
 
-test('init creates a canonical playbook placeholder when it is missing', () => {
-  const root = makeRoot();
+test('init creates a canonical playbook placeholder when it is missing', (t) => {
+  const root = makeRoot(t);
   const playbook = 'docs/agent-playbooks/demo-ops.md';
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
@@ -2817,8 +2816,8 @@ test('init creates a canonical playbook placeholder when it is missing', () => {
   assert.match(readFileSync(join(root, playbook), 'utf8'), /# Demo Ops Playbook/);
 });
 
-test('init emits playbook-first guidance flag and generated skill guidance', () => {
-  const root = makeRoot();
+test('init emits playbook-first guidance flag and generated skill guidance', (t) => {
+  const root = makeRoot(t);
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -2853,8 +2852,8 @@ test('init emits playbook-first guidance flag and generated skill guidance', () 
   assert.match(maintenance, /third-party plugin or global config/i);
 });
 
-test('init keeps playbook-first signal out of command and Cursor routing descriptions', () => {
-  const root = makeRoot();
+test('init keeps playbook-first signal out of command and Cursor routing descriptions', (t) => {
+  const root = makeRoot(t);
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -2889,8 +2888,8 @@ test('init keeps playbook-first signal out of command and Cursor routing descrip
   assert.doesNotMatch(cursorFrontmatter, /Project playbook is source of truth\./);
 });
 
-test('init does not write active headerChecks by default', () => {
-  const root = makeRoot();
+test('init does not write active headerChecks by default', (t) => {
+  const root = makeRoot(t);
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -2906,8 +2905,8 @@ test('init does not write active headerChecks by default', () => {
   assert.equal(generatedPluginEntry(root).headerChecks, undefined);
 });
 
-test('init writes an inactive headerChecks example in the maintenance contract', () => {
-  const root = makeRoot();
+test('init writes an inactive headerChecks example in the maintenance contract', (t) => {
+  const root = makeRoot(t);
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -2926,8 +2925,8 @@ test('init writes an inactive headerChecks example in the maintenance contract',
   assert.equal(generatedPluginEntry(root).headerChecks, undefined);
 });
 
-test('init writes superpowers headerChecks only with explicit flag', () => {
-  const root = makeRoot();
+test('init writes superpowers headerChecks only with explicit flag', (t) => {
+  const root = makeRoot(t);
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -2952,8 +2951,8 @@ test('init writes superpowers headerChecks only with explicit flag', () => {
   ]);
 });
 
-test('init preserves existing headerChecks on re-run without the explicit flag', () => {
-  const root = makeRoot();
+test('init preserves existing headerChecks on re-run without the explicit flag', (t) => {
+  const root = makeRoot(t);
   const first = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -2990,8 +2989,8 @@ test('init preserves existing headerChecks on re-run without the explicit flag',
   ]);
 });
 
-test('init uses task-specific descriptions and appends playbook-first signal', () => {
-  const root = makeRoot();
+test('init uses task-specific descriptions and appends playbook-first signal', (t) => {
+  const root = makeRoot(t);
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -3024,7 +3023,7 @@ test('init uses task-specific descriptions and appends playbook-first signal', (
   );
 });
 
-test('init rejects invalid task description maps', () => {
+test('init rejects invalid task description maps', (t) => {
   const cases = [
     {
       name: 'bare flag',
@@ -3082,7 +3081,7 @@ test('init rejects invalid task description maps', () => {
   ];
 
   for (const testCase of cases) {
-    const root = makeRoot();
+    const root = makeRoot(t);
     const result = runScript('init-project-trigger-layer.mjs', [
       '--root',
       root,
@@ -3103,8 +3102,8 @@ test('init rejects invalid task description maps', () => {
   }
 });
 
-test('init records generated trigger-layer files without claiming user-owned files', () => {
-  const root = makeRoot();
+test('init records generated trigger-layer files without claiming user-owned files', (t) => {
+  const root = makeRoot(t);
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -3158,8 +3157,8 @@ test('init records generated trigger-layer files without claiming user-owned fil
   );
 });
 
-test('init for a second plugin preserves existing v2 plugin entries', () => {
-  const root = makeRoot();
+test('init for a second plugin preserves existing v2 plugin entries', (t) => {
+  const root = makeRoot(t);
   const first = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -3198,8 +3197,8 @@ test('init for a second plugin preserves existing v2 plugin entries', () => {
   );
 });
 
-test('init force overwrites unchanged managed skills and updates generated checksums', () => {
-  const root = makeRoot();
+test('init force overwrites unchanged managed skills and updates generated checksums', (t) => {
+  const root = makeRoot(t);
   const skillPath = 'plugins/demo-ops/skills/docs-review/SKILL.md';
   const first = runScript('init-project-trigger-layer.mjs', [
     '--root',
@@ -3235,8 +3234,8 @@ test('init force overwrites unchanged managed skills and updates generated check
   assert.equal(nextEntry.sha256, sha256(join(root, skillPath)));
 });
 
-test('init force rejects overwriting a managed skill with local checksum changes', () => {
-  const root = makeRoot();
+test('init force rejects overwriting a managed skill with local checksum changes', (t) => {
+  const root = makeRoot(t);
   const skillPath = 'plugins/demo-ops/skills/docs-review/SKILL.md';
   const first = runScript('init-project-trigger-layer.mjs', [
     '--root',
@@ -3269,8 +3268,8 @@ test('init force rejects overwriting a managed skill with local checksum changes
   assert.equal(readFileSync(join(root, skillPath), 'utf8'), manualContent);
 });
 
-test('init force preflights generated targets before creating any files', () => {
-  const root = makeRoot();
+test('init force preflights generated targets before creating any files', (t) => {
+  const root = makeRoot(t);
   const skillPath = 'plugins/demo-ops/skills/docs-review/SKILL.md';
   const manualContent = `---
 name: docs-review
@@ -3309,7 +3308,7 @@ description: User owned skill.
   assert.equal(existsSync(join(root, '.agent-trigger-kit/generated.json')), false);
 });
 
-test('init force rejects existing skill targets without matching previous generated manifest ownership', () => {
+test('init force rejects existing skill targets without matching previous generated manifest ownership', (t) => {
   const cases = [
     { name: 'missing manifest', manifest: null },
     {
@@ -3347,7 +3346,7 @@ test('init force rejects existing skill targets without matching previous genera
   ];
 
   for (const { name, manifest } of cases) {
-    const root = makeRoot();
+    const root = makeRoot(t);
     const skillPath = 'plugins/demo-ops/skills/docs-review/SKILL.md';
     const manualContent = `---
 name: docs-review
@@ -3379,8 +3378,8 @@ description: User owned skill.
   }
 });
 
-test('init force leaves orphaned managed files on disk and removes them from generated manifest', () => {
-  const root = makeRoot();
+test('init force leaves orphaned managed files on disk and removes them from generated manifest', (t) => {
+  const root = makeRoot(t);
   const orphanSkill = 'plugins/demo-ops/skills/deploy-ops/SKILL.md';
   const orphanCommand = 'plugins/demo-ops/commands/deploy-ops.md';
   const first = runScript('init-project-trigger-layer.mjs', [
@@ -3415,8 +3414,8 @@ test('init force leaves orphaned managed files on disk and removes them from gen
   assert.equal(trackedPaths.includes(orphanCommand), false);
 });
 
-test('init without force still rejects existing generated target files', () => {
-  const root = makeRoot();
+test('init without force still rejects existing generated target files', (t) => {
+  const root = makeRoot(t);
   const first = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -3444,8 +3443,8 @@ test('init without force still rejects existing generated target files', () => {
   assert.match(second.stderr, /already exists; rerun with --force/);
 });
 
-test('init computes playbook refs relative to nested generated skill paths', () => {
-  const root = makeRoot();
+test('init computes playbook refs relative to nested generated skill paths', (t) => {
+  const root = makeRoot(t);
   const playbook = 'docs/agent-playbooks/team-demo-ops.md';
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
@@ -3472,8 +3471,8 @@ test('init computes playbook refs relative to nested generated skill paths', () 
   assert.equal(validate.status, 0, validate.stderr || validate.stdout);
 });
 
-test('init upserts plugin entries into existing marketplaces without force', () => {
-  const root = makeRoot();
+test('init upserts plugin entries into existing marketplaces without force', (t) => {
+  const root = makeRoot(t);
   writeJson(root, '.agents/plugins/marketplace.json', {
     name: 'project-marketplace',
     interface: { displayName: 'Project Plugins' },
@@ -3531,8 +3530,8 @@ test('init upserts plugin entries into existing marketplaces without force', () 
   assert.equal(claude.plugins[0].version, '0.2.0');
 });
 
-test('init force preserves existing plugin version instead of downgrading', () => {
-  const root = makeRoot();
+test('init force preserves existing plugin version instead of downgrading', (t) => {
+  const root = makeRoot(t);
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.2.0' });
   writeValidSkillAndCommand(root, pluginDir);
   writeGeneratedManifestForDemoPlugin(root, pluginDir, pluginName, '0.2.0');
@@ -3558,8 +3557,8 @@ test('init force preserves existing plugin version instead of downgrading', () =
   assert.equal(generatedPluginEntry(root, pluginName).pluginVersion, '0.2.0');
 });
 
-test('init ignores initial version when an existing plugin version is present', () => {
-  const root = makeRoot();
+test('init ignores initial version when an existing plugin version is present', (t) => {
+  const root = makeRoot(t);
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.2.0' });
   writeValidSkillAndCommand(root, pluginDir);
   writeGeneratedManifestForDemoPlugin(root, pluginDir, pluginName, '0.2.0');
@@ -3586,8 +3585,8 @@ test('init ignores initial version when an existing plugin version is present', 
   assert.equal(generatedPluginEntry(root, pluginName).pluginVersion, '0.2.0');
 });
 
-test('init uses an existing partial manifest version as the recovery baseline', () => {
-  const root = makeRoot();
+test('init uses an existing partial manifest version as the recovery baseline', (t) => {
+  const root = makeRoot(t);
   writeJson(root, '.agents/plugins/marketplace.json', {
     name: 'project-marketplace',
     interface: { displayName: 'Project Plugins' },
@@ -3621,8 +3620,8 @@ test('init uses an existing partial manifest version as the recovery baseline', 
   assert.equal(readJson(root, 'plugins/demo-ops/.claude-plugin/plugin.json').version, '0.2.0');
 });
 
-test('init fails when existing manifest versions disagree', () => {
-  const root = makeRoot();
+test('init fails when existing manifest versions disagree', (t) => {
+  const root = makeRoot(t);
   writeJson(root, '.agents/plugins/marketplace.json', {
     name: 'project-marketplace',
     interface: { displayName: 'Project Plugins' },
@@ -3671,8 +3670,8 @@ test('init fails when existing manifest versions disagree', () => {
   assert.doesNotMatch(result.stderr, /\n\s+at /);
 });
 
-test('init applies initial version only when no existing plugin version is present', () => {
-  const root = makeRoot();
+test('init applies initial version only when no existing plugin version is present', (t) => {
+  const root = makeRoot(t);
   const result = runScript('init-project-trigger-layer.mjs', [
     '--root',
     root,
@@ -3694,8 +3693,8 @@ test('init applies initial version only when no existing plugin version is prese
   assert.equal(generatedPluginEntry(root).pluginVersion, '0.3.0');
 });
 
-test('init uses generated manifest fallback only for the matching plugin name', () => {
-  const root = makeRoot();
+test('init uses generated manifest fallback only for the matching plugin name', (t) => {
+  const root = makeRoot(t);
   writeJson(root, '.agent-trigger-kit/generated.json', {
     schemaVersion: 1,
     kitVersion: '0.1.4',
@@ -3727,8 +3726,8 @@ test('init uses generated manifest fallback only for the matching plugin name', 
   assert.equal(generatedPluginEntry(root).pluginVersion, '0.1.0');
 });
 
-test('init uses generated v2 fallback only for the current plugin entry', () => {
-  const root = makeRoot();
+test('init uses generated v2 fallback only for the current plugin entry', (t) => {
+  const root = makeRoot(t);
   writeGeneratedManifestV2(root, {
     'other-ops': {
       pluginVersion: '0.9.0',
@@ -3787,8 +3786,8 @@ test('shared trigger layer generator consumes project trigger layer templates fo
   );
 });
 
-test('writeTriggerLayer omits playbook-first guidance by default', () => {
-  const root = makeRoot();
+test('writeTriggerLayer omits playbook-first guidance by default', (t) => {
+  const root = makeRoot(t);
   writeTriggerLayer({
     root,
     pluginName: 'demo-ops',
@@ -3811,8 +3810,8 @@ test('writeTriggerLayer omits playbook-first guidance by default', () => {
   assert.doesNotMatch(playbook, /\n{3,}## /);
 });
 
-test('writeTriggerLayer renders imported task descriptions as safe frontmatter scalars', () => {
-  const root = makeRoot();
+test('writeTriggerLayer renders imported task descriptions as safe frontmatter scalars', (t) => {
+  const root = makeRoot(t);
   const description = 'Review: docs # before release\nSecond line';
   writeTriggerLayer({
     root,
@@ -3840,8 +3839,8 @@ test('writeTriggerLayer renders imported task descriptions as safe frontmatter s
   assert.equal(validate.status, 0, validate.stderr || validate.stdout);
 });
 
-test('writeTriggerLayer treats template markers in imported task descriptions as literal text', () => {
-  const root = makeRoot();
+test('writeTriggerLayer treats template markers in imported task descriptions as literal text', (t) => {
+  const root = makeRoot(t);
   const description = 'Use {{taskName}} safely and {{globs}} literally';
   writeTriggerLayer({
     root,
@@ -3871,8 +3870,8 @@ test('writeTriggerLayer treats template markers in imported task descriptions as
   assert.equal(validate.status, 0, validate.stderr || validate.stdout);
 });
 
-test('validator fails when a skill delegates to a missing playbook', () => {
-  const root = makeRoot();
+test('validator fails when a skill delegates to a missing playbook', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   write(
     root,
@@ -3907,8 +3906,8 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   assert.match(result.stderr, /docs\/agent-playbooks\/missing\.md/);
 });
 
-test('validator fails when a command delegates to a missing skill', () => {
-  const root = makeRoot();
+test('validator fails when a command delegates to a missing skill', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
   write(
@@ -3943,8 +3942,8 @@ Apply the \`demo-ops:deploy-ops\` skill before acting.
   assert.match(result.stderr, /delegates to missing skill demo-ops:deploy-ops/);
 });
 
-test('validator accepts command delegation to a visible skill name that differs from its directory', () => {
-  const root = makeRoot();
+test('validator accepts command delegation to a visible skill name that differs from its directory', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
   write(
@@ -3979,8 +3978,8 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator rejects command delegation to a skill directory when the visible name differs', () => {
-  const root = makeRoot();
+test('validator rejects command delegation to a skill directory when the visible name differs', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
   write(
@@ -4015,8 +4014,8 @@ Apply the \`demo-ops:docs\` skill before acting.
   assert.match(result.stderr, /delegates to missing skill demo-ops:docs/);
 });
 
-test('validator fails when Claude commands exist but are not declared', () => {
-  const root = makeRoot();
+test('validator fails when Claude commands exist but are not declared', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root, { commands: false });
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
   write(
@@ -4051,8 +4050,8 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   assert.match(result.stderr, /commands exist but are not declared/);
 });
 
-test('validator fails when same-plugin skill frontmatter names collide across different directories', () => {
-  const root = makeRoot();
+test('validator fails when same-plugin skill frontmatter names collide across different directories', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
   for (const skillDir of ['docs-review', 'docs-review-alias']) {
@@ -4092,8 +4091,8 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   assert.match(result.stderr, /plugins\/demo-ops\/skills\/docs-review-alias\/SKILL\.md/);
 });
 
-test('validator fails when plugin skill directory names collide', () => {
-  const root = makeRoot();
+test('validator fails when plugin skill directory names collide', (t) => {
+  const root = makeRoot(t);
   const plugins = createMinimalPlugins(root, ['demo-ops', 'data-ops']);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
   for (const { pluginDir, pluginName } of plugins) {
@@ -4135,8 +4134,8 @@ Apply the \`${pluginName}:docs-review\` skill before acting.
   assert.match(result.stderr, /plugins\/data-ops\/skills\/docs-review\/SKILL\.md/);
 });
 
-test('validator fails when plugin skill frontmatter names collide across different directories', () => {
-  const root = makeRoot();
+test('validator fails when plugin skill frontmatter names collide across different directories', (t) => {
+  const root = makeRoot(t);
   const plugins = createMinimalPlugins(root, ['demo-ops', 'data-ops']);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
   for (const { pluginDir, pluginName } of plugins) {
@@ -4177,8 +4176,8 @@ Apply the \`${pluginName}:${skillDir}\` skill before acting.
   assert.match(result.stderr, /plugins\/data-ops\/skills\/data-review\/SKILL\.md/);
 });
 
-test('validator fails when plugin command filename stems collide', () => {
-  const root = makeRoot();
+test('validator fails when plugin command filename stems collide', (t) => {
+  const root = makeRoot(t);
   const plugins = createMinimalPlugins(root, ['demo-ops', 'data-ops']);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
   for (const { pluginDir, pluginName } of plugins) {
@@ -4221,8 +4220,8 @@ Apply the \`${pluginName}:${skillName}\` skill before acting.
   assert.match(result.stderr, /plugins\/data-ops\/commands\/run-check\.md/);
 });
 
-test('validator passes when a markdown playbook anchor exists', () => {
-  const root = makeRoot();
+test('validator passes when a markdown playbook anchor exists', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook\n\n## Deploy Ops');
   write(
@@ -4257,8 +4256,8 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator fails when a markdown playbook anchor is missing', () => {
-  const root = makeRoot();
+test('validator fails when a markdown playbook anchor is missing', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook\n\n## Deploy Ops');
   write(
@@ -4295,8 +4294,8 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   assert.match(result.stderr, /docs\/agent-playbooks\/demo-ops\.md/);
 });
 
-test('validator fails when a markdown playbook has duplicate heading slugs', () => {
-  const root = makeRoot();
+test('validator fails when a markdown playbook has duplicate heading slugs', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   write(
     root,
@@ -4337,8 +4336,8 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   assert.match(result.stderr, /docs\/agent-playbooks\/demo-ops\.md/);
 });
 
-test('validator fails when a plain markdown playbook ref has duplicate heading slugs', () => {
-  const root = makeRoot();
+test('validator fails when a plain markdown playbook ref has duplicate heading slugs', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   write(
     root,
@@ -4379,8 +4378,8 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   assert.match(result.stderr, /docs\/agent-playbooks\/demo-ops\.md/);
 });
 
-test('validator reports duplicate heading slugs once when multiple skills reference the same playbook', () => {
-  const root = makeRoot();
+test('validator reports duplicate heading slugs once when multiple skills reference the same playbook', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   write(
     root,
@@ -4425,8 +4424,8 @@ Apply the \`demo-ops:docs-review\` skill before acting.
   );
 });
 
-test('validator fails when Codex marketplace and plugin manifest versions differ', () => {
-  const root = makeRoot();
+test('validator fails when Codex marketplace and plugin manifest versions differ', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   writeValidSkillAndCommand(root, pluginDir);
   writeJson(root, `${pluginDir}/.codex-plugin/plugin.json`, {
@@ -4443,8 +4442,8 @@ test('validator fails when Codex marketplace and plugin manifest versions differ
   assert.match(result.stderr, /version must match Codex marketplace 0\.1\.0/);
 });
 
-test('validator fails when Claude marketplace and plugin manifest versions differ', () => {
-  const root = makeRoot();
+test('validator fails when Claude marketplace and plugin manifest versions differ', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   writeValidSkillAndCommand(root, pluginDir);
   writeJson(root, `${pluginDir}/.claude-plugin/plugin.json`, {
@@ -4462,8 +4461,8 @@ test('validator fails when Claude marketplace and plugin manifest versions diffe
   assert.match(result.stderr, /version must match Claude marketplace 0\.1\.0/);
 });
 
-test('validator fails when a managed skill lacks a maintenance contract pointer', () => {
-  const root = makeRoot();
+test('validator fails when a managed skill lacks a maintenance contract pointer', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
   writeValidSkillAndCommand(root, pluginDir);
@@ -4479,8 +4478,8 @@ test('validator fails when a managed skill lacks a maintenance contract pointer'
   assert.match(result.stderr, /maintenance contract pointer/i);
 });
 
-test('validator fails when a v2 managed skill lacks a maintenance contract pointer', () => {
-  const root = makeRoot();
+test('validator fails when a v2 managed skill lacks a maintenance contract pointer', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
   writeValidSkillAndCommand(root, pluginDir);
@@ -4501,8 +4500,8 @@ test('validator fails when a v2 managed skill lacks a maintenance contract point
   assert.match(result.stderr, /maintenance contract pointer/i);
 });
 
-test('validator accepts a managed skill with a loose maintenance contract pointer path', () => {
-  const root = makeRoot();
+test('validator accepts a managed skill with a loose maintenance contract pointer path', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
   writeValidSkillAndCommand(root, pluginDir);
@@ -4535,8 +4534,8 @@ Maintenance contract: \`some/other/path.md\`
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator accepts a hand-rolled skill without a maintenance contract pointer', () => {
-  const root = makeRoot();
+test('validator accepts a hand-rolled skill without a maintenance contract pointer', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   writeValidSkillAndCommand(root, pluginDir);
   writeJson(root, '.agent-trigger-kit/generated.json', {
@@ -4550,8 +4549,8 @@ test('validator accepts a hand-rolled skill without a maintenance contract point
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator accepts a generated command without a maintenance contract pointer', () => {
-  const root = makeRoot();
+test('validator accepts a generated command without a maintenance contract pointer', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   writeValidSkillAndCommand(root, pluginDir);
   writeJson(root, '.agent-trigger-kit/generated.json', {
@@ -4565,8 +4564,8 @@ test('validator accepts a generated command without a maintenance contract point
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator treats missing headerChecks as a no-op', () => {
-  const root = makeRoot();
+test('validator treats missing headerChecks as a no-op', (t) => {
+  const root = makeRoot(t);
   createPackage(root);
   const { pluginDir } = createMinimalPlugin(root);
   writeValidSkillAndCommand(root, pluginDir);
@@ -4589,8 +4588,8 @@ test('validator treats missing headerChecks as a no-op', () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
-test('validator reports non-array headerChecks as malformed config', () => {
-  const root = makeRoot();
+test('validator reports non-array headerChecks as malformed config', (t) => {
+  const root = makeRoot(t);
   createPackage(root);
   const { pluginDir } = createMinimalPlugin(root);
   writeValidSkillAndCommand(root, pluginDir);
@@ -4618,8 +4617,8 @@ test('validator reports non-array headerChecks as malformed config', () => {
   );
 });
 
-test('validator reports configured missing document headers', () => {
-  const root = makeRoot();
+test('validator reports configured missing document headers', (t) => {
+  const root = makeRoot(t);
   createPackage(root);
   const { pluginDir } = createMinimalPlugin(root);
   writeValidSkillAndCommand(root, pluginDir);
@@ -4655,8 +4654,8 @@ test('validator reports configured missing document headers', () => {
   );
 });
 
-test('validator accepts configured document headers and excludes legacy paths', () => {
-  const root = makeRoot();
+test('validator accepts configured document headers and excludes legacy paths', (t) => {
+  const root = makeRoot(t);
   createPackage(root);
   const { pluginDir } = createMinimalPlugin(root);
   writeValidSkillAndCommand(root, pluginDir);
@@ -4691,8 +4690,8 @@ test('validator accepts configured document headers and excludes legacy paths', 
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
-test('validator accepts old generated manifests without playbook-first flag', () => {
-  const root = makeRoot();
+test('validator accepts old generated manifests without playbook-first flag', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root, { commands: false });
   const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
@@ -4713,8 +4712,8 @@ test('validator accepts old generated manifests without playbook-first flag', ()
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator fails flagged generated skill missing playbook-first description signal', () => {
-  const root = makeRoot();
+test('validator fails flagged generated skill missing playbook-first description signal', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root, { commands: false });
   const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
@@ -4742,8 +4741,8 @@ test('validator fails flagged generated skill missing playbook-first description
   );
 });
 
-test('validator fails flagged generated skill missing playbook-first checklist guidance', () => {
-  const root = makeRoot();
+test('validator fails flagged generated skill missing playbook-first checklist guidance', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root, { commands: false });
   const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
@@ -4773,8 +4772,8 @@ test('validator fails flagged generated skill missing playbook-first checklist g
   );
 });
 
-test('validator does not duplicate missing frontmatter diagnostics for flagged generated skills', () => {
-  const root = makeRoot();
+test('validator does not duplicate missing frontmatter diagnostics for flagged generated skills', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root, { commands: false });
   const skillPath = `${pluginDir}/skills/docs-review/SKILL.md`;
   write(root, 'docs/agent-playbooks/demo-ops.md', '# Demo Ops Playbook');
@@ -4808,8 +4807,8 @@ Maintenance contract: \`../../../../.agent-trigger-kit/MAINTENANCE.md\`
   assert.equal((result.stderr.match(/missing frontmatter/g) || []).length, 1);
 });
 
-test('validator checks playbook-first guidance only for flagged plugins', () => {
-  const root = makeRoot();
+test('validator checks playbook-first guidance only for flagged plugins', (t) => {
+  const root = makeRoot(t);
   const [flagged, unflagged] = createMinimalPlugins(root, ['demo-ops', 'other-ops']);
   mkdirSync(join(root, `${flagged.pluginDir}/commands`), { recursive: true });
   mkdirSync(join(root, `${unflagged.pluginDir}/commands`), { recursive: true });
@@ -4856,8 +4855,8 @@ Maintenance contract: \`some/contract.md\`
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator require-version-bump requires a base ref', () => {
-  const root = makeRoot();
+test('validator require-version-bump requires a base ref', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
   writeValidSkillAndCommand(root, pluginDir);
   writeJson(root, '.agent-trigger-kit/generated.json', {
@@ -4876,8 +4875,8 @@ test('validator require-version-bump requires a base ref', () => {
   assert.match(result.stderr, /--base/);
 });
 
-test('validator require-version-bump rejects managed skill changes without a version bump', () => {
-  const root = makeRoot();
+test('validator require-version-bump rejects managed skill changes without a version bump', (t) => {
+  const root = makeRoot(t);
   const { skillPath } = createVersionBumpFixture(root);
   const base = commitAll(root, 'base trigger layer');
   writeManagedSkill(root, 'plugins/demo-ops', 'Changed generated skill body.');
@@ -4896,8 +4895,8 @@ test('validator require-version-bump rejects managed skill changes without a ver
   assert.match(result.stderr, new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
-test('validator require-version-bump accepts managed skill changes with aligned version bump', () => {
-  const root = makeRoot();
+test('validator require-version-bump accepts managed skill changes with aligned version bump', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createVersionBumpFixture(root);
   const base = commitAll(root, 'base trigger layer');
   writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
@@ -4916,8 +4915,8 @@ test('validator require-version-bump accepts managed skill changes with aligned 
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator require-version-bump infers the plugin from a single-plugin v2 manifest', () => {
-  const root = makeRoot();
+test('validator require-version-bump infers the plugin from a single-plugin v2 manifest', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createVersionBumpFixtureV2(root);
   const base = commitAll(root, 'base trigger layer');
   writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
@@ -4936,8 +4935,8 @@ test('validator require-version-bump infers the plugin from a single-plugin v2 m
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator require-version-bump requires --plugin for multi-plugin v2 manifests', () => {
-  const root = makeRoot();
+test('validator require-version-bump requires --plugin for multi-plugin v2 manifests', (t) => {
+  const root = makeRoot(t);
   const { pluginDir, skillPath } = createVersionBumpFixtureV2(root, {
     pluginNames: ['demo-ops', 'other-ops'],
   });
@@ -4984,8 +4983,8 @@ test('validator require-version-bump requires --plugin for multi-plugin v2 manif
   assert.match(selectedOther.stdout, /trigger layer validation passed/);
 });
 
-test('validator require-version-bump rejects stale matching package version', () => {
-  const root = makeRoot();
+test('validator require-version-bump rejects stale matching package version', (t) => {
+  const root = makeRoot(t);
   const { pluginDir, pluginName } = createVersionBumpFixture(root);
   createPackage(root, '0.1.0', pluginName);
   const base = commitAll(root, 'base trigger layer');
@@ -5006,8 +5005,8 @@ test('validator require-version-bump rejects stale matching package version', ()
   assert.match(result.stderr, /package\.json|aligned plugin version/i);
 });
 
-test('validator require-version-bump rejects stale scoped matching package version', () => {
-  const root = makeRoot();
+test('validator require-version-bump rejects stale scoped matching package version', (t) => {
+  const root = makeRoot(t);
   const { pluginDir, pluginName } = createVersionBumpFixture(root);
   createPackage(root, '0.1.0', `@acme/${pluginName}`);
   const base = commitAll(root, 'base trigger layer');
@@ -5028,8 +5027,8 @@ test('validator require-version-bump rejects stale scoped matching package versi
   assert.match(result.stderr, /package\.json|aligned plugin version/i);
 });
 
-test('validator require-version-bump ignores stale unrelated package version', () => {
-  const root = makeRoot();
+test('validator require-version-bump ignores stale unrelated package version', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createVersionBumpFixture(root);
   createPackage(root, '0.1.0', 'external-project');
   const base = commitAll(root, 'base trigger layer');
@@ -5049,8 +5048,8 @@ test('validator require-version-bump ignores stale unrelated package version', (
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator require-version-bump accepts matching package version aligned with plugin surfaces', () => {
-  const root = makeRoot();
+test('validator require-version-bump accepts matching package version aligned with plugin surfaces', (t) => {
+  const root = makeRoot(t);
   const { pluginDir, pluginName } = createVersionBumpFixture(root);
   createPackage(root, '0.1.0', pluginName);
   const base = commitAll(root, 'base trigger layer');
@@ -5073,8 +5072,8 @@ test('validator require-version-bump accepts matching package version aligned wi
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator require-version-bump rejects managed skill changes when a required manifest version is missing', () => {
-  const root = makeRoot();
+test('validator require-version-bump rejects managed skill changes when a required manifest version is missing', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createVersionBumpFixture(root);
   const base = commitAll(root, 'base trigger layer');
   writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
@@ -5095,8 +5094,8 @@ test('validator require-version-bump rejects managed skill changes when a requir
   assert.match(result.stderr, /missing.*codex plugin manifest.*version/i);
 });
 
-test('validator require-version-bump rejects managed skill changes with a lower aligned version', () => {
-  const root = makeRoot();
+test('validator require-version-bump rejects managed skill changes with a lower aligned version', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createVersionBumpFixture(root);
   const base = commitAll(root, 'base trigger layer');
   writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
@@ -5116,8 +5115,8 @@ test('validator require-version-bump rejects managed skill changes with a lower 
   assert.match(result.stderr, /greater than/i);
 });
 
-test('validator require-version-bump rejects deleting a previously managed plugin-visible file without a version bump', () => {
-  const root = makeRoot();
+test('validator require-version-bump rejects deleting a previously managed plugin-visible file without a version bump', (t) => {
+  const root = makeRoot(t);
   const { pluginDir, skillPath } = createVersionBumpFixture(root);
   const base = commitAll(root, 'base trigger layer');
   rmSync(join(root, `${pluginDir}/skills/docs-review`), { recursive: true, force: true });
@@ -5140,8 +5139,8 @@ test('validator require-version-bump rejects deleting a previously managed plugi
   assert.match(result.stderr, new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
-test('validator require-version-bump ignores cursor playbook maintenance and generated changes', () => {
-  const root = makeRoot();
+test('validator require-version-bump ignores cursor playbook maintenance and generated changes', (t) => {
+  const root = makeRoot(t);
   createVersionBumpFixture(root);
   const base = commitAll(root, 'base trigger layer');
   write(
@@ -5174,8 +5173,8 @@ See \`docs/agent-playbooks/demo-ops.md\`.
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator require-version-bump ignores unrelated marketplace plugin entry changes', () => {
-  const root = makeRoot();
+test('validator require-version-bump ignores unrelated marketplace plugin entry changes', (t) => {
+  const root = makeRoot(t);
   createVersionBumpFixture(root, { pluginNames: ['demo-ops', 'other-ops'] });
   const base = commitAll(root, 'base trigger layer');
   const codexMarketplace = readJson(root, '.agents/plugins/marketplace.json');
@@ -5200,8 +5199,8 @@ test('validator require-version-bump ignores unrelated marketplace plugin entry 
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator require-version-bump rejects matching marketplace entry changes without version bump', () => {
-  const root = makeRoot();
+test('validator require-version-bump rejects matching marketplace entry changes without version bump', (t) => {
+  const root = makeRoot(t);
   createVersionBumpFixture(root);
   const base = commitAll(root, 'base trigger layer');
   const codexMarketplace = readJson(root, '.agents/plugins/marketplace.json');
@@ -5223,8 +5222,8 @@ test('validator require-version-bump rejects matching marketplace entry changes 
   assert.match(result.stderr, /\.agents\/plugins\/marketplace\.json/);
 });
 
-test('validator require-version-bump accepts matching marketplace version change with aligned manifests', () => {
-  const root = makeRoot();
+test('validator require-version-bump accepts matching marketplace version change with aligned manifests', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createVersionBumpFixture(root);
   const base = commitAll(root, 'base trigger layer');
   bumpDemoPluginVersion(root, pluginDir);
@@ -5242,11 +5241,11 @@ test('validator require-version-bump accepts matching marketplace version change
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('validator require-version-bump fails explicitly when git is unavailable', () => {
-  const root = makeRoot();
+test('validator require-version-bump fails explicitly when git is unavailable', (t) => {
+  const root = makeRoot(t);
   createVersionBumpFixture(root);
   const base = commitAll(root, 'base trigger layer');
-  const emptyPath = makeRoot();
+  const emptyPath = makeRoot(t);
 
   const result = runScript(
     'validate-trigger-layer.mjs',
@@ -5260,8 +5259,8 @@ test('validator require-version-bump fails explicitly when git is unavailable', 
   assert.match(result.stderr, /git/i);
 });
 
-test('validator require-version-bump explains unavailable base refs', () => {
-  const root = makeRoot();
+test('validator require-version-bump explains unavailable base refs', (t) => {
+  const root = makeRoot(t);
   createVersionBumpFixture(root);
   commitAll(root, 'base trigger layer');
 
@@ -5277,8 +5276,8 @@ test('validator require-version-bump explains unavailable base refs', () => {
   assert.match(result.stderr, /git fetch --unshallow|fetch-depth: 0/);
 });
 
-test('validator require-version-bump works from detached HEAD', () => {
-  const root = makeRoot();
+test('validator require-version-bump works from detached HEAD', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createVersionBumpFixture(root);
   const base = commitAll(root, 'base trigger layer');
   writeManagedSkill(root, pluginDir, 'Changed generated skill body.');
@@ -5299,9 +5298,9 @@ test('validator require-version-bump works from detached HEAD', () => {
   assert.match(result.stdout, /trigger layer validation passed/);
 });
 
-test('Codex plugin cache sync snapshots the marketplace plugin version and backs up stale cache', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
+test('Codex plugin cache sync snapshots the marketplace plugin version and backs up stale cache', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   writeValidSkillAndCommand(root, pluginDir);
   write(root, `${pluginDir}/extra.txt`, 'fresh snapshot');
@@ -5330,10 +5329,10 @@ test('Codex plugin cache sync snapshots the marketplace plugin version and backs
   assert.match(result.stdout, /diff -qr passed/);
 });
 
-test('version check reports matching source versions and Codex cache versions', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = join(makeRoot(), 'missing-claude-home');
+test('version check reports matching source versions and Codex cache versions', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = join(makeRoot(t), 'missing-claude-home');
   createPackage(root, '5.8.0');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
@@ -5366,10 +5365,10 @@ test('version check reports matching source versions and Codex cache versions', 
   assert.match(result.stdout, /claude: not initialized/);
 });
 
-test('version check emits structured JSON when requested', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = join(makeRoot(), 'missing-claude-home');
+test('version check emits structured JSON when requested', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = join(makeRoot(t), 'missing-claude-home');
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
@@ -5407,11 +5406,11 @@ test('version check usage mentions Claude home option', () => {
   assert.match(result.stderr, /--claude-home <path>/);
 });
 
-test('version check uses official Claude CLI when available', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = join(makeRoot(), 'missing-claude-home');
-  const fakeBin = makeRoot();
+test('version check uses official Claude CLI when available', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = join(makeRoot(t), 'missing-claude-home');
+  const fakeBin = makeRoot(t);
   const fakeClaude = join(fakeBin, 'claude');
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
@@ -5456,10 +5455,10 @@ fi
   assert.equal(Array.isArray(payload.actions), true);
 });
 
-test('version check falls back to Claude metadata when CLI is unavailable', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
+test('version check falls back to Claude metadata when CLI is unavailable', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
@@ -5532,10 +5531,10 @@ test('version check falls back to Claude metadata when CLI is unavailable', () =
   ]);
 });
 
-test('version check reports missing Claude plugin entry even when metadata exists', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
+test('version check reports missing Claude plugin entry even when metadata exists', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   writeJson(claudeHome, 'plugins/installed_plugins.json', {
@@ -5592,10 +5591,10 @@ test('version check reports missing Claude plugin entry even when metadata exist
   ]);
 });
 
-test('version check strict mode fails when Claude metadata points at an empty install path', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
+test('version check strict mode fails when Claude metadata points at an empty install path', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
@@ -5647,10 +5646,10 @@ test('version check strict mode fails when Claude metadata points at an empty in
   assert.equal(payload.versionMismatch, true);
 });
 
-test('version check strict mode fails when Claude expected install is orphaned', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
+test('version check strict mode fails when Claude expected install is orphaned', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
@@ -5716,10 +5715,10 @@ test('version check strict mode fails when Claude expected install is orphaned',
   );
 });
 
-test('version check emits well-formed Claude action entries', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
+test('version check emits well-formed Claude action entries', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   writeJson(claudeHome, 'plugins/installed_plugins.json', {
@@ -5764,8 +5763,8 @@ test('version check emits well-formed Claude action entries', () => {
   assert.equal('actions' in payload.claude, false);
 });
 
-test('plugin state probe reports Claude home without CLI and missing requested plugin', async () => {
-  const claudeHome = makeRoot();
+test('plugin state probe reports Claude home without CLI and missing requested plugin', async (t) => {
+  const claudeHome = makeRoot(t);
   writeJson(claudeHome, 'plugins/installed_plugins.json', {
     version: 2,
     plugins: {
@@ -5803,8 +5802,8 @@ test('plugin state probe reports Claude home without CLI and missing requested p
   ]);
 });
 
-test('plugin state probe reports nonexistent Claude home as not initialized CLI state', async () => {
-  const claudeHome = join(makeRoot(), 'missing-claude-home');
+test('plugin state probe reports nonexistent Claude home as not initialized CLI state', async (t) => {
+  const claudeHome = join(makeRoot(t), 'missing-claude-home');
 
   const { probeClaudeState } = await import('../scripts/lib/plugin-state-probe.mjs');
   const state = probeClaudeState({
@@ -5820,8 +5819,8 @@ test('plugin state probe reports nonexistent Claude home as not initialized CLI 
   assert.deepEqual(state.entries, []);
 });
 
-test('plugin state probe reports broken Claude install paths as unusable warnings', async () => {
-  const claudeHome = makeRoot();
+test('plugin state probe reports broken Claude install paths as unusable warnings', async (t) => {
+  const claudeHome = makeRoot(t);
   const missingInstallPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
   writeJson(claudeHome, 'plugins/installed_plugins.json', {
     version: 2,
@@ -5860,8 +5859,8 @@ test('plugin state probe reports broken Claude install paths as unusable warning
   assert.deepEqual(state.entries[0].warnings, ['install-path-missing', 'install-path-empty']);
 });
 
-test('plugin state probe recommends Claude update for known user-scope marketplace installs', async () => {
-  const claudeHome = makeRoot();
+test('plugin state probe recommends Claude update for known user-scope marketplace installs', async (t) => {
+  const claudeHome = makeRoot(t);
   const installPath = join(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2');
   write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
   writeJson(claudeHome, 'plugins/known_marketplaces.json', {
@@ -5910,8 +5909,8 @@ test('plugin state probe recommends Claude update for known user-scope marketpla
   ]);
 });
 
-test('plugin state probe recommends Claude install for known marketplace without user scope', async () => {
-  const claudeHome = makeRoot();
+test('plugin state probe recommends Claude install for known marketplace without user scope', async (t) => {
+  const claudeHome = makeRoot(t);
   write(claudeHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
   writeJson(claudeHome, 'plugins/known_marketplaces.json', {
     'demo-ops': {
@@ -5951,8 +5950,8 @@ test('plugin state probe recommends Claude install for known marketplace without
   });
 });
 
-test('plugin state probe reports missing Claude metadata distinctly from missing plugin entry', async () => {
-  const claudeHome = makeRoot();
+test('plugin state probe reports missing Claude metadata distinctly from missing plugin entry', async (t) => {
+  const claudeHome = makeRoot(t);
 
   const { probeClaudeState } = await import('../scripts/lib/plugin-state-probe.mjs');
   const state = probeClaudeState({
@@ -5968,8 +5967,8 @@ test('plugin state probe reports missing Claude metadata distinctly from missing
   assert.deepEqual(state.entries, []);
 });
 
-test('plugin state probe lists Codex cache versions from the configured home', async () => {
-  const codexHome = makeRoot();
+test('plugin state probe lists Codex cache versions from the configured home', async (t) => {
+  const codexHome = makeRoot(t);
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache');
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.2/current.txt', 'current cache');
 
@@ -5986,8 +5985,8 @@ test('plugin state probe lists Codex cache versions from the configured home', a
   assert.equal(cache.status, 'present');
 });
 
-test('plugin state probe separates Claude marketplace dirty state from installed commit state', async () => {
-  const claudeHome = makeRoot();
+test('plugin state probe separates Claude marketplace dirty state from installed commit state', async (t) => {
+  const claudeHome = makeRoot(t);
   const marketplace = join(claudeHome, 'plugins/marketplaces/demo-ops');
   mkdirSync(marketplace, { recursive: true });
   initGitFixture(marketplace);
@@ -6033,8 +6032,8 @@ test('plugin state probe separates Claude marketplace dirty state from installed
   assert.equal(state.marketplace.warnings.includes('head-differs-from-installed-sha'), true);
 });
 
-test('plugin state probe reports untracked marketplace files as dirty clone state', async () => {
-  const claudeHome = makeRoot();
+test('plugin state probe reports untracked marketplace files as dirty clone state', async (t) => {
+  const claudeHome = makeRoot(t);
   const marketplace = join(claudeHome, 'plugins/marketplaces/demo-ops');
   mkdirSync(marketplace, { recursive: true });
   initGitFixture(marketplace);
@@ -6074,8 +6073,8 @@ test('plugin state probe reports untracked marketplace files as dirty clone stat
   assert.equal(state.marketplace.warnings.includes('dirty-clone'), true);
 });
 
-test('plugin state probe treats any installed SHA matching marketplace HEAD as not divergent', async () => {
-  const claudeHome = makeRoot();
+test('plugin state probe treats any installed SHA matching marketplace HEAD as not divergent', async (t) => {
+  const claudeHome = makeRoot(t);
   const marketplace = join(claudeHome, 'plugins/marketplaces/demo-ops');
   mkdirSync(marketplace, { recursive: true });
   initGitFixture(marketplace);
@@ -6123,10 +6122,10 @@ test('plugin state probe treats any installed SHA matching marketplace HEAD as n
   assert.equal(state.marketplace.warnings.includes('head-differs-from-installed-sha'), false);
 });
 
-test('version check --surface codex skips Claude installed-state checks', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const fakeBin = makeRoot();
+test('version check --surface codex skips Claude installed-state checks', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const fakeBin = makeRoot(t);
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
@@ -6155,10 +6154,10 @@ exit 23
   assert.equal(existsSync(commandLog), false);
 });
 
-test('version check --surface claude skips Codex cache installed-state checks', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
+test('version check --surface claude skips Codex cache installed-state checks', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   write(codexHome, 'plugins/cache/demo-ops/demo-ops/0.1.1/old.txt', 'old cache only');
@@ -6210,10 +6209,10 @@ test('version check --surface claude skips Codex cache installed-state checks', 
   assert.equal(payload.versionMismatch, false);
 });
 
-test('version check --surface source skips installed-state checks', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const fakeBin = makeRoot();
+test('version check --surface source skips installed-state checks', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const fakeBin = makeRoot(t);
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
@@ -6235,7 +6234,7 @@ exit 23
       '--codex-home',
       codexHome,
       '--claude-home',
-      join(makeRoot(), 'missing-claude-home'),
+      join(makeRoot(t), 'missing-claude-home'),
       '--surface',
       'source',
       '--strict-installed',
@@ -6255,10 +6254,10 @@ exit 23
   assert.equal(existsSync(commandLog), false);
 });
 
-test('version check --surface source keeps human output focused on source state', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const fakeBin = makeRoot();
+test('version check --surface source keeps human output focused on source state', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const fakeBin = makeRoot(t);
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
@@ -6280,7 +6279,7 @@ exit 23
       '--codex-home',
       codexHome,
       '--claude-home',
-      join(makeRoot(), 'missing-claude-home'),
+      join(makeRoot(t), 'missing-claude-home'),
       '--surface',
       'source',
       pluginName,
@@ -6298,14 +6297,14 @@ exit 23
   assert.equal(existsSync(commandLog), false);
 });
 
-test('version check fails when source versions differ', () => {
-  const root = makeRoot();
+test('version check fails when source versions differ', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.1' });
 
   const result = runScript(
     'check-plugin-version.mjs',
-    ['--root', root, '--claude-home', join(makeRoot(), 'missing-claude-home'), pluginName],
+    ['--root', root, '--claude-home', join(makeRoot(t), 'missing-claude-home'), pluginName],
     {
       env: { ...process.env, PATH: '' },
     },
@@ -6317,8 +6316,8 @@ test('version check fails when source versions differ', () => {
   assert.match(result.stderr, /codex marketplace=0\.1\.1/);
 });
 
-test('version check includes scoped package versions by default', () => {
-  const root = makeRoot();
+test('version check includes scoped package versions by default', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', '@acme/demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
@@ -6328,7 +6327,7 @@ test('version check includes scoped package versions by default', () => {
       '--root',
       root,
       '--claude-home',
-      join(makeRoot(), 'missing-claude-home'),
+      join(makeRoot(t), 'missing-claude-home'),
       '--surface',
       'source',
       '--json',
@@ -6347,8 +6346,8 @@ test('version check includes scoped package versions by default', () => {
   );
 });
 
-test('version check can force or skip package version alignment', () => {
-  const root = makeRoot();
+test('version check can force or skip package version alignment', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '5.8.0', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
@@ -6358,7 +6357,7 @@ test('version check can force or skip package version alignment', () => {
       '--root',
       root,
       '--claude-home',
-      join(makeRoot(), 'missing-claude-home'),
+      join(makeRoot(t), 'missing-claude-home'),
       '--surface',
       'source',
       '--json',
@@ -6382,7 +6381,7 @@ test('version check can force or skip package version alignment', () => {
       '--root',
       root,
       '--claude-home',
-      join(makeRoot(), 'missing-claude-home'),
+      join(makeRoot(t), 'missing-claude-home'),
       '--surface',
       'source',
       '--include-package',
@@ -6397,8 +6396,8 @@ test('version check can force or skip package version alignment', () => {
   assert.match(forced.stderr, /package\.json=5\.8\.0/);
 });
 
-test('bump plugin version leaves unrelated package versions unchanged by default', () => {
-  const root = makeRoot();
+test('bump plugin version leaves unrelated package versions unchanged by default', (t) => {
+  const root = makeRoot(t);
   createPackage(root);
   const { pluginName } = createMinimalPlugin(root);
 
@@ -6435,8 +6434,8 @@ test('bump plugin version leaves unrelated package versions unchanged by default
   );
 });
 
-test('bump plugin version updates matching package versions unless explicitly skipped', () => {
-  const root = makeRoot();
+test('bump plugin version updates matching package versions unless explicitly skipped', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.0', '@acme/demo-ops');
   const { pluginName } = createMinimalPlugin(root);
 
@@ -6467,8 +6466,8 @@ test('bump plugin version updates matching package versions unless explicitly sk
   assert.equal(readJson(root, '.agents/plugins/marketplace.json').plugins[0].version, '0.1.3');
 });
 
-test('bump plugin version validates surface before writing files', () => {
-  const root = makeRoot();
+test('bump plugin version validates surface before writing files', (t) => {
+  const root = makeRoot(t);
   createPackage(root);
   const { pluginName } = createMinimalPlugin(root);
 
@@ -6493,8 +6492,8 @@ test('bump plugin version validates surface before writing files', () => {
   );
 });
 
-test('bump plugin version warns when updating a partial surface', () => {
-  const root = makeRoot();
+test('bump plugin version warns when updating a partial surface', (t) => {
+  const root = makeRoot(t);
   createPackage(root);
   const { pluginName } = createMinimalPlugin(root);
 
@@ -6535,8 +6534,8 @@ test('bump plugin version warns when updating a partial surface', () => {
   );
 });
 
-test('bump plugin version --next patch updates matching package and all plugin surfaces', () => {
-  const root = makeRoot();
+test('bump plugin version --next patch updates matching package and all plugin surfaces', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
@@ -6559,8 +6558,8 @@ test('bump plugin version --next patch updates matching package and all plugin s
   });
 });
 
-test('bump plugin version --next patch skips matching package when explicitly excluded', () => {
-  const root = makeRoot();
+test('bump plugin version --next patch skips matching package when explicitly excluded', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
@@ -6584,8 +6583,8 @@ test('bump plugin version --next patch skips matching package when explicitly ex
   });
 });
 
-test('bump plugin version --next patch updates unrelated package when explicitly included', () => {
-  const root = makeRoot();
+test('bump plugin version --next patch updates unrelated package when explicitly included', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', 'demo-trigger-kit');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
@@ -6609,8 +6608,8 @@ test('bump plugin version --next patch updates unrelated package when explicitly
   });
 });
 
-test('bump plugin version --next minor resets patch version', () => {
-  const root = makeRoot();
+test('bump plugin version --next minor resets patch version', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', '@acme/demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
@@ -6633,8 +6632,8 @@ test('bump plugin version --next minor resets patch version', () => {
   });
 });
 
-test('bump plugin version --next major resets minor and patch versions', () => {
-  const root = makeRoot();
+test('bump plugin version --next major resets minor and patch versions', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
@@ -6657,8 +6656,8 @@ test('bump plugin version --next major resets minor and patch versions', () => {
   });
 });
 
-test('bump plugin version --next rejects partial surfaces before writing files', () => {
-  const root = makeRoot();
+test('bump plugin version --next rejects partial surfaces before writing files', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   const before = readPluginVersionSources(root, pluginName);
@@ -6679,8 +6678,8 @@ test('bump plugin version --next rejects partial surfaces before writing files',
   assert.deepEqual(readPluginVersionSources(root, pluginName), before);
 });
 
-test('bump plugin version --next rejects non-clean current semver before writing files', () => {
-  const root = makeRoot();
+test('bump plugin version --next rejects non-clean current semver before writing files', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.0-rc.1', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.0-rc.1' });
   const before = readPluginVersionSources(root, pluginName);
@@ -6699,8 +6698,8 @@ test('bump plugin version --next rejects non-clean current semver before writing
   assert.deepEqual(readPluginVersionSources(root, pluginName), before);
 });
 
-test('bump plugin version --next rejects differing source versions before writing files', () => {
-  const root = makeRoot();
+test('bump plugin version --next rejects differing source versions before writing files', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   const claudeManifest = readJson(root, `plugins/${pluginName}/.claude-plugin/plugin.json`);
@@ -6722,8 +6721,8 @@ test('bump plugin version --next rejects differing source versions before writin
   assert.deepEqual(readPluginVersionSources(root, pluginName), before);
 });
 
-test('bump plugin version --next rejects differing explicitly included package before writing files', () => {
-  const root = makeRoot();
+test('bump plugin version --next rejects differing explicitly included package before writing files', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '5.8.0', 'demo-trigger-kit');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   const before = readPluginVersionSources(root, pluginName);
@@ -6743,8 +6742,8 @@ test('bump plugin version --next rejects differing explicitly included package b
   assert.deepEqual(readPluginVersionSources(root, pluginName), before);
 });
 
-test('bump plugin version --next leaves unrelated package versions unchanged', () => {
-  const root = makeRoot();
+test('bump plugin version --next leaves unrelated package versions unchanged', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '5.8.0', 'demo-trigger-kit');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
 
@@ -6767,8 +6766,8 @@ test('bump plugin version --next leaves unrelated package versions unchanged', (
   });
 });
 
-test('bump plugin version --next rejects invalid increments', () => {
-  const root = makeRoot();
+test('bump plugin version --next rejects invalid increments', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   const before = readPluginVersionSources(root, pluginName);
@@ -6787,8 +6786,8 @@ test('bump plugin version --next rejects invalid increments', () => {
   assert.deepEqual(readPluginVersionSources(root, pluginName), before);
 });
 
-test('bump plugin version requires --version or --next', () => {
-  const root = makeRoot();
+test('bump plugin version requires --version or --next', (t) => {
+  const root = makeRoot(t);
   createPackage(root, '0.1.2', 'demo-ops');
   const { pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   const before = readPluginVersionSources(root, pluginName);
@@ -6912,11 +6911,11 @@ test('agent-trigger-kit exposes trigger-layer clean command', () => {
   assert.match(commandText, /--apply/);
 });
 
-test('local agent trigger refresh syncs stale Codex cache and updates Claude when available', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
-  const fakeBin = makeRoot();
+test('local agent trigger refresh syncs stale Codex cache and updates Claude when available', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
+  const fakeBin = makeRoot(t);
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
@@ -7019,11 +7018,11 @@ exit 99
   assert.doesNotMatch(log, /cursor/);
 });
 
-test('local agent trigger refresh syncs when structured version check reports missing expected cache', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
-  const fakeBin = makeRoot();
+test('local agent trigger refresh syncs when structured version check reports missing expected cache', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
+  const fakeBin = makeRoot(t);
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
@@ -7094,10 +7093,10 @@ test('local agent trigger refresh uses structured version check output', () => {
   assert.doesNotMatch(script, /codex cache expected version/);
 });
 
-test('local agent trigger refresh reports Claude fallback without writing Claude metadata when CLI is unavailable', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
+test('local agent trigger refresh reports Claude fallback without writing Claude metadata when CLI is unavailable', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
   createPackage(root, '0.1.2');
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   writeValidSkillAndCommand(root, pluginDir);
@@ -7150,11 +7149,11 @@ test('local agent trigger refresh reports Claude fallback without writing Claude
   assert.equal(readFileSync(metadataPath, 'utf8'), beforeMetadata);
 });
 
-test('local agent trigger refresh fails when probed Claude CLI cannot be spawned', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
-  const fakeBin = makeRoot();
+test('local agent trigger refresh fails when probed Claude CLI cannot be spawned', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
+  const fakeBin = makeRoot(t);
   createPackage(root, '0.1.2');
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
   writeValidSkillAndCommand(root, pluginDir);
@@ -7211,11 +7210,11 @@ exit 0
   assert.match(`${result.stderr}\n${result.stdout}`, /claude plugin validate .*failed to start/);
 });
 
-test('local agent trigger refresh installs user scope when Claude has only project scope', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
-  const fakeBin = makeRoot();
+test('local agent trigger refresh installs user scope when Claude has only project scope', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
+  const fakeBin = makeRoot(t);
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
@@ -7278,11 +7277,11 @@ fi
   assert.doesNotMatch(log, /claude plugin update demo-ops@demo-ops --scope local/);
 });
 
-test('local agent trigger refresh reports Claude cache health markers without blocking CLI update', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
-  const fakeBin = makeRoot();
+test('local agent trigger refresh reports Claude cache health markers without blocking CLI update', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
+  const fakeBin = makeRoot(t);
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
@@ -7352,11 +7351,11 @@ fi
   assert.match(log, /claude plugin install demo-ops@demo-ops --scope user/);
 });
 
-test('local agent trigger refresh skips Codex prompt debug when requested after validation', () => {
-  const root = makeRoot();
-  const codexHome = makeRoot();
-  const claudeHome = makeRoot();
-  const fakeBin = makeRoot();
+test('local agent trigger refresh skips Codex prompt debug when requested after validation', (t) => {
+  const root = makeRoot(t);
+  const codexHome = makeRoot(t);
+  const claudeHome = makeRoot(t);
+  const fakeBin = makeRoot(t);
   const commandLog = join(fakeBin, 'commands.log');
   createPackage(root, '0.1.2');
   const { pluginDir, pluginName } = createMinimalPlugin(root, { version: '0.1.2' });
