@@ -110,6 +110,19 @@ Exit codes are 0 healthy, 1 validate fail, 2 usage,
 `session-check` is read-only: no hooks, background triggers, or background
 automation.
 
+### Workflow Helpers
+
+- `agent-trigger-kit spec-graduate <slug>` moves a completed scratch spec from
+  `docs/superpowers/specs/` into `docs/designs/` and conservatively removes a
+  matching scratch plan when there is exactly one match.
+- `agent-trigger-kit audit-cleanup` runs a read-only post-merge audit for
+  unmarked outcome events, local branch residue, stale remote-tracking refs,
+  and `agent-trigger-kit-*` temp residue. It prints suggested commands but does
+  not delete branches or files.
+- `agent-trigger-kit ship-gate` runs the local pre-PR gate in one command:
+  scratch namespace, plugin version check, lint, format check, trigger-layer
+  validation, and tests.
+
 From a local checkout, use the scripts directly:
 
 ```bash
