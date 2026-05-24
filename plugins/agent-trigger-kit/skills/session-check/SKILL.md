@@ -25,5 +25,7 @@ preparing closeout.
 - `4`: unmarked events.
 
 For closeout, mark unmarked events when possible; otherwise report them clearly.
-The check is read-only. Avoid hooks, background automation, or background
-triggers for session-check behavior.
+The check is read-only. It does not need the outcome store to be writable; it
+only needs readable existing state, so it can still succeed under sandboxed
+HOME directories where writes are blocked. Avoid hooks, background automation,
+or background triggers for session-check behavior.

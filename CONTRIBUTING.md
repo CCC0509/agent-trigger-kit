@@ -34,8 +34,10 @@ npm run preflight
 If your change affects packaging or the CLI bin, also run:
 
 ```bash
-npm exec --cache /private/tmp/agent-trigger-kit-npm-cache --yes --package . -- agent-trigger-kit --help
-npm pack --cache /private/tmp/agent-trigger-kit-npm-cache --dry-run --json
+npm_cache="$(mktemp -d -t agent-trigger-kit-npm-cache.XXXXXX)"
+trap 'rm -rf "$npm_cache"' EXIT
+npm exec --cache "$npm_cache" --yes --package . -- agent-trigger-kit --help
+npm pack --cache "$npm_cache" --dry-run --json
 ```
 
 CI pins Claude Code CLI to `@anthropic-ai/claude-code@2.1.116`. Bump that
@@ -59,6 +61,12 @@ Pull requests run a non-blocking `Scratch Namespace Advisory` check. If tracked
 scratch files are present, the check emits GitHub warning annotations on each
 file so reviewers can see the risk while branch-local design review is still in
 progress. This advisory does not block ordinary review.
+
+For local scratch files outside the repository, use randomized temporary paths
+and remove them at session end. See
+`docs/designs/2026-05-24-scratch-hygiene-note.md` for the current scratch
+hygiene rule covering `${TMPDIR}/agent-trigger-kit-*` and
+`/private/tmp/agent-trigger-kit-*` artifacts.
 
 Before merge, relocate durable scratch documents to `docs/designs/` or drop
 non-durable scratch artifacts from the branch. `docs/superpowers/` must contain
