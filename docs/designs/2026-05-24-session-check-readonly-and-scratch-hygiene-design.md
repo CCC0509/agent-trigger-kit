@@ -272,6 +272,8 @@ Run plugin version verification after the required plugin-visible version bump:
 npm run ops:plugin-version-check -- --surface source
 ```
 
-Do not run `npm run check:scratch-namespace` while this branch intentionally
-tracks the branch-local spec under `docs/superpowers/`; it is expected to fail
-until the spec is relocated or dropped before merge.
+Run the scratch namespace gate and expect it to pass:
+
+```bash
+npm run check:scratch-namespace
+```
