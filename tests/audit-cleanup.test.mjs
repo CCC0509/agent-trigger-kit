@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -299,6 +299,48 @@ test('audit-cleanup reports temp scratch residue from repeatable tmp roots and e
     report.findings.some((candidate) => candidate.details.path === homeDir),
     false,
     JSON.stringify(report.findings, null, 2),
+  );
+});
+
+test('audit-cleanup JSON output remains parseable with many findings', (t) => {
+  const root = initRepo(t);
+  const tmpRoot = makeTempDir(t, 'agent-trigger-kit-audit-large-tmp-');
+  const homeDir = makeHome(t);
+
+  for (let index = 0; index < 120; index += 1) {
+    mkdirSync(join(tmpRoot, `agent-trigger-kit-large-${String(index).padStart(3, '0')}`));
+  }
+
+  const stdout = execFileSync(
+    process.execPath,
+    [
+      join(repoRoot, 'scripts', 'cli.mjs'),
+      'audit-cleanup',
+      '--root',
+      root,
+      '--base',
+      'main',
+      '--json',
+      '--tmp-root',
+      tmpRoot,
+    ],
+    {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: homeDir,
+        AGENT_TRIGGER_KIT_OUTCOME_DISABLED: '1',
+      },
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  const report = JSON.parse(stdout);
+
+  assert.equal(report.findings.length, 120);
+  assert.equal(
+    report.findings.every((finding) => finding.category === 'scratch'),
+    true,
   );
 });
 

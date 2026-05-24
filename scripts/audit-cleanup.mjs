@@ -183,7 +183,7 @@ function errorPayload(message) {
 
 function main() {
   const { exitCode } = runAuditCleanupCommand();
-  process.exit(exitCode);
+  process.exitCode = exitCode;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
