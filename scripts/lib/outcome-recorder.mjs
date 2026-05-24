@@ -10,6 +10,14 @@ const RETENTION_RECORDS = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REPORT_VERSION = '0.1';
 const EVENTS_VERSION = '0.1';
+const USER_STORE_UNAVAILABLE_CODES = new Set([
+  'EACCES',
+  'EEXIST',
+  'EISDIR',
+  'ENOTDIR',
+  'EPERM',
+  'EROFS',
+]);
 
 export class OutcomeRecorderError extends Error {
   constructor(message, exitCode = 1) {
@@ -360,13 +368,28 @@ export function autoOutcomeDisabled(args = {}, env = process.env) {
   return env.AGENT_TRIGGER_KIT_OUTCOME_DISABLED === '1' || args['no-outcome'] === true;
 }
 
-export function recordOutcomeSafely(options) {
+export function recordOutcomeSafely(options = {}) {
+  const recordOptions = options.now === undefined ? { ...options, now: new Date() } : options;
   try {
-    return recordOutcomeEvent(options);
+    return recordOutcomeEvent(recordOptions);
   } catch (error) {
+    if (shouldFallbackToProjectStore(recordOptions, error)) {
+      try {
+        return recordOutcomeEvent({ ...recordOptions, store: 'project' });
+      } catch (fallbackError) {
+        console.error(`outcome recording failed: ${fallbackError.message}`);
+        return null;
+      }
+    }
+
     console.error(`outcome recording failed: ${error.message}`);
     return null;
   }
+}
+
+function shouldFallbackToProjectStore(options, error) {
+  const store = options.store || 'user';
+  return store === 'user' && USER_STORE_UNAVAILABLE_CODES.has(error?.code);
 }
 
 function appendRecord({ store, record, now }) {

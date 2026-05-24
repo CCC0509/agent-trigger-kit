@@ -672,7 +672,7 @@ test('premerge and scratch namespace checks auto-emit command-level events', () 
   assert.equal(scratchRecords[0].exit_code, 0);
 });
 
-test('auto-emitter recorder errors never alter check exit codes', () => {
+test('auto-emitter falls back to project-local store when user store is unavailable', () => {
   const root = makeRoot();
   initGitFixture(root);
   const badHome = join(root, 'not-a-directory');
@@ -683,5 +683,16 @@ test('auto-emitter recorder errors never alter check exit codes', () => {
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stderr, /outcome recording failed/i);
+  assert.doesNotMatch(result.stderr, /outcome recording failed/i);
+  assert.equal(existsSync(outcomeStorePath({ root, homeDir: badHome }).eventsPath), false);
+  assert.equal(
+    readFileSync(join(root, '.agent-trigger-kit/outcomes/.gitignore'), 'utf8'),
+    '*\n!.gitignore\n',
+  );
+  const records = readJsonl(outcomeStorePath({ root, store: 'project' }).eventsPath);
+  assert.equal(records.length, 1);
+  assert.deepEqual(validateRecord(records[0]), { ok: true, errors: [] });
+  assert.equal(records[0].verb, 'scratch_namespace_check');
+  assert.equal(records[0].outcome, 'success');
+  assert.equal(records[0].exit_code, 0);
 });
