@@ -131,6 +131,18 @@ test('spec-graduate target durable design already exists fails without overwriti
   );
 });
 
+test('spec-graduate rejects unknown options before moving files', (t) => {
+  const root = makeRoot(t);
+  writeSpec(root, '2026-05-24-typo-design.md', '# Typo design');
+
+  const result = runCli(['spec-graduate', 'typo', '--root', root, '--dryrun']);
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /unknown option: --dryrun/);
+  assert.equal(exists(root, 'docs/superpowers/specs/2026-05-24-typo-design.md'), true);
+  assert.equal(exists(root, 'docs/designs/2026-05-24-typo-design.md'), false);
+});
+
 test('spec-graduate --dry-run --json leaves files unchanged and returns planned status', (t) => {
   const root = makeRoot(t);
   writeSpec(root, '2026-05-24-dry-run-design.md', '# Dry design');

@@ -129,7 +129,7 @@ function addOutcomeFindings({ report, root, homeDir }) {
       root,
       homeDir,
       store: 'user',
-      recent: 1000,
+      recent: Number.MAX_SAFE_INTEGER,
       unmarked: true,
     });
     for (const event of listing.events) {

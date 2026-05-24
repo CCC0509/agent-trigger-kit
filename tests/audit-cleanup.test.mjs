@@ -8,6 +8,7 @@ import test from 'node:test';
 import { makeTempDir } from './helpers/tmp.mjs';
 import {
   markOutcomeEvent,
+  mintUuidV7,
   outcomeStorePath,
   recordOutcomeEvent,
 } from '../scripts/lib/outcome-recorder.mjs';
@@ -260,6 +261,38 @@ test('audit-cleanup reports unmarked outcome events and ignores marked events', 
   assert.deepEqual(finding.suggested_commands, [
     `agent-trigger-kit outcome mark --root ${root} ${unmarked.id} --outcome success --note "reviewed during audit-cleanup"`,
   ]);
+});
+
+test('audit-cleanup reports more than 1000 unmarked outcome events', (t) => {
+  const root = initRepo(t);
+  const homeDir = makeHome(t);
+  const store = outcomeStorePath({ root, homeDir, store: 'user' });
+  mkdirSync(dirname(store.eventsPath), { recursive: true });
+  const start = new Date('2026-01-01T00:00:00.000Z').getTime();
+  const records = Array.from({ length: 1001 }, (_, index) => {
+    const ts = new Date(start + index * 70_000);
+    return {
+      id: mintUuidV7(ts, `bulk-unmarked-${index}`),
+      schema_version: '0.1',
+      kind: 'event',
+      ts: ts.toISOString(),
+      verb: 'validate',
+      outcome: 'success',
+      surface: 'repo',
+      exit_code: 0,
+      project_hash: store.projectHash,
+      plugin: 'agent-trigger-kit',
+    };
+  });
+  writeFileSync(
+    store.eventsPath,
+    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+  );
+
+  const report = runAuditJson(t, root, [], { homeDir });
+  const outcomeFindings = report.findings.filter((finding) => finding.category === 'outcome');
+
+  assert.equal(outcomeFindings.length, 1001);
 });
 
 test('audit-cleanup emits a warning finding when the outcome store cannot be inspected', (t) => {

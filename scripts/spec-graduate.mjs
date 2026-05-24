@@ -19,6 +19,7 @@ export function runSpecGraduate(options = {}) {
     booleanKeys: ['commit', 'dry-run', 'json'],
     collectPositionals: true,
   });
+  validateOptions(args);
   const slug = resolveSlug(args);
   const root = resolveRoot(args, cwd);
   const dryRun = args['dry-run'] === true;
@@ -76,6 +77,15 @@ export function runSpecGraduate(options = {}) {
   }
 
   return result;
+}
+
+function validateOptions(args) {
+  const allowed = new Set(['_', 'root', 'commit', 'dry-run', 'json']);
+  for (const key of Object.keys(args)) {
+    if (!allowed.has(key)) {
+      throw usageError(`unknown option: --${key}`);
+    }
+  }
 }
 
 function resolveSlug(args) {
