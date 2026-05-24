@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import { makeTempDir } from './helpers/tmp.mjs';
 import { parseArgs } from '../scripts/lib/args.mjs';
 import {
   createPathOf,
@@ -13,8 +12,8 @@ import {
   writeJsonFileCreatingParents,
 } from '../scripts/lib/fs-json.mjs';
 
-function makeRoot() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-lib-test-'));
+function makeRoot(t) {
+  return makeTempDir(t, 'agent-trigger-kit-lib-test-');
 }
 
 test('parseArgs supports options, booleans, and positional arguments', () => {
@@ -40,8 +39,8 @@ test('parseArgs ignores positionals when positional collection is disabled', () 
   assert.deepEqual(args, { plugin: 'demo-ops' });
 });
 
-test('fs json helpers read, write, and update rooted JSON files', () => {
-  const root = makeRoot();
+test('fs json helpers read, write, and update rooted JSON files', (t) => {
+  const root = makeRoot(t);
   const pathOf = createPathOf(root);
   const path = pathOf('nested/value.json');
 

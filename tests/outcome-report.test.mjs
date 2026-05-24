@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { makeTempDir } from './helpers/tmp.mjs';
 import {
   buildOutcomeReport,
   buildOutcomeSessionSummary,
@@ -16,12 +16,12 @@ import {
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function makeRoot() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-report-root-'));
+function makeRoot(t) {
+  return makeTempDir(t, 'agent-trigger-kit-report-root-');
 }
 
-function makeHome() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-report-home-'));
+function makeHome(t) {
+  return makeTempDir(t, 'agent-trigger-kit-report-home-');
 }
 
 function emit(root, homeDir, fields) {
@@ -51,9 +51,9 @@ function runCli(args, homeDir) {
   });
 }
 
-test('outcome report computes propagation totals, rates, and failure categories', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome report computes propagation totals, rates, and failure categories', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const now = new Date('2026-05-23T10:00:00.000Z');
 
   emit(root, homeDir, {
@@ -133,9 +133,9 @@ test('outcome report computes propagation totals, rates, and failure categories'
   ]);
 });
 
-test('outcome report sorts per-surface reliability with weak surfaces first', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome report sorts per-surface reliability with weak surfaces first', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const now = new Date('2026-05-23T10:00:00.000Z');
 
   emit(root, homeDir, {
@@ -196,9 +196,9 @@ test('outcome report sorts per-surface reliability with weak surfaces first', ()
   assert.equal(report.by_surface[2].success_rate, 0.5);
 });
 
-test('outcome report applies latest mark overrides including surface changes', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome report applies latest mark overrides including surface changes', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const now = new Date('2026-05-23T10:00:00.000Z');
   const event = emit(root, homeDir, {
     surface: 'repo',
@@ -245,9 +245,9 @@ test('outcome report applies latest mark overrides including surface changes', (
   ]);
 });
 
-test('outcome session summary aggregates failure drivers from latest effective failures', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome session summary aggregates failure drivers from latest effective failures', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const now = new Date('2026-05-23T10:00:00.000Z');
   const remediated = emit(root, homeDir, {
     surface: 'repo',
@@ -314,9 +314,9 @@ test('outcome session summary aggregates failure drivers from latest effective f
   ]);
 });
 
-test('outcome session summary applies since filtering before failure driver aggregation', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome session summary applies since filtering before failure driver aggregation', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const now = new Date('2026-05-23T10:00:00.000Z');
   const old = emit(root, homeDir, {
     surface: 'repo',
@@ -375,9 +375,9 @@ test('outcome session summary applies since filtering before failure driver aggr
   ]);
 });
 
-test('outcome report filters with since, window-days compatibility, surface, and verb', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome report filters with since, window-days compatibility, surface, and verb', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const now = new Date('2026-05-23T10:00:00.000Z');
 
   const old = emit(root, homeDir, {
@@ -449,9 +449,9 @@ test('outcome report filters with since, window-days compatibility, surface, and
   assert.equal(verbReport.totals.effective_events, 2);
 });
 
-test('outcome report handles empty and all-skipped stores as no-signal reports', () => {
-  const emptyRoot = makeRoot();
-  const emptyHome = makeHome();
+test('outcome report handles empty and all-skipped stores as no-signal reports', (t) => {
+  const emptyRoot = makeRoot(t);
+  const emptyHome = makeHome(t);
   const now = new Date('2026-05-23T10:00:00.000Z');
 
   const empty = buildOutcomeReport({ root: emptyRoot, homeDir: emptyHome, now });
@@ -474,8 +474,8 @@ test('outcome report handles empty and all-skipped stores as no-signal reports',
     blocked_rate: null,
   });
 
-  const skippedRoot = makeRoot();
-  const skippedHome = makeHome();
+  const skippedRoot = makeRoot(t);
+  const skippedHome = makeHome(t);
   emit(skippedRoot, skippedHome, {
     surface: 'repo',
     verb: 'live_check',
@@ -492,9 +492,9 @@ test('outcome report handles empty and all-skipped stores as no-signal reports',
   assert.equal(skipped.by_surface[0].success_rate, null);
 });
 
-test('outcome report gate summary uses event timestamp window, latest marks, and filters', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome report gate summary uses event timestamp window, latest marks, and filters', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const now = new Date('2026-05-24T10:15:30.000Z');
 
   const outside = emit(root, homeDir, {
@@ -585,9 +585,9 @@ test('outcome report gate summary uses event timestamp window, latest marks, and
   assert.equal(report.gates.safety.denominator, null);
 });
 
-test('outcome report gate summary groups ECC candidates by failure category plugin and surface', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome report gate summary groups ECC candidates by failure category plugin and surface', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const now = new Date('2026-05-24T10:15:30.000Z');
 
   const first = emit(root, homeDir, {
@@ -665,9 +665,9 @@ test('outcome report gate summary groups ECC candidates by failure category plug
   ]);
 });
 
-test('outcome report gate summary uses latest mark at report generation time', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome report gate summary uses latest mark at report generation time', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const now = new Date('2026-05-24T10:15:30.000Z');
 
   const futureOnly = emit(root, homeDir, {
@@ -730,9 +730,9 @@ test('outcome report gate summary uses latest mark at report generation time', (
   ]);
 });
 
-test('outcome report gate summary skips schema-invalid failures before ECC candidates', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome report gate summary skips schema-invalid failures before ECC candidates', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const now = new Date('2026-05-24T10:15:30.000Z');
 
   const valid = emit(root, homeDir, {
@@ -784,9 +784,9 @@ test('outcome report gate summary skips schema-invalid failures before ECC candi
   assert.deepEqual(report.gates.ecc.top_candidates, []);
 });
 
-test('outcome report CLI emits human text by default and structured JSON with --json', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome report CLI emits human text by default and structured JSON with --json', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   emit(root, homeDir, {
     surface: 'repo',
     verb: 'validate',

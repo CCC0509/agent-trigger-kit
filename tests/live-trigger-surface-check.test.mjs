@@ -4,16 +4,15 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { makeTempDir } from './helpers/tmp.mjs';
 import {
   effectiveTimeoutMs,
   extractTomlTableNames,
@@ -29,8 +28,8 @@ import { expandPath } from '../scripts/lib/path-expand.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function makeRoot() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-live-trigger-surface-'));
+function makeRoot(t) {
+  return makeTempDir(t, 'agent-trigger-kit-live-trigger-surface-');
 }
 
 function write(root, path, text) {
@@ -161,8 +160,8 @@ test('docs explain live surface checks for consumer trigger layers', () => {
   assert.match(versionCheckSkill, /live-check[\s\S]*installed-state drift/);
 });
 
-test('source snapshot reports aligned source versions', () => {
-  const root = makeRoot();
+test('source snapshot reports aligned source versions', (t) => {
+  const root = makeRoot(t);
   const { pluginDir, pluginName, version } = createVersionedPlugin(root, '0.2.3');
 
   const snapshot = collectSourceVersionSnapshot({ root, pluginName });
@@ -190,8 +189,8 @@ test('source snapshot reports aligned source versions', () => {
   assert.match(result.stdout, /expected source version: 0\.2\.3/);
 });
 
-test('validate checks live surface matrix schema and generated markdown freshness', () => {
-  const root = makeRoot();
+test('validate checks live surface matrix schema and generated markdown freshness', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   writeLiveMatrix(
     root,
@@ -224,8 +223,8 @@ surfaces:
   assert.match(result.stderr, /docs\/agent-trigger-surfaces\.md: generated Markdown is stale/);
 });
 
-test('validate checks malformed live surface matrix without raw stack trace', () => {
-  const root = makeRoot();
+test('validate checks malformed live surface matrix without raw stack trace', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   write(root, '.agent-trigger-kit/live-surfaces.yaml', 'schemaVersion: [\n');
 
@@ -236,8 +235,8 @@ test('validate checks malformed live surface matrix without raw stack trace', ()
   assert.doesNotMatch(result.stderr, /\n\s+at /);
 });
 
-test('render-matrix writes generated Markdown from matrix', () => {
-  const root = makeRoot();
+test('render-matrix writes generated Markdown from matrix', (t) => {
+  const root = makeRoot(t);
   writeLiveMatrix(
     root,
     `
@@ -279,8 +278,8 @@ surfaces:
   );
 });
 
-test('render-matrix rejects output paths outside root', () => {
-  const root = makeRoot();
+test('render-matrix rejects output paths outside root', (t) => {
+  const root = makeRoot(t);
   writeLiveMatrix(
     root,
     `
@@ -314,8 +313,8 @@ surfaces:
   assert.match(result.stderr, /render-matrix --output must stay within --root/);
 });
 
-test('render-matrix rejects absolute output paths', () => {
-  const root = makeRoot();
+test('render-matrix rejects absolute output paths', (t) => {
+  const root = makeRoot(t);
   writeLiveMatrix(
     root,
     `
@@ -349,8 +348,8 @@ surfaces:
   assert.match(result.stderr, /render-matrix --output must stay within --root/);
 });
 
-test('live-check reports drift, allowed drift, and clean rows without mutating state', () => {
-  const root = makeRoot();
+test('live-check reports drift, allowed drift, and clean rows without mutating state', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   writeCodexCache(root, 'demo-ops', 'demo-ops', '0.1.0');
   writeClaudeInstalled(root, 'demo-ops@demo-ops', {
@@ -419,8 +418,8 @@ surfaces:
   );
 });
 
-test('live-check claude verifier does not run git or claude commands', () => {
-  const root = makeRoot();
+test('live-check claude verifier does not run git or claude commands', (t) => {
+  const root = makeRoot(t);
   const fakeBin = join(root, 'fake-bin');
   const commandLog = join(root, 'command-log.txt');
   createVersionedPlugin(root, '0.1.0');
@@ -490,8 +489,8 @@ surfaces:
   assert.equal(existsSync(commandLog), false);
 });
 
-test('live-check reports validation error for malformed claude installed metadata', () => {
-  const root = makeRoot();
+test('live-check reports validation error for malformed claude installed metadata', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   writeJson(root, '.claude/plugins/installed_plugins.json', {
     version: 2,
@@ -534,8 +533,8 @@ surfaces:
   assert.match(payload.results[0].message, /installed_plugins\.json/);
 });
 
-test('live-check reports validation error for non-string claude install path metadata', () => {
-  const root = makeRoot();
+test('live-check reports validation error for non-string claude install path metadata', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   writeJson(root, '.claude/plugins/installed_plugins.json', {
     version: 2,
@@ -584,8 +583,8 @@ surfaces:
   assert.match(payload.results[0].message, /installPath/);
 });
 
-test('live-check reports validation error for non-string claude scope metadata', () => {
-  const root = makeRoot();
+test('live-check reports validation error for non-string claude scope metadata', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   writeJson(root, '.claude/plugins/installed_plugins.json', {
     version: 2,
@@ -633,8 +632,8 @@ surfaces:
   assert.match(payload.results[0].message, /scope/);
 });
 
-test('live-check reports validation error when claude install path cannot be inspected', () => {
-  const root = makeRoot();
+test('live-check reports validation error when claude install path cannot be inspected', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   mkdirSync(join(root, '.claude/plugins/cache/demo-ops/demo-ops'), { recursive: true });
   symlinkSync(
@@ -687,8 +686,8 @@ surfaces:
   assert.match(payload.results[0].message, /0\.1\.0-broken/);
 });
 
-test('live-check keeps allowed-until date active through end-of-day UTC', () => {
-  const root = makeRoot();
+test('live-check keeps allowed-until date active through end-of-day UTC', (t) => {
+  const root = makeRoot(t);
   const todayUtc = new Date().toISOString().slice(0, 10);
   createVersionedPlugin(root, '0.1.0');
   writeLiveMatrix(
@@ -730,8 +729,8 @@ surfaces:
   assert.equal(JSON.parse(strictResult.stdout).results[0].status, 'drift');
 });
 
-test('live-check reports config error for invalid staleness budget dates', () => {
-  const root = makeRoot();
+test('live-check reports config error for invalid staleness budget dates', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   writeLiveMatrix(
     root,
@@ -767,8 +766,8 @@ surfaces:
   assert.match(payload.results[0].message, /invalid stalenessBudget.*allowed-until/);
 });
 
-test('live-check honors strict allowed drift for pointer docs', () => {
-  const root = makeRoot();
+test('live-check honors strict allowed drift for pointer docs', (t) => {
+  const root = makeRoot(t);
   const todayUtc = new Date().toISOString().slice(0, 10);
   createVersionedPlugin(root, '0.1.0');
   write(root, 'GEMINI.md', '# Gemini pointer\n');
@@ -810,8 +809,8 @@ surfaces:
   assert.equal(JSON.parse(strictResult.stdout).results[0].status, 'drift');
 });
 
-test('live-check does not allow staleness budget to hide missing pointer docs', () => {
-  const root = makeRoot();
+test('live-check does not allow staleness budget to hide missing pointer docs', (t) => {
+  const root = makeRoot(t);
   const todayUtc = new Date().toISOString().slice(0, 10);
   createVersionedPlugin(root, '0.1.0');
   writeLiveMatrix(
@@ -844,8 +843,8 @@ surfaces:
   assert.equal(JSON.parse(result.stdout).results[0].status, 'drift');
 });
 
-test('live-check keeps expired pointer-only budgets as drift', () => {
-  const root = makeRoot();
+test('live-check keeps expired pointer-only budgets as drift', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   write(root, 'GEMINI.md', '# Gemini pointer\n');
   writeLiveMatrix(
@@ -878,8 +877,8 @@ surfaces:
   assert.equal(JSON.parse(result.stdout).results[0].status, 'drift');
 });
 
-test('live-check flags codex forbidden config residue by exact table names', () => {
-  const root = makeRoot();
+test('live-check flags codex forbidden config residue by exact table names', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   write(
     root,
@@ -929,8 +928,8 @@ surfaces:
   assert.match(payload.results[0].message, /demo-ops@demo-ops/);
 });
 
-test('live-check reports config error for empty codex config path expansion', () => {
-  const root = makeRoot();
+test('live-check reports config error for empty codex config path expansion', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   writeLiveMatrix(
     root,
@@ -969,8 +968,8 @@ surfaces:
   assert.match(payload.results[0].message, /AGENT_TRIGGER_KIT_TEST_MISSING_CODEX_HOME/);
 });
 
-test('live-check defaults codex config absence to CODEX_HOME config', () => {
-  const root = makeRoot();
+test('live-check defaults codex config absence to CODEX_HOME config', (t) => {
+  const root = makeRoot(t);
   const previousCodexHome = process.env.CODEX_HOME;
 
   try {
@@ -1022,8 +1021,8 @@ surfaces:
   }
 });
 
-test('live-check expands environment fallback paths in codex config absence verifier', () => {
-  const root = makeRoot();
+test('live-check expands environment fallback paths in codex config absence verifier', (t) => {
+  const root = makeRoot(t);
   const previousCodexHome = process.env.CODEX_HOME;
 
   try {
@@ -1076,8 +1075,8 @@ surfaces:
   }
 });
 
-test('live-check uses effective timeout precedence for row timeout and invalid cli timeout', () => {
-  const root = makeRoot();
+test('live-check uses effective timeout precedence for row timeout and invalid cli timeout', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   writeCodexCache(root, 'demo-ops', 'demo-ops', '0.1.0');
   writeLiveMatrix(
@@ -1120,8 +1119,8 @@ surfaces:
   assert.equal(payload.results[0].status, 'timeout');
 });
 
-test('live-check honors AGENT_TRIGGER_LIVE_CHECK_TIMEOUT_MS when no row cli or default timeout exists', () => {
-  const root = makeRoot();
+test('live-check honors AGENT_TRIGGER_LIVE_CHECK_TIMEOUT_MS when no row cli or default timeout exists', (t) => {
+  const root = makeRoot(t);
   const previousTimeout = process.env.AGENT_TRIGGER_LIVE_CHECK_TIMEOUT_MS;
   createVersionedPlugin(root, '0.1.0');
   writeCodexCache(root, 'demo-ops', 'demo-ops', '0.1.0');
@@ -1165,8 +1164,8 @@ surfaces:
   }
 });
 
-test('live-check component-name-disjoint appends assertion results and strips command .md extensions', () => {
-  const root = makeRoot();
+test('live-check component-name-disjoint appends assertion results and strips command .md extensions', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   write(
     root,
@@ -1217,8 +1216,8 @@ assertions:
   assert.match(payload.results[0].message, /scan/);
 });
 
-test('live-check reports config error when component skill entries cannot be read', () => {
-  const root = makeRoot();
+test('live-check reports config error when component skill entries cannot be read', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   mkdirSync(join(root, 'plugins/demo-ops/skills'), { recursive: true });
   symlinkSync('missing-skill', join(root, 'plugins/demo-ops/skills/broken-skill'));
@@ -1250,8 +1249,8 @@ assertions:
   assert.match(payload.results[0].message, /broken-skill/);
 });
 
-test('live-check reports config error when component command entries cannot be read', () => {
-  const root = makeRoot();
+test('live-check reports config error when component command entries cannot be read', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   mkdirSync(join(root, 'plugins/demo-ops/commands'), { recursive: true });
   symlinkSync('missing-command.md', join(root, 'plugins/demo-ops/commands/broken-command.md'));
@@ -1282,8 +1281,8 @@ assertions:
   assert.match(payload.results[0].message, /broken-command\.md/);
 });
 
-test('live-check component-name-disjoint ignores duplicate names within one set', () => {
-  const root = makeRoot();
+test('live-check component-name-disjoint ignores duplicate names within one set', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   write(
     root,
@@ -1333,8 +1332,8 @@ assertions:
   assert.equal(payload.results[0].status, 'clean');
 });
 
-test('live-check exits zero when filters select no rows', () => {
-  const root = makeRoot();
+test('live-check exits zero when filters select no rows', (t) => {
+  const root = makeRoot(t);
   writeLiveMatrix(
     root,
     `
@@ -1359,8 +1358,8 @@ test('cli prints live-check help without requiring a matrix', () => {
   assert.match(output, /render-matrix/);
 });
 
-test('cli routes render-matrix command to render surface script', () => {
-  const root = makeRoot();
+test('cli routes render-matrix command to render surface script', (t) => {
+  const root = makeRoot(t);
   writeLiveMatrix(
     root,
     `
@@ -1400,8 +1399,8 @@ surfaces:
   );
 });
 
-test('cli live-check does not treat render-matrix as an internal mode', () => {
-  const root = makeRoot();
+test('cli live-check does not treat render-matrix as an internal mode', (t) => {
+  const root = makeRoot(t);
   writeLiveMatrix(
     root,
     `
@@ -1425,8 +1424,8 @@ surfaces: []
   assert.match(result.stdout, /no rows selected/);
 });
 
-test('source snapshot defaults omitted root to the current working directory', () => {
-  const root = makeRoot();
+test('source snapshot defaults omitted root to the current working directory', (t) => {
+  const root = makeRoot(t);
   const { pluginDir, pluginName, version } = createVersionedPlugin(root, '0.2.3');
   const previousCwd = process.cwd();
 
@@ -1444,8 +1443,8 @@ test('source snapshot defaults omitted root to the current working directory', (
   }
 });
 
-test('source snapshot reports malformed JSON without exiting', () => {
-  const root = makeRoot();
+test('source snapshot reports malformed JSON without exiting', (t) => {
+  const root = makeRoot(t);
   const { pluginName } = createVersionedPlugin(root, '0.2.3');
   write(root, 'package.json', '{');
   const previousExit = process.exit;
@@ -1471,8 +1470,8 @@ test('source snapshot reports malformed JSON without exiting', () => {
   }
 });
 
-test('source snapshot reports unaligned source versions', () => {
-  const root = makeRoot();
+test('source snapshot reports unaligned source versions', (t) => {
+  const root = makeRoot(t);
   const { pluginDir, pluginName } = createVersionedPlugin(root, '0.2.3');
   writeJson(root, `${pluginDir}/.codex-plugin/plugin.json`, {
     name: pluginName,
@@ -1486,8 +1485,8 @@ test('source snapshot reports unaligned source versions', () => {
   assert.match(snapshot.errorMessage, /codex plugin=0\.2\.2/);
 });
 
-test('live-check source version validation states that live verifier was not checked', () => {
-  const root = makeRoot();
+test('live-check source version validation states that live verifier was not checked', (t) => {
+  const root = makeRoot(t);
   const { pluginDir } = createVersionedPlugin(root, '0.2.3');
   writeJson(root, `${pluginDir}/.codex-plugin/plugin.json`, {
     name: 'demo-ops',
@@ -1525,8 +1524,8 @@ surfaces:
   assert.match(payload.results[0].message, /live verifier not checked/);
 });
 
-test('live surface matrix validates schema and applies path defaults', () => {
-  const root = makeRoot();
+test('live surface matrix validates schema and applies path defaults', (t) => {
+  const root = makeRoot(t);
 
   writeLiveMatrix(
     root,
@@ -1591,8 +1590,8 @@ extraFutureField: preserved
   assert.equal(matrix.extraFutureField, 'preserved');
 });
 
-test('live surface matrix uses fallback when env path variable is empty', () => {
-  const root = makeRoot();
+test('live surface matrix uses fallback when env path variable is empty', (t) => {
+  const root = makeRoot(t);
   const previousCodexHome = process.env.CODEX_HOME;
 
   try {
@@ -1768,8 +1767,8 @@ test('live surface matrix rejects unsupported schema versions and non-array rows
   assert.match(nonArrayAssertionsValidation.errors.join('\n'), /assertions must be an array/);
 });
 
-test('live-check exits with config error for unsupported schema versions and non-array rows', () => {
-  const root = makeRoot();
+test('live-check exits with config error for unsupported schema versions and non-array rows', (t) => {
+  const root = makeRoot(t);
 
   writeLiveMatrix(
     root,
@@ -1874,8 +1873,8 @@ path = "./real"
   assert.deepEqual(names.marketplaces, ['real-marketplace']);
 });
 
-test('path expansion is shared and preserves empty values', () => {
-  const root = makeRoot();
+test('path expansion is shared and preserves empty values', (t) => {
+  const root = makeRoot(t);
   const previousCodexHome = process.env.CODEX_HOME;
 
   try {
@@ -1925,8 +1924,8 @@ test('live surface matrix rejects invalid staleness budget dates', () => {
   assert.match(validation.errors.join('\n'), /invalid stalenessBudget.*allowed-until/);
 });
 
-test('live-check only trusts pointer frontmatter at the start of the document', () => {
-  const root = makeRoot();
+test('live-check only trusts pointer frontmatter at the start of the document', (t) => {
+  const root = makeRoot(t);
   createVersionedPlugin(root, '0.1.0');
   write(
     root,

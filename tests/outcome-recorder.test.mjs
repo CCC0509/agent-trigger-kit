@@ -4,16 +4,15 @@ import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { makeTempDir } from './helpers/tmp.mjs';
 import {
   OutcomeRecorderError,
   markOutcomeEvent,
@@ -26,12 +25,12 @@ import { validateRecord } from '../scripts/lib/outcome-schema.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function makeRoot(prefix = 'agent-trigger-kit-outcome-root-') {
-  return mkdtempSync(join(tmpdir(), prefix));
+function makeRoot(t, prefix = 'agent-trigger-kit-outcome-root-') {
+  return makeTempDir(t, prefix);
 }
 
-function makeHome() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-outcome-home-'));
+function makeHome(t) {
+  return makeTempDir(t, 'agent-trigger-kit-outcome-home-');
 }
 
 function readJsonl(path) {
@@ -196,9 +195,9 @@ test('mintUuidV7 creates deterministic UUID v7 values from date and seed', () =>
   );
 });
 
-test('outcome recorder appends valid user-level event records', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome recorder appends valid user-level event records', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const startedAt = new Date('2026-05-23T08:00:00.000Z');
 
   const { record, storePath } = recordOutcomeEvent({
@@ -235,8 +234,8 @@ test('outcome recorder appends valid user-level event records', () => {
   ]);
 });
 
-test('outcome recorder supports project-local storage and rejects oversized records', () => {
-  const root = makeRoot();
+test('outcome recorder supports project-local storage and rejects oversized records', (t) => {
+  const root = makeRoot(t);
 
   const { storePath } = recordOutcomeEvent({
     root,
@@ -271,9 +270,9 @@ test('outcome recorder supports project-local storage and rejects oversized reco
   );
 });
 
-test('outcome recorder treats plugin as optional schema data', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome recorder treats plugin as optional schema data', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const { record } = recordOutcomeEvent({
     root,
     homeDir,
@@ -287,9 +286,9 @@ test('outcome recorder treats plugin as optional schema data', () => {
   assert.equal(Object.hasOwn(record, 'plugin'), false);
 });
 
-test('outcome recorder normalizes caller option aliases to schema fields', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome recorder normalizes caller option aliases to schema fields', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const correlationId = mintUuidV7(
     new Date('2026-05-23T08:01:45.000Z'),
     'translation-audit-correlation',
@@ -367,9 +366,9 @@ test('outcome recorder normalizes caller option aliases to schema fields', () =>
   assert.equal(Object.hasOwn(mark, 'relatedId'), false);
 });
 
-test('outcome recorder marks existing events and validates mark semantics', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome recorder marks existing events and validates mark semantics', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const first = recordOutcomeEvent({
     root,
     homeDir,
@@ -449,9 +448,9 @@ test('outcome recorder marks existing events and validates mark semantics', () =
   );
 });
 
-test('agent-trigger-kit outcome CLI records, reports, and validates mark combinations', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('agent-trigger-kit outcome CLI records, reports, and validates mark combinations', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const env = { ...process.env, HOME: homeDir, AGENT_TRIGGER_KIT_OUTCOME_DISABLED: '1' };
 
   const record = runCli(
@@ -525,9 +524,9 @@ test('agent-trigger-kit outcome CLI records, reports, and validates mark combina
   assert.equal(existsSync(outcomeStorePath({ root, homeDir }).eventsPath), true);
 });
 
-test('outcome reader skips schema-invalid records and reports schema errors', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('outcome reader skips schema-invalid records and reports schema errors', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   const { record, storePath } = recordOutcomeEvent({
     root,
     homeDir,
@@ -574,8 +573,8 @@ test('outcome reader skips schema-invalid records and reports schema errors', ()
   assert.match(rewrittenText, new RegExp(appended.id));
 });
 
-test('validate auto-emits one ok event and honors --no-outcome', () => {
-  const homeDir = makeHome();
+test('validate auto-emits one ok event and honors --no-outcome', (t) => {
+  const homeDir = makeHome(t);
   const env = { ...process.env, HOME: homeDir };
 
   const result = runScript('validate-trigger-layer.mjs', ['--root', repoRoot], { env });
@@ -593,7 +592,7 @@ test('validate auto-emits one ok event and honors --no-outcome', () => {
   assert.equal(records[0].exit_code, 0);
   assert.equal(Object.hasOwn(records[0], 'failure_category'), false);
 
-  const disabledHome = makeHome();
+  const disabledHome = makeHome(t);
   const disabled = runScript('validate-trigger-layer.mjs', ['--root', repoRoot, '--no-outcome'], {
     env: { ...process.env, HOME: disabledHome },
   });
@@ -604,9 +603,9 @@ test('validate auto-emits one ok event and honors --no-outcome', () => {
   );
 });
 
-test('live-check auto-emits parent and child events with shared correlation id', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('live-check auto-emits parent and child events with shared correlation id', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   createVersionedPlugin(root, '0.1.0');
   writeCodexCache(root, 'demo-ops', 'demo-ops', '0.1.0');
   write(root, 'codex-config.toml', '[plugins."demo-ops"]\n');
@@ -678,9 +677,9 @@ surfaces:
   );
 });
 
-test('live-check auto-emits skipped parent when no rows are selected', () => {
-  const root = makeRoot();
-  const homeDir = makeHome();
+test('live-check auto-emits skipped parent when no rows are selected', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
   writeLiveMatrix(
     root,
     `
@@ -711,9 +710,9 @@ surfaces: []
   assert.equal(Object.hasOwn(records[0], 'failure_category'), false);
 });
 
-test('premerge and scratch namespace checks auto-emit command-level events', () => {
-  const premergeRoot = makeRoot();
-  const premergeHome = makeHome();
+test('premerge and scratch namespace checks auto-emit command-level events', (t) => {
+  const premergeRoot = makeRoot(t);
+  const premergeHome = makeHome(t);
   initGitFixture(premergeRoot);
   createPremergeFixture(premergeRoot, '0.1.0');
   const base = commitAll(premergeRoot, 'base fixture');
@@ -734,8 +733,8 @@ test('premerge and scratch namespace checks auto-emit command-level events', () 
   assert.equal(premergeRecords[0].outcome, 'success');
   assert.equal(premergeRecords[0].exit_code, 0);
 
-  const scratchRoot = makeRoot();
-  const scratchHome = makeHome();
+  const scratchRoot = makeRoot(t);
+  const scratchHome = makeHome(t);
   initGitFixture(scratchRoot);
   const scratch = runScript('check-scratch-namespace.mjs', ['--root', scratchRoot], {
     env: { ...process.env, HOME: scratchHome },
@@ -752,8 +751,8 @@ test('premerge and scratch namespace checks auto-emit command-level events', () 
   assert.equal(scratchRecords[0].exit_code, 0);
 });
 
-test('auto-emitter falls back to project-local store when user store is unavailable', () => {
-  const root = makeRoot();
+test('auto-emitter falls back to project-local store when user store is unavailable', (t) => {
+  const root = makeRoot(t);
   initGitFixture(root);
   const badHome = join(root, 'not-a-directory');
   write(root, 'not-a-directory', 'file blocks outcome home');

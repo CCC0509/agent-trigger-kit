@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { rmSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { makeTempDir } from './helpers/tmp.mjs';
+
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function makeRoot() {
-  return mkdtempSync(join(tmpdir(), 'agent-trigger-kit-scratch-test-'));
+function makeRoot(t) {
+  return makeTempDir(t, 'agent-trigger-kit-scratch-test-');
 }
 
 function runScript(root) {
@@ -53,8 +54,8 @@ function initGitRepo(root) {
   assert.equal(init.status, 0, init.stderr || init.stdout);
 }
 
-function withTempGitRepo(fn) {
-  const root = makeRoot();
+function withTempGitRepo(t, fn) {
+  const root = makeRoot(t);
   try {
     initGitRepo(root);
     fn(root);
@@ -63,8 +64,8 @@ function withTempGitRepo(fn) {
   }
 }
 
-test('scratch namespace check ignores untracked scratch files', () => {
-  withTempGitRepo((root) => {
+test('scratch namespace check ignores untracked scratch files', (t) => {
+  withTempGitRepo(t, (root) => {
     write(root, 'docs/superpowers/specs/draft-design.md', '# Draft');
 
     const result = runScript(root);
@@ -74,8 +75,8 @@ test('scratch namespace check ignores untracked scratch files', () => {
   });
 });
 
-test('scratch namespace check fails and lists tracked scratch files', () => {
-  withTempGitRepo((root) => {
+test('scratch namespace check fails and lists tracked scratch files', (t) => {
+  withTempGitRepo(t, (root) => {
     write(root, 'docs/superpowers/specs/draft-design.md', '# Draft');
     const add = runGit(root, ['add', 'docs/superpowers/specs/draft-design.md']);
     assert.equal(add.status, 0, add.stderr || add.stdout);
@@ -92,8 +93,8 @@ test('scratch namespace check fails and lists tracked scratch files', () => {
   });
 });
 
-test('scratch namespace advisory exits zero and emits GitHub warning annotations', () => {
-  withTempGitRepo((root) => {
+test('scratch namespace advisory exits zero and emits GitHub warning annotations', (t) => {
+  withTempGitRepo(t, (root) => {
     write(root, 'docs/superpowers/specs/draft-design.md', '# Draft');
     write(root, 'docs/superpowers/plans/draft-plan.md', '# Plan');
     const add = runGit(root, [
@@ -119,8 +120,8 @@ test('scratch namespace advisory exits zero and emits GitHub warning annotations
   });
 });
 
-test('scratch namespace advisory emits no warning annotations for a clean tree', () => {
-  withTempGitRepo((root) => {
+test('scratch namespace advisory emits no warning annotations for a clean tree', (t) => {
+  withTempGitRepo(t, (root) => {
     write(root, 'docs/superpowers/specs/draft-design.md', '# Draft');
 
     const result = runScriptAdvisory(root);
