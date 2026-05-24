@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const [command, ...commandArgs] = process.argv.slice(2);
 const commands = {
+  'audit-cleanup': 'audit-cleanup.mjs',
   clean: 'clean-generated-trigger-layer.mjs',
   init: 'init-project-trigger-layer.mjs',
   'import-claude-skills': 'import-claude-skills.mjs',
@@ -13,6 +14,8 @@ const commands = {
   outcome: 'outcome-recorder.mjs',
   'render-matrix': { script: 'render-live-surface-matrix.mjs' },
   'session-check': 'session-check.mjs',
+  'ship-gate': 'ship-gate.mjs',
+  'spec-graduate': 'spec-graduate.mjs',
   validate: 'validate-trigger-layer.mjs',
   'version-check': 'check-plugin-version.mjs',
 };
@@ -23,6 +26,7 @@ function printUsage() {
       'Usage: agent-trigger-kit <command> [args]',
       '',
       'Commands:',
+      '  audit-cleanup Read-only post-merge audit for residue',
       '  clean          Dry-run cleanup checks for generated trigger layer files',
       '  init           Create or update a project trigger layer',
       '  import-claude-skills  Import existing Claude Code skills into a trigger layer',
@@ -31,6 +35,8 @@ function printUsage() {
       '  outcome        Record, mark, and report trigger outcome evidence',
       '  render-matrix  Render live trigger surface matrix documentation',
       '  session-check  Validate trigger layer and outcome closeout state',
+      '  ship-gate      Run the local pre-PR composite quality gate',
+      '  spec-graduate  Graduate completed branch-local review material into durable docs',
       '  version-check  Check source and installed plugin versions',
     ].join('\n'),
   );

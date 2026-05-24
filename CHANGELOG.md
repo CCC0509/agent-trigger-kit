@@ -6,6 +6,12 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.2.3
+
+- Workflow helpers: added `spec-graduate`, `audit-cleanup`, and `ship-gate` for
+  mechanical spec graduation, read-only post-merge cleanup audit, and local
+  pre-PR composite checks.
+
 ## 0.2.2
 
 - Session check: treats readable read-only outcome stores as healthy, reports

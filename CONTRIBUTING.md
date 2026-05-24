@@ -72,6 +72,16 @@ Before merge, relocate durable scratch documents to `docs/designs/` or drop
 non-durable scratch artifacts from the branch. `docs/superpowers/` must contain
 no tracked files in the final `main` tree.
 
+### Workflow Helper Checklist
+
+- After a scratch spec is accepted, run
+  `agent-trigger-kit spec-graduate <slug>` before preparing merge-ready docs.
+- Before opening or updating a PR, run `agent-trigger-kit ship-gate`.
+- After a PR merges or a local branch is superseded, run
+  `agent-trigger-kit audit-cleanup` and review its suggested commands. The
+  audit is read-only; branch deletion, remote pruning, outcome marking, and temp
+  cleanup stay human-confirmed.
+
 ## Pre-Merge Version Reconciliation
 
 Before merging an Agent Trigger Kit source branch to `main`, reconcile the
