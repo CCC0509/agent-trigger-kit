@@ -10,6 +10,20 @@ const RETENTION_RECORDS = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REPORT_VERSION = '0.1';
 const EVENTS_VERSION = '0.1';
+const GATE_REPORT_VERSION = '0.1';
+const GATE_WINDOW_DAYS = 60;
+const GATE_WINDOW_MS = GATE_WINDOW_DAYS * DAY_MS;
+const GRAPHIFY_MIN_COUNT = 3;
+const GRAPHIFY_MIN_SHARE = 0.2;
+const ECC_MIN_DENOMINATOR = 20;
+const ECC_MIN_REPEATED_COUNT = 5;
+const SAFETY_MIN_COUNT = 3;
+const GATE_STATUS = {
+  disabled: 'disabled',
+  insufficientData: 'insufficient_data',
+  notTriggered: 'not_triggered',
+  triggered: 'triggered',
+};
 const USER_STORE_UNAVAILABLE_CODES = new Set([
   'EACCES',
   'EEXIST',
@@ -296,16 +310,17 @@ export function selectLatestUnmarkedOutcomeEvent({
   return selected.record;
 }
 
-export function buildOutcomeReport({
-  root = process.cwd(),
-  homeDir = homedir(),
-  store = 'user',
-  windowDays,
-  since,
-  surface,
-  verb,
-  now = new Date(),
-} = {}) {
+export function buildOutcomeReport(options = {}) {
+  const {
+    root = process.cwd(),
+    homeDir = homedir(),
+    store = 'user',
+    windowDays,
+    since,
+    surface,
+    verb,
+    now = new Date(),
+  } = options;
   const selectedStore = outcomeStorePath({ root, homeDir, store });
   const records = readOutcomeRecords(selectedStore.eventsPath);
   const events = records.filter((record) => record.kind === 'event');
@@ -315,14 +330,26 @@ export function buildOutcomeReport({
   const surfaceFilter = reportEnum(surface, SURFACES, 'surface');
   const verbFilter = reportEnum(verb, VERBS, 'verb');
   const latestMarkByRelatedId = latestMarksByRelatedId(marks);
-  const effectiveEvents = [];
+  const latestGateMarkByRelatedId = latestMarksByRelatedId(marks, { now });
+  const gateRows = [];
+  const effectiveRows = [];
   for (const event of events) {
-    if (sinceMs !== null && new Date(event.ts).getTime() < sinceMs) continue;
-    const effective = effectiveOutcomeEvent(event, latestMarkByRelatedId.get(event.id));
+    const gateMark = latestGateMarkByRelatedId.get(event.id) || null;
+    const gateEffective = effectiveOutcomeEvent(event, gateMark);
+    if (!surfaceFilter || gateEffective.surface === surfaceFilter) {
+      if (!verbFilter || gateEffective.verb === verbFilter) {
+        gateRows.push({ event, mark: gateMark, effective: gateEffective });
+      }
+    }
+
+    const mark = latestMarkByRelatedId.get(event.id) || null;
+    const effective = effectiveOutcomeEvent(event, mark);
     if (surfaceFilter && effective.surface !== surfaceFilter) continue;
     if (verbFilter && effective.verb !== verbFilter) continue;
-    effectiveEvents.push(effective);
+    if (sinceMs !== null && new Date(event.ts).getTime() < sinceMs) continue;
+    effectiveRows.push({ event, mark, effective });
   }
+  const effectiveEvents = effectiveRows.map((row) => row.effective);
 
   return buildReportObject({
     now,
@@ -333,6 +360,8 @@ export function buildOutcomeReport({
     eventsRead: events.length,
     marksRead: marks.length,
     effectiveEvents,
+    gateRows,
+    includeGates: options.gates === true,
   });
 }
 
@@ -549,6 +578,8 @@ function buildReportObject({
   eventsRead,
   marksRead,
   effectiveEvents,
+  gateRows,
+  includeGates,
 }) {
   const propagationCounts = outcomeCounts();
   const surfaceRows = new Map();
@@ -569,7 +600,7 @@ function buildReportObject({
     propagationCounts.success + propagationCounts.failure + propagationCounts.blocked;
   const totalFailures = propagationCounts.failure;
 
-  return {
+  const report = {
     schema_version: SCHEMA_VERSION,
     report_version: REPORT_VERSION,
     generated_at: now.toISOString(),
@@ -610,6 +641,187 @@ function buildReportObject({
       }))
       .sort((a, b) => b.count - a.count || a.failure_category.localeCompare(b.failure_category)),
   };
+
+  if (includeGates) {
+    report.gate_report_version = GATE_REPORT_VERSION;
+    report.gates = buildGateSummary({ now, effectiveRows: gateRows });
+  }
+
+  return report;
+}
+
+function buildGateSummary({ now, effectiveRows }) {
+  const windowStart = new Date(now.getTime() - GATE_WINDOW_MS);
+  const rows = effectiveRows.filter(({ event }) => {
+    const eventMs = new Date(event.ts).getTime();
+    return eventMs >= windowStart.getTime() && eventMs <= now.getTime();
+  });
+  const markedRows = rows.filter((row) => row.mark);
+  const markedFailures = markedRows.filter(({ effective }) => effective.outcome === 'failure');
+  const markedSkipped = markedRows.filter(({ effective }) => effective.outcome === 'skipped');
+  const eccCandidates = buildEccCandidates(markedFailures);
+  const repeatedEccCandidates = eccCandidates.filter((candidate) => candidate.count >= 2);
+  const topEcc = repeatedEccCandidates[0] || null;
+
+  return {
+    window: {
+      anchor: 'event_ts',
+      days: GATE_WINDOW_DAYS,
+      start: windowStart.toISOString(),
+      end: now.toISOString(),
+      mark_policy: 'latest_retained_mark_at_report_time',
+    },
+    marked_event_counts: {
+      marked_events: markedRows.length,
+      marked_failures: markedFailures.length,
+      marked_skipped: markedSkipped.length,
+      unmarked_events: rows.length - markedRows.length,
+    },
+    graphify: graphifyGate(markedFailures),
+    ecc: eccGate({
+      markedRows,
+      candidatePool: eccCandidates.reduce((total, candidate) => total + candidate.count, 0),
+      repeatedCandidates: repeatedEccCandidates,
+      topCandidate: topEcc,
+    }),
+    safety: safetyGate(markedFailures),
+    diagnostics: {
+      schema_gaps: [
+        'graphify requires a context-bloat evidence axis not present in schema v0.1',
+        'safety requires a mutation or safety denominator not present in schema v0.1',
+      ],
+      prerequisites: [
+        'docs vocabulary alignment from pre-v0.1 terms to schema v0.1 terms',
+        'recorder translation audit for camelCase caller options to snake_case records',
+      ],
+    },
+  };
+}
+
+function graphifyGate(markedFailures) {
+  return {
+    status: GATE_STATUS.disabled,
+    disabled_reason: 'schema_gap.context_bloat_axis_missing',
+    denominator_family: 'marked_failure_signal_events',
+    denominator: markedFailures.length,
+    numerator: null,
+    threshold: {
+      minimum_count: GRAPHIFY_MIN_COUNT,
+      minimum_share: GRAPHIFY_MIN_SHARE,
+    },
+  };
+}
+
+function eccGate({ markedRows, candidatePool, repeatedCandidates, topCandidate }) {
+  const denominator = markedRows.length;
+  const numerator = topCandidate?.count || 0;
+  const base = {
+    status: eccStatus({ denominator, numerator }),
+    denominator_family: 'all_marked_events',
+    denominator,
+    numerator,
+    candidate_pool: candidatePool,
+    threshold: {
+      minimum_repeated_count: ECC_MIN_REPEATED_COUNT,
+    },
+    repetition_key: ['failure_category', 'plugin', 'surface'],
+    top_candidates: repeatedCandidates.slice(0, 5),
+  };
+
+  if (denominator < ECC_MIN_DENOMINATOR) {
+    base.eligibility = {
+      required_denominator: ECC_MIN_DENOMINATOR,
+      actual_denominator: denominator,
+      missing_denominator: ECC_MIN_DENOMINATOR - denominator,
+    };
+  }
+
+  return base;
+}
+
+function eccStatus({ denominator, numerator }) {
+  if (denominator < ECC_MIN_DENOMINATOR) return GATE_STATUS.insufficientData;
+  return numerator >= ECC_MIN_REPEATED_COUNT ? GATE_STATUS.triggered : GATE_STATUS.notTriggered;
+}
+
+function safetyGate(markedFailures) {
+  return {
+    status: GATE_STATUS.disabled,
+    disabled_reason: 'schema_gap.mutation_axis_missing',
+    denominator_family: 'marked_mutation_or_safety_events',
+    denominator: null,
+    numerator: null,
+    threshold: {
+      minimum_count: SAFETY_MIN_COUNT,
+    },
+    auditable_partial_counts: {
+      release_policy_gap_failures: markedFailures.filter(
+        ({ effective }) => effective.failure_category === 'release_policy_gap',
+      ).length,
+      surface_residue_failures: markedFailures.filter(
+        ({ effective }) => effective.failure_category === 'surface_residue',
+      ).length,
+    },
+  };
+}
+
+function buildEccCandidates(markedFailures) {
+  const buckets = new Map();
+  for (const { effective } of markedFailures) {
+    if (
+      typeof effective.failure_category !== 'string' ||
+      effective.failure_category.trim() === ''
+    ) {
+      continue;
+    }
+    const key = [effective.failure_category, effective.plugin || null, effective.surface].join(
+      '\0',
+    );
+    const bucket = buckets.get(key) || {
+      key: {
+        failure_category: effective.failure_category,
+        plugin: effective.plugin || null,
+        surface: effective.surface,
+      },
+      count: 0,
+      failure_driver_breakdown: {},
+      driver_policy: 'wildcard',
+      rule_suggestion_basis: '',
+    };
+    bucket.count += 1;
+    if (effective.failure_driver) {
+      bucket.failure_driver_breakdown[effective.failure_driver] =
+        (bucket.failure_driver_breakdown[effective.failure_driver] || 0) + 1;
+    }
+    buckets.set(key, bucket);
+  }
+
+  return [...buckets.values()]
+    .map((candidate) => ({
+      ...candidate,
+      failure_driver_breakdown: sortObjectByKey(candidate.failure_driver_breakdown),
+      rule_suggestion_basis: eccRuleSuggestionBasis(candidate),
+    }))
+    .sort(compareEccCandidates);
+}
+
+function eccRuleSuggestionBasis(candidate) {
+  return `Repeated ${candidate.key.failure_category} failures for plugin ${candidate.key.plugin || 'unknown'} on ${candidate.key.surface} regardless of driver; inspect driver breakdown before writing a narrow rule.`;
+}
+
+function compareEccCandidates(a, b) {
+  return (
+    b.count - a.count ||
+    a.key.failure_category.localeCompare(b.key.failure_category) ||
+    String(a.key.plugin || '').localeCompare(String(b.key.plugin || '')) ||
+    a.key.surface.localeCompare(b.key.surface)
+  );
+}
+
+function sortObjectByKey(value) {
+  return Object.fromEntries(
+    Object.entries(value).sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
 function outcomeCounts() {
@@ -693,11 +905,14 @@ function parseValidOutcomeLine(line) {
   return validateRecord(parsed).ok ? parsed : null;
 }
 
-function latestMarksByRelatedId(marks) {
+function latestMarksByRelatedId(marks, { now } = {}) {
   const latest = new Map();
+  const nowMs = now === undefined ? null : now.getTime();
   for (const mark of marks) {
+    const markMs = new Date(mark.ts).getTime();
+    if (nowMs !== null && markMs > nowMs) continue;
     const previous = latest.get(mark.related_id);
-    if (!previous || new Date(mark.ts).getTime() >= new Date(previous.ts).getTime()) {
+    if (!previous || markMs >= new Date(previous.ts).getTime()) {
       latest.set(mark.related_id, mark);
     }
   }

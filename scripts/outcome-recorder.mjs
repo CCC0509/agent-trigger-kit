@@ -20,7 +20,8 @@ function printUsage() {
       '  agent-trigger-kit outcome record --root <path> --surface <surface> --verb <verb> --outcome <outcome> [--plugin <name>] [--failure-category <category>] [--failure-driver <driver>]',
       '  agent-trigger-kit outcome events --root <path> [--recent <N>] [--verb <verb>] [--surface <surface>] [--unmarked] [--json]',
       '  agent-trigger-kit outcome mark --root <path> (<event-id>|--last) [--verb <verb>] --outcome <outcome> [--failure-category <category>] [--failure-driver <driver>] [--note <text>]',
-      '  agent-trigger-kit outcome report --root <path> [--json] [--since <UTC-ISO8601>] [--surface <surface>] [--verb <verb>] [--window-days <days>]',
+      '  agent-trigger-kit outcome report --root <path> [--json] [--gates] [--since <UTC-ISO8601>] [--surface <surface>] [--verb <verb>] [--window-days <days>]',
+      '    Gate summaries require --gates --json. gate_report_version changes when gate JSON shape, thresholds, denominator families, status semantics, or repetition-key semantics change.',
     ].join('\n'),
   );
 }
@@ -131,10 +132,15 @@ try {
   }
 
   if (verb === 'report') {
-    const args = parseArgs(verbArgs, { booleanKeys: ['json', 'project-local'] });
+    const args = parseArgs(verbArgs, { booleanKeys: ['json', 'gates', 'project-local'] });
+    if (args.gates === true && args.json !== true) {
+      console.error('--gates requires --json');
+      process.exit(2);
+    }
     const report = buildOutcomeReport({
       root: requiredArg(args, 'root'),
       store: storeFromArgs(args),
+      gates: args.gates === true,
       since: optionalValueArg(args, 'since'),
       surface: optionalValueArg(args, 'surface'),
       verb: optionalValueArg(args, 'verb'),
