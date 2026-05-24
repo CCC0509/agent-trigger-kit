@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { R_OK, W_OK, accessSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { R_OK, W_OK, X_OK, accessSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -140,15 +140,15 @@ export function probeOutcomeStore({ root = process.cwd(), homeDir = homedir() } 
   };
 
   try {
-    if (existsSync(storePath.dir)) {
-      const dirStat = statSync(storePath.dir);
+    const dirStat = statIfPresent(storePath.dir);
+    if (dirStat) {
       if (!dirStat.isDirectory()) {
         throw new Error(`outcome store path is not a directory: ${storePath.dir}`);
       }
       accessSync(storePath.dir, R_OK);
 
-      if (existsSync(storePath.eventsPath)) {
-        const eventsStat = statSync(storePath.eventsPath);
+      const eventsStat = statIfPresent(storePath.eventsPath);
+      if (eventsStat) {
         if (!eventsStat.isFile()) {
           throw new Error(`outcome events path is not a file: ${storePath.eventsPath}`);
         }
@@ -164,6 +164,7 @@ export function probeOutcomeStore({ root = process.cwd(), homeDir = homedir() } 
     if (!ancestorStat.isDirectory()) {
       throw new Error(`outcome store ancestor is not a directory: ${ancestor}`);
     }
+    accessSync(ancestor, X_OK);
 
     return base;
   } catch (error) {
@@ -270,7 +271,7 @@ function runValidator(root) {
 
 function nearestExistingAncestor(path) {
   let cursor = path;
-  while (!existsSync(cursor)) {
+  while (!statIfPresent(cursor)) {
     const parent = dirname(cursor);
     if (parent === cursor) return cursor;
     cursor = parent;
@@ -278,11 +279,21 @@ function nearestExistingAncestor(path) {
   return cursor;
 }
 
+function statIfPresent(path) {
+  try {
+    return statSync(path);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
 function probeOutcomeStoreWritable(storePath) {
   if (!storePath) return writeProbe(false, 'not checked');
 
   try {
-    if (!existsSync(storePath.dir)) {
+    const dirStat = statIfPresent(storePath.dir);
+    if (!dirStat) {
       const ancestor = nearestExistingAncestor(storePath.dir);
       const ancestorStat = statSync(ancestor);
       if (!ancestorStat.isDirectory()) {
@@ -291,7 +302,6 @@ function probeOutcomeStoreWritable(storePath) {
       return accessWritable(ancestor, 'ancestor not writable');
     }
 
-    const dirStat = statSync(storePath.dir);
     if (!dirStat.isDirectory()) {
       return writeProbe(false, 'outcome directory not a directory');
     }
@@ -299,8 +309,8 @@ function probeOutcomeStoreWritable(storePath) {
     const dirWritable = accessWritable(storePath.dir, 'outcome directory read-only');
     if (!dirWritable.writable) return dirWritable;
 
-    if (existsSync(storePath.eventsPath)) {
-      const eventsStat = statSync(storePath.eventsPath);
+    const eventsStat = statIfPresent(storePath.eventsPath);
+    if (eventsStat) {
       if (!eventsStat.isFile()) {
         return writeProbe(false, 'events path not a file');
       }

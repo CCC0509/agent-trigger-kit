@@ -199,6 +199,24 @@ test('session-check treats readable read-only outcome dir as healthy with write 
   assert.equal(payload.outcome_store.writable_reason, 'outcome directory read-only');
 });
 
+test('session-check degrades when an existing outcome ancestor cannot be traversed', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
+  createValidTriggerLayer(root);
+  const blockedDir = join(homeDir, '.agent-trigger-kit');
+  mkdirSync(blockedDir);
+  chmodSync(blockedDir, 0o000);
+  t.after(() => restoreWritable(blockedDir));
+
+  const result = runCli(['session-check', '--root', root, '--json'], homeDir);
+
+  assert.equal(result.status, 3);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.exit_code, 3);
+  assert.equal(payload.outcome_store.status, 'degraded');
+  assert.match(payload.outcome_store.error.code, /EACCES|EPERM/);
+});
+
 test('session-check exits 4 and reports one unmarked event since the window', (t) => {
   const root = makeRoot(t);
   const homeDir = makeHome(t);

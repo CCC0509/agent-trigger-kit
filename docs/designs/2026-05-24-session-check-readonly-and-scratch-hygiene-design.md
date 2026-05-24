@@ -5,9 +5,9 @@ read-only, and stop future manual flows, docs examples, and tests from leaving
 fixed or uncollected `agent-trigger-kit-*` scratch artifacts under temporary
 directories.
 
-**Status:** Accepted design spec for a small implementation pass. This file is
-branch-local review material under `docs/superpowers/` and must be relocated or
-dropped before merge.
+**Status:** Accepted design spec. This file has graduated from branch-local
+review material under `docs/superpowers/` into `docs/designs/` as the durable
+record for the implementation.
 
 ## Review Synthesis
 
