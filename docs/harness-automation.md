@@ -83,7 +83,7 @@ clear message because the hooks are optional harness wiring.
         "hooks": [
           {
             "type": "command",
-            "command": "sh -lc 'PIN_FILE=\"$CLAUDE_PROJECT_DIR/.agent-trigger-kit/pin\"; if [ ! -f \"$PIN_FILE\" ]; then echo \"agent-trigger-kit pin missing at $PIN_FILE; skipping optional harness check\"; exit 0; fi; KIT_REF=\"$(tr -d '\"'\"'[:space:]'\"'\"' < \"$PIN_FILE\")\"; export KIT_SPEC=\"github:CCC0509/agent-trigger-kit#$KIT_REF\"; node -e '\"'\"'let d=\"\";process.stdin.on(\"data\",c=>d+=c);process.stdin.on(\"end\",()=>{let i={};try{i=JSON.parse(d)}catch{}const f=(i.tool_input&&i.tool_input.file_path)||\"\";const hit=[\"/.agents/\",\"/.claude-plugin/\",\"/.cursor/\",\"/.agent-trigger-kit/\"].some(s=>f.includes(s))||f.endsWith(\"/AGENTS.md\");if(hit){const cp=require(\"child_process\");const dir=process.env.CLAUDE_PROJECT_DIR||\".\";const r=cp.spawnSync(\"npx\",[\"--yes\",process.env.KIT_SPEC,\"validate\",\"--root\",dir],{stdio:\"inherit\"});process.exit(r.status||0)}})'\"'\"''",
+            "command": "node -e 'let d=\"\";process.stdin.on(\"data\",c=>d+=c);process.stdin.on(\"end\",()=>{let i={};try{i=JSON.parse(d)}catch{}const f=(i.tool_input&&i.tool_input.file_path)||\"\";const hit=[\"/.agents/\",\"/.claude-plugin/\",\"/.cursor/\",\"/.agent-trigger-kit/\"].some(s=>f.includes(s))||f.endsWith(\"/AGENTS.md\");if(!hit)return;const fs=require(\"fs\");const path=require(\"path\");const cp=require(\"child_process\");const dir=process.env.CLAUDE_PROJECT_DIR||\".\";const pinFile=path.join(dir,\".agent-trigger-kit/pin\");if(!fs.existsSync(pinFile)){console.log(\"agent-trigger-kit pin missing at \"+pinFile+\"; skipping optional harness check\");return;}const kitRef=fs.readFileSync(pinFile, \"utf8\").replace(/\\s+/g, \"\");const kitSpec=\"github:CCC0509/agent-trigger-kit#\"+kitRef;const r=cp.spawnSync(\"npx\",[\"--yes\",kitSpec,\"validate\",\"--root\",dir],{stdio:\"inherit\"});process.exit(r.status||0)})'",
             "statusMessage": "validate trigger layer"
           }
         ]
@@ -105,9 +105,10 @@ clear message because the hooks are optional harness wiring.
 ```
 
 The `PostToolUse` command reads the hook payload from stdin, extracts
-`tool_input.file_path`, and only runs `validate` when the path touches a trigger
-surface (`.agents/`, `.claude-plugin/`, `.cursor/`, `.agent-trigger-kit/`, or
-`AGENTS.md`). Every other edit is a silent no-op.
+`tool_input.file_path`, and only reads `.agent-trigger-kit/pin` and runs
+`validate` when the path touches a trigger surface (`.agents/`,
+`.claude-plugin/`, `.cursor/`, `.agent-trigger-kit/`, or `AGENTS.md`). Every
+other edit is a silent no-op.
 
 ### Activation caveat
 
