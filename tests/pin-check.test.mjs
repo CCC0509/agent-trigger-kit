@@ -15,6 +15,8 @@ const ACCEPT = [
 
 const REJECT = [
   '',
+  '\nmain\n',
+  'main\n\n',
   'v0.2.3\nv0.2.4\n',
   'v0.2.3 # comment',
   '../main',
@@ -25,6 +27,10 @@ const REJECT = [
   '-main',
   'refs/heads/main.lock',
   'main:prod',
+  'main;prod',
+  'main~prod',
+  'main^prod',
+  'main=prod',
 ];
 
 test('parsePinFile accepts valid refs', () => {

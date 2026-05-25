@@ -1,4 +1,5 @@
 const SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)$/;
+const REF_TOKEN_RE = /^[A-Za-z0-9._/-]+$/;
 
 export function parsePinFile(text) {
   if (typeof text !== 'string') {
@@ -6,19 +7,20 @@ export function parsePinFile(text) {
   }
 
   const normalized = text.replace(/\r\n?/g, '\n');
-  const lines = normalized.split('\n');
-  const nonEmpty = lines.filter((line) => line.trim() !== '');
 
-  if (nonEmpty.length === 0) {
+  if (normalized === '' || normalized === '\n') {
     return { ok: false, code: 'invalid_pin', message: 'pin file is empty' };
   }
-  if (nonEmpty.length > 1) {
+  if (!/^[^\n]+\n?$/.test(normalized)) {
     return { ok: false, code: 'invalid_pin', message: 'pin file must contain exactly one ref' };
   }
 
-  const ref = nonEmpty[0];
+  const ref = normalized.endsWith('\n') ? normalized.slice(0, -1) : normalized;
   if (/\s/.test(ref)) {
     return { ok: false, code: 'invalid_pin', message: 'ref must not contain whitespace' };
+  }
+  if (!REF_TOKEN_RE.test(ref)) {
+    return { ok: false, code: 'invalid_pin', message: `ref contains invalid characters: ${ref}` };
   }
 
   const unsafe =
