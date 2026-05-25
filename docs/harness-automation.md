@@ -15,6 +15,16 @@ _when_ to run the checks; the commands stay pure.
 Keep this wiring in personal, gitignored config (`.claude/settings.local.json`),
 not in the kit's shipped tree. It is operator setup, not a kit feature.
 
+## Per-agent reality
+
+Deterministic tool-call hooks exist only for **Claude Code**. **Codex** and
+**Cursor** have no equivalent shell-hook mechanism, so their triggers are
+instruction-based (`AGENTS.md` and `.cursor/rules/`) and depend on the agent
+following them. The only agent-agnostic, enforced layer is **git hooks + CI** —
+that is where the real cross-agent guarantee lives. Plan accordingly: use git
+pre-push and CI as the hard gate for all three agents, and treat the per-agent
+in-session triggers as best-effort acceleration.
+
 ## What can be automated vs not
 
 | Concern                                                                      | Mechanism                                | Automatable               |
@@ -105,6 +115,47 @@ npm i -D github:CCC0509/agent-trigger-kit#<tag>
 Then call `npx agent-trigger-kit ...` (resolves from `node_modules/.bin`) in the
 hooks instead of `npx --yes github:...`, and change the `PostToolUse`
 `spawnSync` arguments to `["agent-trigger-kit","validate","--root",dir]`.
+
+## Codex and Cursor (instruction-based)
+
+Neither Codex nor Cursor exposes a deterministic tool-call hook. Wire their
+triggers as instructions in the cross-agent trigger layer the kit already
+manages, and rely on git pre-push + CI for the enforced part.
+
+For **Codex**, add a clearly-marked section to `AGENTS.md`:
+
+```markdown
+## Agent Trigger Kit checks
+
+Use KIT_SPEC="github:CCC0509/agent-trigger-kit#<tag>" (pinned tag or commit).
+
+- At session start: `npx --yes "$KIT_SPEC" session-check --root .`
+- After editing `.agents/`, `.claude-plugin/`, `.cursor/`, `.agent-trigger-kit/`,
+  or `AGENTS.md`: `npx --yes "$KIT_SPEC" validate --root .`
+- Before reporting completion: `npx --yes "$KIT_SPEC" session-check --closeout --root .`
+- Record real failures (skill missing, stale cache, wrong command) with
+  `npx --yes "$KIT_SPEC" outcome record ...`. Never fabricate successes.
+```
+
+For **Cursor**, add `.cursor/rules/agent-trigger-kit.mdc` carrying the same four
+instructions:
+
+```markdown
+---
+description: Agent Trigger Kit checks
+alwaysApply: true
+---
+
+Use KIT_SPEC="github:CCC0509/agent-trigger-kit#<tag>". Run `session-check` at
+session start, `validate` after editing trigger surfaces (`.agents/`,
+`.claude-plugin/`, `.cursor/`, `.agent-trigger-kit/`, `AGENTS.md`), and
+`session-check --closeout` before reporting done. Record real failures with
+`outcome record`; never fabricate successes.
+```
+
+These are best-effort: they fire only if the agent follows them. The git
+pre-push hook and CI below are what actually enforce the checks regardless of
+which agent (or human) is driving.
 
 ## Working inside this repository
 
