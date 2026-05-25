@@ -155,6 +155,9 @@ function writeHumanReport(stdout, report) {
       for (const command of item.suggested_commands) {
         stdout.write(`  suggested: ${command}\n`);
       }
+      if (item.suggested_commands.length === 0 && item.details?.command_omitted_reason) {
+        stdout.write(`  omitted reason: ${item.details.command_omitted_reason}\n`);
+      }
     }
   }
 

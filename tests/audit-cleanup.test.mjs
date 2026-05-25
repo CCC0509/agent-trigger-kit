@@ -523,6 +523,28 @@ test('audit-cleanup JSON output remains parseable with many findings', (t) => {
   assert.deepEqual(finding.suggested_commands, expectedRmCommands(expectedPaths));
 });
 
+test('audit-cleanup keeps threshold-sized scratch sets as individual findings', (t) => {
+  const root = initRepo(t);
+  const tmpRoot = makeTempDir(t, 'agent-trigger-kit-audit-threshold-tmp-');
+
+  for (let index = 0; index < SCRATCH_GROUP_THRESHOLD; index += 1) {
+    mkdirSync(join(tmpRoot, `agent-trigger-kit-threshold-${String(index).padStart(3, '0')}`));
+  }
+
+  const report = runAuditJson(t, root, ['--tmp-root', tmpRoot]);
+
+  assert.equal(report.findings.length, SCRATCH_GROUP_THRESHOLD);
+  assert.equal(
+    report.findings.some((finding) => finding.id.startsWith('scratch.residue_group.')),
+    false,
+    JSON.stringify(report.findings, null, 2),
+  );
+  assert.equal(
+    report.findings.every((finding) => finding.id.startsWith('scratch.residue.')),
+    true,
+  );
+});
+
 test('audit-cleanup omits grouped cleanup commands when any scratch path is restricted', (t) => {
   if (typeof process.getuid !== 'function') {
     return t.skip('process.getuid is unavailable on this platform');
@@ -610,6 +632,28 @@ test('audit-cleanup human output starts with title and prints suggested commands
   assert.match(result.stdout, /^Audit cleanup/);
   assert.match(result.stdout, /branch\.merged\.merged-cleanup/);
   assert.match(result.stdout, /suggested: git branch -d merged-cleanup/);
+});
+
+test('audit-cleanup human output explains omitted grouped scratch commands', (t) => {
+  const root = initRepo(t);
+  const homeDir = makeHome(t);
+  const tmpRoot = makeTempDir(t, 'agent-trigger-kit-audit-human-group-tmp-');
+
+  for (let index = 0; index < SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT + 1; index += 1) {
+    mkdirSync(join(tmpRoot, `agent-trigger-kit-human-${String(index).padStart(3, '0')}`));
+  }
+
+  const result = runCli(
+    ['audit-cleanup', '--root', root, '--base', 'main', '--tmp-root', tmpRoot],
+    {
+      t,
+      homeDir,
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /scratch\.residue_group\./);
+  assert.match(result.stdout, /omitted reason: too_many_explicit_paths/);
 });
 
 test('audit-cleanup default base honors valid remote HEAD before remote main', (t) => {
