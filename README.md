@@ -108,7 +108,9 @@ Exit codes are 0 healthy, 1 validate fail, 2 usage,
 3 degraded outcome store, and 4 unmarked events.
 
 `session-check` is read-only: no hooks, background triggers, or background
-automation.
+automation. To run these read-only commands automatically, an operator can wire
+them into a host harness (Claude Code hooks, git hooks, CI) from personal,
+gitignored config — see [docs/harness-automation.md](docs/harness-automation.md).
 
 ### Workflow Helpers
 

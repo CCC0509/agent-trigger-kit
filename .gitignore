@@ -5,3 +5,4 @@ tmp/
 dist/
 docs/superpowers/
 docs/data/historical-outcomes-seed.local.yaml
+.claude/settings.local.json
