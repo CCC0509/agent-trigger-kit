@@ -57,6 +57,7 @@ test('outcome schema exports v0.1 closed enum values', () => {
     'live_check',
     'premerge_version_check',
     'scratch_namespace_check',
+    'pin_check',
     'manual_record',
   ]);
   assert.deepEqual(OUTCOMES, ['success', 'failure', 'skipped', 'blocked']);
@@ -115,7 +116,7 @@ test('outcome schema rejects unknown fields and invalid core fields', () => {
       'id must be a UUID v7 string',
       'schema_version must be "0.1"',
       'ts must be a UTC ISO8601 string ending in Z',
-      'verb must be one of validate, live_check, premerge_version_check, scratch_namespace_check, manual_record',
+      'verb must be one of validate, live_check, premerge_version_check, scratch_namespace_check, pin_check, manual_record',
     ],
   });
 });
@@ -137,7 +138,7 @@ test('outcome schema enforces failure category and exit code cross-rules', () =>
   assert.deepEqual(validateRecord(validEvent({ exit_code: undefined })), {
     ok: false,
     errors: [
-      'exit_code is required for event records with verb validate, live_check, premerge_version_check, or scratch_namespace_check',
+      'exit_code is required for event records with verb validate, live_check, premerge_version_check, scratch_namespace_check, or pin_check',
     ],
   });
 
@@ -158,4 +159,29 @@ test('outcome schema requires mark related_id and caps serialized record size', 
     ok: false,
     errors: ['serialized record must not exceed 1024 bytes'],
   });
+});
+
+test('pin_check is an allowed auto-event verb requiring exit_code', () => {
+  const base = {
+    id: '019e5cde-92dd-7578-a116-4d319ea7ca31',
+    schema_version: '0.1',
+    kind: 'event',
+    ts: '2026-05-25T00:00:00.000Z',
+    verb: 'pin_check',
+    outcome: 'skipped',
+    surface: 'repo',
+  };
+  // exit_code required for auto-event verbs
+  assert.equal(validateRecord(base).ok, false);
+  assert.equal(validateRecord({ ...base, exit_code: 0 }).ok, true);
+
+  // strict failure variant
+  const failure = {
+    ...base,
+    outcome: 'failure',
+    exit_code: 1,
+    failure_category: 'version_skew',
+    failure_driver: 'config',
+  };
+  assert.equal(validateRecord(failure).ok, true);
 });

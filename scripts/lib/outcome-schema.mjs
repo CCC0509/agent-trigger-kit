@@ -5,6 +5,7 @@ export const VERBS = [
   'live_check',
   'premerge_version_check',
   'scratch_namespace_check',
+  'pin_check',
   'manual_record',
 ];
 
@@ -33,6 +34,7 @@ const AUTO_EVENT_VERBS = [
   'live_check',
   'premerge_version_check',
   'scratch_namespace_check',
+  'pin_check',
 ];
 const REQUIRED_FIELDS = ['id', 'schema_version', 'kind', 'ts', 'verb', 'outcome', 'surface'];
 const ALLOWED_FIELDS = new Set([
@@ -126,7 +128,7 @@ function validateExitCodeRules(record, errors) {
     record.exit_code === undefined
   ) {
     errors.push(
-      'exit_code is required for event records with verb validate, live_check, premerge_version_check, or scratch_namespace_check',
+      'exit_code is required for event records with verb validate, live_check, premerge_version_check, scratch_namespace_check, or pin_check',
     );
   }
 }
