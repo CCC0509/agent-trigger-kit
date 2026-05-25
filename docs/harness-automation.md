@@ -42,11 +42,26 @@ cache is stale, so recording those outcomes stays a human/agent decision. The
 remember" into "the harness reminds you." Do not auto-record synthetic
 successes — the outcome store exists to collect real failure signal.
 
+## Pin file
+
+Consumer repos should keep one committed Agent Trigger Kit ref in
+`.agent-trigger-kit/pin`. Hooks, CI, `AGENTS.md`, and Cursor rules read that file
+at runtime, so version bumps happen in one small diff.
+
+Create the pin with the tag or ref you want the repo to use:
+
+```bash
+mkdir -p .agent-trigger-kit
+printf 'v0.2.3\n' > .agent-trigger-kit/pin
+git add .agent-trigger-kit/pin
+```
+
 ## Claude Code hooks (consumer repo)
 
 Write this to the consumer repo's `.claude/settings.local.json` and add
-`.claude/settings.local.json` to `.gitignore`. Replace `<tag>` with a pinned tag
-or commit — match the `KIT_SPEC` you already use for CI validation.
+`.claude/settings.local.json` to `.gitignore`. These hooks read
+`.agent-trigger-kit/pin` each time they run. Missing pins are skipped with a
+clear message because the hooks are optional harness wiring.
 
 ```json
 {
@@ -56,7 +71,7 @@ or commit — match the `KIT_SPEC` you already use for CI validation.
         "hooks": [
           {
             "type": "command",
-            "command": "npx --yes github:CCC0509/agent-trigger-kit#<tag> session-check --root \"$CLAUDE_PROJECT_DIR\" || true",
+            "command": "sh -lc 'PIN_FILE=\"$CLAUDE_PROJECT_DIR/.agent-trigger-kit/pin\"; if [ ! -f \"$PIN_FILE\" ]; then echo \"agent-trigger-kit pin missing at $PIN_FILE; skipping optional harness check\"; exit 0; fi; KIT_REF=\"$(tr -d '\"'\"'[:space:]'\"'\"' < \"$PIN_FILE\")\"; KIT_SPEC=\"github:CCC0509/agent-trigger-kit#$KIT_REF\"; npx --yes \"$KIT_SPEC\" session-check --root \"$CLAUDE_PROJECT_DIR\" || true; npx --yes \"$KIT_SPEC\" pin-check --no-outcome --root \"$CLAUDE_PROJECT_DIR\" || true'",
             "statusMessage": "agent-trigger-kit session-check"
           }
         ]
@@ -68,7 +83,7 @@ or commit — match the `KIT_SPEC` you already use for CI validation.
         "hooks": [
           {
             "type": "command",
-            "command": "node -e 'let d=\"\";process.stdin.on(\"data\",c=>d+=c);process.stdin.on(\"end\",()=>{let i={};try{i=JSON.parse(d)}catch{}const f=(i.tool_input&&i.tool_input.file_path)||\"\";const hit=[\"/.agents/\",\"/.claude-plugin/\",\"/.cursor/\",\"/.agent-trigger-kit/\"].some(s=>f.includes(s))||f.endsWith(\"/AGENTS.md\");if(hit){const cp=require(\"child_process\");const dir=process.env.CLAUDE_PROJECT_DIR||\".\";const r=cp.spawnSync(\"npx\",[\"--yes\",\"github:CCC0509/agent-trigger-kit#<tag>\",\"validate\",\"--root\",dir],{stdio:\"inherit\"});process.exit(r.status||0)}})'",
+            "command": "sh -lc 'PIN_FILE=\"$CLAUDE_PROJECT_DIR/.agent-trigger-kit/pin\"; if [ ! -f \"$PIN_FILE\" ]; then echo \"agent-trigger-kit pin missing at $PIN_FILE; skipping optional harness check\"; exit 0; fi; KIT_REF=\"$(tr -d '\"'\"'[:space:]'\"'\"' < \"$PIN_FILE\")\"; export KIT_SPEC=\"github:CCC0509/agent-trigger-kit#$KIT_REF\"; node -e '\"'\"'let d=\"\";process.stdin.on(\"data\",c=>d+=c);process.stdin.on(\"end\",()=>{let i={};try{i=JSON.parse(d)}catch{}const f=(i.tool_input&&i.tool_input.file_path)||\"\";const hit=[\"/.agents/\",\"/.claude-plugin/\",\"/.cursor/\",\"/.agent-trigger-kit/\"].some(s=>f.includes(s))||f.endsWith(\"/AGENTS.md\");if(hit){const cp=require(\"child_process\");const dir=process.env.CLAUDE_PROJECT_DIR||\".\";const r=cp.spawnSync(\"npx\",[\"--yes\",process.env.KIT_SPEC,\"validate\",\"--root\",dir],{stdio:\"inherit\"});process.exit(r.status||0)}})'\"'\"''",
             "statusMessage": "validate trigger layer"
           }
         ]
@@ -79,7 +94,7 @@ or commit — match the `KIT_SPEC` you already use for CI validation.
         "hooks": [
           {
             "type": "command",
-            "command": "npx --yes github:CCC0509/agent-trigger-kit#<tag> session-check --closeout --root \"$CLAUDE_PROJECT_DIR\" || true",
+            "command": "sh -lc 'PIN_FILE=\"$CLAUDE_PROJECT_DIR/.agent-trigger-kit/pin\"; if [ ! -f \"$PIN_FILE\" ]; then echo \"agent-trigger-kit pin missing at $PIN_FILE; skipping optional harness check\"; exit 0; fi; KIT_REF=\"$(tr -d '\"'\"'[:space:]'\"'\"' < \"$PIN_FILE\")\"; KIT_SPEC=\"github:CCC0509/agent-trigger-kit#$KIT_REF\"; npx --yes \"$KIT_SPEC\" session-check --closeout --root \"$CLAUDE_PROJECT_DIR\" || true'",
             "statusMessage": "agent-trigger-kit closeout"
           }
         ]
@@ -109,12 +124,21 @@ caches after), but for repos with heavy trigger-file editing, install the kit
 locally to avoid network on every edit:
 
 ```bash
-npm i -D github:CCC0509/agent-trigger-kit#<tag>
+KIT_REF="$(tr -d '[:space:]' < .agent-trigger-kit/pin)"
+npm i -D "github:CCC0509/agent-trigger-kit#$KIT_REF"
 ```
 
 Then call `npx agent-trigger-kit ...` (resolves from `node_modules/.bin`) in the
 hooks instead of `npx --yes github:...`, and change the `PostToolUse`
 `spawnSync` arguments to `["agent-trigger-kit","validate","--root",dir]`.
+
+### Where pin-check runs
+
+- `SessionStart`: run `pin-check --no-outcome` as a notification only. It should
+  not fail the session and should not create repeated closeout work.
+- CI: run `pin-check --strict` after reading the pinned kit. A stale comparable
+  semver pin fails CI; degraded latest-tag lookup remains fail-open.
+- Renovate: open the actual bump PR by changing only `.agent-trigger-kit/pin`.
 
 ## Codex and Cursor (instruction-based)
 
@@ -127,8 +151,10 @@ For **Codex**, add a clearly-marked section to `AGENTS.md`:
 ```markdown
 ## Agent Trigger Kit checks
 
-Use KIT_SPEC="github:CCC0509/agent-trigger-kit#<tag>" (pinned tag or commit).
+Use the version in `.agent-trigger-kit/pin`.
 
+- Derive `KIT_SPEC` before running checks:
+  `KIT_REF="$(tr -d '[:space:]' < .agent-trigger-kit/pin)"; KIT_SPEC="github:CCC0509/agent-trigger-kit#$KIT_REF"`
 - At session start: `npx --yes "$KIT_SPEC" session-check --root .`
 - After editing `.agents/`, `.claude-plugin/`, `.cursor/`, `.agent-trigger-kit/`,
   or `AGENTS.md`: `npx --yes "$KIT_SPEC" validate --root .`
@@ -146,11 +172,13 @@ description: Agent Trigger Kit checks
 alwaysApply: true
 ---
 
-Use KIT_SPEC="github:CCC0509/agent-trigger-kit#<tag>". Run `session-check` at
-session start, `validate` after editing trigger surfaces (`.agents/`,
-`.claude-plugin/`, `.cursor/`, `.agent-trigger-kit/`, `AGENTS.md`), and
-`session-check --closeout` before reporting done. Record real failures with
-`outcome record`; never fabricate successes.
+Use the version in `.agent-trigger-kit/pin`. Derive
+`KIT_SPEC="github:CCC0509/agent-trigger-kit#$KIT_REF"` from that file with
+`tr -d '[:space:]'`. Run `session-check` at session start, `validate` after
+editing trigger surfaces (`.agents/`, `.claude-plugin/`, `.cursor/`,
+`.agent-trigger-kit/`, `AGENTS.md`), and `session-check --closeout` before
+reporting done. Record real failures with `outcome record`; never fabricate
+successes.
 ```
 
 These are best-effort: they fire only if the agent follows them. The git
@@ -174,6 +202,56 @@ overwrite an existing hook.
 ## CI is the static-gate home
 
 Static checks belong in CI, not in interactive hooks alone. See the CI and
-version-check guidance in the README. `live-check` stays a manual operator or
-release gate because it inspects local installed Codex/Claude state, which CI
-cannot see.
+version-check guidance in the README. Derive the kit version from the committed
+pin in CI:
+
+```sh
+test -f .agent-trigger-kit/pin || {
+  echo "missing .agent-trigger-kit/pin; create it with the Agent Trigger Kit tag to pin"
+  exit 1
+}
+KIT_REF="$(tr -d '[:space:]' < .agent-trigger-kit/pin)"
+KIT_SPEC="github:CCC0509/agent-trigger-kit#$KIT_REF"
+npx --yes "$KIT_SPEC" validate --root .
+npx --yes "$KIT_SPEC" pin-check --strict --root .
+```
+
+`live-check` stays a manual operator or release gate because it inspects local
+installed Codex/Claude state, which CI cannot see.
+
+## Renovate auto-bump
+
+Renovate can bump semver tag pins by changing only `.agent-trigger-kit/pin`.
+Add this custom manager to the consumer repo's Renovate config:
+
+```json
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.agent-trigger-kit\\/pin$/"],
+      "matchStrings": ["^(?<currentValue>v?\\d+\\.\\d+\\.\\d+)\\s*$"],
+      "datasourceTemplate": "github-tags",
+      "depNameTemplate": "CCC0509/agent-trigger-kit",
+      "versioningTemplate": "semver-coerced"
+    }
+  ]
+}
+```
+
+This uses current Renovate terminology for regex custom managers:
+`managerFilePatterns` and `matchStrings`. `github-tags` has no datasource-level
+default versioning, so the snippet sets `versioningTemplate: "semver-coerced"`
+to handle `v0.2.3` and `0.2.3` pins.
+
+Activation paths:
+
+- Mend Renovate App: add the custom manager to the consumer repo's Renovate
+  config and let the hosted app open PRs.
+- Self-hosted Renovate Action: schedule Renovate in GitHub Actions with the
+  same config for repositories that do not use the hosted app.
+
+SHA or non-semver ref pins remain valid Agent Trigger Kit pins, but Renovate's
+automatic bump path only targets semver tags. Validate the snippet locally with
+`renovate-config-validator --no-global` before enabling it.
