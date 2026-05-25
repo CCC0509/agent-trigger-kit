@@ -1,7 +1,7 @@
 # Runbook prompt: pin Agent Trigger Kit (consumer repo)
 
 **Version:** v4-final
-**Purpose:** A paste-ready operator prompt that wires a *consumer* repository onto
+**Purpose:** A paste-ready operator prompt that wires a _consumer_ repository onto
 the Agent Trigger Kit pinned auto-update flow, then drives it all the way through
 PR merge, local sync, and Renovate enablement guidance.
 
@@ -21,6 +21,7 @@ stops if it detects it is running in the kit repo.
 
    Do **not** leave the `<owner>/...` placeholders — the prompt's first hard check
    rejects unfilled placeholders, and an unfilled value risks wrong substitution.
+
 3. The agent will pause at two human gates:
    - **[Pause A]** after CI is green — it lists a diff sanity check and waits for your
      explicit "可以 merge" before merging.
