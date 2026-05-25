@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   classifyPin,
@@ -9,6 +13,9 @@ import {
   parseRemoteTags,
   runPinCheck,
 } from '../scripts/lib/pin-check.mjs';
+import { makeTempDir } from './helpers/tmp.mjs';
+
+const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const ACCEPT = [
   ['v0.2.3\n', { type: 'semver_tag', version: '0.2.3' }],
@@ -263,4 +270,41 @@ test('runPinCheck: report has stable shape', () => {
   assert.deepEqual(r.report.current, { ref: 'v0.2.3', type: 'semver_tag', version: '0.2.3' });
   assert.deepEqual(r.report.latest, { tag: 'v0.2.4', version: '0.2.4' });
   assert.equal(r.report.exitCode, 0);
+});
+
+function runCli(args) {
+  return spawnSync(process.execPath, [join(repoRoot, 'scripts/pin-check.mjs'), ...args], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    env: { ...process.env, AGENT_TRIGGER_KIT_OUTCOME_DISABLED: '1' },
+  });
+}
+
+test('CLI missing pin: advisory exit 0 with creation guidance', (t) => {
+  const root = makeTempDir(t, 'pin-check-cli-');
+  const res = runCli(['--root', root]);
+  assert.equal(res.status, 0);
+  assert.match(res.stdout, /\.agent-trigger-kit\/pin/);
+});
+
+test('CLI missing pin strict: exit 2', (t) => {
+  const root = makeTempDir(t, 'pin-check-cli-');
+  const res = runCli(['--root', root, '--strict']);
+  assert.equal(res.status, 2);
+});
+
+test('CLI invalid pin advisory: exit 0; --json emits invalid_pin', (t) => {
+  const root = makeTempDir(t, 'pin-check-cli-');
+  mkdirSync(join(root, '.agent-trigger-kit'), { recursive: true });
+  writeFileSync(join(root, '.agent-trigger-kit/pin'), 'bad ref\n');
+  const res = runCli(['--root', root, '--json']);
+  assert.equal(res.status, 0);
+  const report = JSON.parse(res.stdout);
+  assert.equal(report.status, 'invalid_pin');
+});
+
+test('CLI unknown --repo shape: usage exit 2', (t) => {
+  const root = makeTempDir(t, 'pin-check-cli-');
+  const res = runCli(['--root', root, '--repo', 'not-a-valid-repo']);
+  assert.equal(res.status, 2);
 });

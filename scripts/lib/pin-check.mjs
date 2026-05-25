@@ -1,5 +1,8 @@
+import { spawnSync } from 'node:child_process';
+
 const SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)$/;
 const REF_TOKEN_RE = /^[A-Za-z0-9._/-]+$/;
+const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 export function parsePinFile(text) {
   if (typeof text !== 'string') {
@@ -58,6 +61,23 @@ export function parseRemoteTags(stdout) {
     tags.push({ tag, version: `${semver[1]}.${semver[2]}.${semver[3]}` });
   }
   return tags;
+}
+
+export function parseRepoArg(repo) {
+  if (typeof repo !== 'string' || !REPO_RE.test(repo)) {
+    return { ok: false, message: `--repo must be owner/name, got: ${repo}` };
+  }
+  return { ok: true, repo };
+}
+
+export function gitLsRemoteTags(repo) {
+  const [owner, name] = repo.split('/');
+  const url = `https://github.com/${owner}/${name}.git`;
+  const result = spawnSync('git', ['ls-remote', '--tags', url], { encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(result.stderr?.trim() || result.error?.message || 'git ls-remote failed');
+  }
+  return parseRemoteTags(result.stdout);
 }
 
 export function compareSemver(a, b) {
