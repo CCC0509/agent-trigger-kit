@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { readdirSync, realpathSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -9,10 +10,19 @@ import { listOutcomeEvents } from './outcome-recorder.mjs';
 export const AUDIT_CLEANUP_SCHEMA_VERSION = 1;
 export const DEFAULT_MERGE_BASE_AGE_DAYS = 7;
 export const DEFAULT_REMOTE = 'origin';
+export const SCRATCH_GROUP_THRESHOLD = 100;
+export const SCRATCH_SAMPLE_LIMIT = 20;
+export const SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT = 200;
+export const SCRATCH_COMMAND_CHUNK_SIZE = 50;
+export const SCRATCH_COMMAND_OMITTED_TOO_MANY_PATHS = 'too_many_explicit_paths';
+export const SCRATCH_COMMAND_OMITTED_PERMISSION_RESTRICTED =
+  'permission_restricted_paths_require_manual_review';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REMOTE_PRUNE_TIMEOUT_MS = 3000;
 const SCRATCH_PREFIX = 'agent-trigger-kit-';
+
+assertScratchConstants();
 
 export function runAuditCleanup(options = {}) {
   const now = options.now || new Date();
@@ -477,6 +487,77 @@ function addScratchFindings({ report, root, cwd, homeDir, tmpRoots }) {
   }
 }
 
+export function scratchGroupId(tmpRoot) {
+  return createHash('sha256').update(String(tmpRoot)).digest('hex').slice(0, 16);
+}
+
+export function groupScratchCandidates({ tmpRoot, candidates }) {
+  const sortedCandidates = sortScratchCandidates(candidates);
+  const { suggested_commands, command_omitted_reason } =
+    scratchGroupCommandResult(sortedCandidates);
+  const samplePaths = sortedCandidates
+    .slice(0, SCRATCH_SAMPLE_LIMIT)
+    .map((candidate) => candidate.path);
+
+  return finding({
+    id: `scratch.residue_group.${scratchGroupId(tmpRoot)}`,
+    category: 'scratch',
+    severity: 'actionable',
+    summary: `${sortedCandidates.length} temp scratch paths under ${tmpRoot} look like Agent Trigger Kit residue.`,
+    details: {
+      tmp_root: tmpRoot,
+      count: sortedCandidates.length,
+      sample_paths: samplePaths,
+      omitted_count: sortedCandidates.length - samplePaths.length,
+      has_permission_restricted_paths: sortedCandidates.some(
+        (candidate) => candidate.permission_restricted,
+      ),
+      command_omitted_reason,
+    },
+    suggested_commands,
+    requires_human_judgment: true,
+  });
+}
+
+function scratchGroupCommandResult(candidates) {
+  if (candidates.some((candidate) => candidate.permission_restricted)) {
+    return {
+      suggested_commands: [],
+      command_omitted_reason: SCRATCH_COMMAND_OMITTED_PERMISSION_RESTRICTED,
+    };
+  }
+
+  if (candidates.length > SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT) {
+    return {
+      suggested_commands: [],
+      command_omitted_reason: SCRATCH_COMMAND_OMITTED_TOO_MANY_PATHS,
+    };
+  }
+
+  return {
+    suggested_commands: chunkScratchCandidates(candidates).map(
+      (chunk) => `rm -rf ${chunk.map((candidate) => shellQuote(candidate.path)).join(' ')}`,
+    ),
+    command_omitted_reason: null,
+  };
+}
+
+function sortScratchCandidates(candidates) {
+  return [...candidates].sort((left, right) => {
+    if (left.path < right.path) return -1;
+    if (left.path > right.path) return 1;
+    return 0;
+  });
+}
+
+function chunkScratchCandidates(candidates) {
+  const chunks = [];
+  for (let index = 0; index < candidates.length; index += SCRATCH_COMMAND_CHUNK_SIZE) {
+    chunks.push(candidates.slice(index, index + SCRATCH_COMMAND_CHUNK_SIZE));
+  }
+  return chunks;
+}
+
 function normalizeTmpRoots(tmpRoots) {
   const roots = tmpRoots?.length ? tmpRoots : [tmpdir(), '/private/tmp'];
   return [...new Set(roots.map((root) => resolve(root)))];
@@ -526,6 +607,22 @@ function safeRealPath(path) {
 function safeId(value) {
   const name = basename(String(value)) || String(value);
   return name.replace(/[^A-Za-z0-9._/-]+/g, '_');
+}
+
+function assertScratchConstants() {
+  if (SCRATCH_GROUP_THRESHOLD >= SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT) {
+    throw new Error(
+      'SCRATCH_GROUP_THRESHOLD must be lower than SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT',
+    );
+  }
+  if (SCRATCH_COMMAND_CHUNK_SIZE > SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT) {
+    throw new Error(
+      'SCRATCH_COMMAND_CHUNK_SIZE must not exceed SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT',
+    );
+  }
+  if (SCRATCH_SAMPLE_LIMIT > SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT) {
+    throw new Error('SCRATCH_SAMPLE_LIMIT must not exceed SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT');
+  }
 }
 
 function serializeError(error) {

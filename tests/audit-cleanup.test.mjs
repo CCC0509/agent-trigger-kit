@@ -7,6 +7,15 @@ import test from 'node:test';
 
 import { makeTempDir } from './helpers/tmp.mjs';
 import {
+  SCRATCH_COMMAND_CHUNK_SIZE,
+  SCRATCH_COMMAND_OMITTED_TOO_MANY_PATHS,
+  SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT,
+  SCRATCH_GROUP_THRESHOLD,
+  SCRATCH_SAMPLE_LIMIT,
+  groupScratchCandidates,
+  scratchGroupId,
+} from '../scripts/lib/audit-cleanup.mjs';
+import {
   markOutcomeEvent,
   mintUuidV7,
   outcomeStorePath,
@@ -105,6 +114,85 @@ function assertFinding(report, id) {
 function snapshotRefs(root) {
   return git(root, ['for-each-ref', '--format=%(refname)%09%(objectname)']).stdout;
 }
+
+function scratchCandidate(tmpRoot, name, options = {}) {
+  const path = join(tmpRoot, name);
+  return {
+    path,
+    real_path: path,
+    tmp_root: tmpRoot,
+    name,
+    permission_restricted: false,
+    ...options,
+  };
+}
+
+function expectedRmCommands(paths) {
+  const commands = [];
+  for (let index = 0; index < paths.length; index += SCRATCH_COMMAND_CHUNK_SIZE) {
+    commands.push(
+      `rm -rf ${paths
+        .slice(index, index + SCRATCH_COMMAND_CHUNK_SIZE)
+        .map((path) => shellQuoteForAuditTest(path))
+        .join(' ')}`,
+    );
+  }
+  return commands;
+}
+
+function shellQuoteForAuditTest(value) {
+  const text = String(value);
+  if (/^[A-Za-z0-9_./:=+-]+$/.test(text)) return text;
+  return `'${text.replaceAll("'", "'\\''")}'`;
+}
+
+test('audit-cleanup scratch constants keep grouped command branches reachable', () => {
+  assert.ok(SCRATCH_GROUP_THRESHOLD < SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT);
+  assert.ok(SCRATCH_COMMAND_CHUNK_SIZE <= SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT);
+  assert.ok(SCRATCH_SAMPLE_LIMIT <= SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT);
+});
+
+test('audit-cleanup scratch group ids use the full temp-root path', () => {
+  assert.notEqual(scratchGroupId('/tmp/a/same-name'), scratchGroupId('/var/tmp/b/same-name'));
+  assert.match(scratchGroupId('/tmp/a/same-name'), /^[a-f0-9]{16}$/);
+});
+
+test('audit-cleanup groups 57k in-memory scratch candidates without path floods', () => {
+  const tmpRoot = '/tmp/agent-trigger-kit-large-root';
+  const candidates = Array.from({ length: 57_000 }, (_, index) =>
+    scratchCandidate(tmpRoot, `agent-trigger-kit-large-${String(index).padStart(5, '0')}`),
+  );
+  const grouped = groupScratchCandidates({ tmpRoot, candidates });
+
+  assert.equal(grouped.id, `scratch.residue_group.${scratchGroupId(tmpRoot)}`);
+  assert.equal(grouped.category, 'scratch');
+  assert.equal(grouped.severity, 'actionable');
+  assert.equal(grouped.details.tmp_root, tmpRoot);
+  assert.equal(grouped.details.count, 57_000);
+  assert.deepEqual(
+    grouped.details.sample_paths,
+    candidates.slice(0, SCRATCH_SAMPLE_LIMIT).map((candidate) => candidate.path),
+  );
+  assert.equal(grouped.details.omitted_count, 57_000 - SCRATCH_SAMPLE_LIMIT);
+  assert.equal(grouped.details.has_permission_restricted_paths, false);
+  assert.deepEqual(grouped.suggested_commands, []);
+  assert.equal(grouped.details.command_omitted_reason, SCRATCH_COMMAND_OMITTED_TOO_MANY_PATHS);
+  assert.equal(grouped.requires_human_judgment, true);
+});
+
+test('audit-cleanup groups explicit scratch commands in bounded chunks', () => {
+  const tmpRoot = '/tmp/agent-trigger-kit-small-root';
+  const candidates = Array.from({ length: SCRATCH_COMMAND_CHUNK_SIZE + 1 }, (_, index) =>
+    scratchCandidate(tmpRoot, `agent-trigger-kit-small-${String(index).padStart(2, '0')}`),
+  );
+  const grouped = groupScratchCandidates({ tmpRoot, candidates });
+
+  assert.deepEqual(
+    grouped.suggested_commands,
+    expectedRmCommands(candidates.map((candidate) => candidate.path)),
+  );
+  assert.equal(grouped.details.command_omitted_reason, null);
+});
 
 test('audit-cleanup reports local branches already merged into base', (t) => {
   const root = initRepo(t);
