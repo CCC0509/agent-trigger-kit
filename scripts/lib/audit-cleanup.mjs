@@ -466,8 +466,12 @@ function addScratchFindings({ report, root, cwd, homeDir, tmpRoots }) {
       continue;
     }
 
-    for (const candidate of sortScratchCandidates(candidates)) {
-      report.findings.push(individualScratchFinding(candidate));
+    if (candidates.length > SCRATCH_GROUP_THRESHOLD) {
+      report.findings.push(groupScratchCandidates({ tmpRoot, candidates }));
+    } else {
+      for (const candidate of sortScratchCandidates(candidates)) {
+        report.findings.push(individualScratchFinding(candidate));
+      }
     }
   }
 }

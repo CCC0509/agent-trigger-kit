@@ -505,10 +505,58 @@ test('audit-cleanup JSON output remains parseable with many findings', (t) => {
   );
   const report = JSON.parse(stdout);
 
-  assert.equal(report.findings.length, 120);
+  const finding = assertFinding(report, `scratch.residue_group.${scratchGroupId(tmpRoot)}`);
+  const expectedPaths = Array.from({ length: 120 }, (_, index) =>
+    join(tmpRoot, `agent-trigger-kit-large-${String(index).padStart(3, '0')}`),
+  ).sort();
+
+  assert.equal(report.findings.length, 1);
+  assert.equal(finding.category, 'scratch');
+  assert.equal(finding.severity, 'actionable');
+  assert.equal(finding.details.tmp_root, tmpRoot);
+  assert.equal(finding.details.count, 120);
+  assert.deepEqual(finding.details.sample_paths, expectedPaths.slice(0, SCRATCH_SAMPLE_LIMIT));
+  assert.equal(finding.details.omitted_count, 120 - SCRATCH_SAMPLE_LIMIT);
+  assert.equal(finding.details.has_permission_restricted_paths, false);
+  assert.equal(finding.details.command_omitted_reason, null);
+  assert.deepEqual(finding.suggested_commands, expectedRmCommands(expectedPaths));
+});
+
+test('audit-cleanup omits grouped cleanup commands when any scratch path is restricted', (t) => {
+  if (typeof process.getuid !== 'function') {
+    return t.skip('process.getuid is unavailable on this platform');
+  }
+
+  const root = initRepo(t);
+  const tmpRoot = makeTempDir(t, 'agent-trigger-kit-audit-group-restricted-tmp-');
+  let restrictedPath = null;
+
+  for (let index = 0; index < SCRATCH_GROUP_THRESHOLD + 1; index += 1) {
+    const path = join(tmpRoot, `agent-trigger-kit-group-${String(index).padStart(3, '0')}`);
+    mkdirSync(path, { recursive: true });
+    if (index === 0) {
+      restrictedPath = path;
+      chmodSync(path, 0o000);
+    }
+  }
+  t.after(() => {
+    try {
+      chmodSync(restrictedPath, 0o700);
+    } catch {
+      // Best-effort cleanup for a temp fixture that may already be gone.
+    }
+  });
+
+  const report = runAuditJson(t, root, ['--tmp-root', tmpRoot]);
+  const finding = assertFinding(report, `scratch.residue_group.${scratchGroupId(tmpRoot)}`);
+
+  assert.equal(report.findings.length, 1);
+  assert.equal(finding.details.count, SCRATCH_GROUP_THRESHOLD + 1);
+  assert.equal(finding.details.has_permission_restricted_paths, true);
+  assert.deepEqual(finding.suggested_commands, []);
   assert.equal(
-    report.findings.every((finding) => finding.category === 'scratch'),
-    true,
+    finding.details.command_omitted_reason,
+    'permission_restricted_paths_require_manual_review',
   );
 });
 
