@@ -428,7 +428,7 @@ test('audit-cleanup reports temp scratch residue from repeatable tmp roots and e
 
 test('audit-cleanup suggests chmod before removing permission-restricted scratch directories', (t) => {
   if (typeof process.getuid !== 'function') {
-    t.skip('process.getuid is unavailable on this platform');
+    return t.skip('process.getuid is unavailable on this platform');
   }
 
   const root = initRepo(t);
