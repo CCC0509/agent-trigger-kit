@@ -30,6 +30,7 @@ import {
   validateLiveSurfaceMatrix,
 } from './lib/live-surface-matrix.mjs';
 import { autoOutcomeDisabled, recordOutcomeSafely } from './lib/outcome-recorder.mjs';
+import { PIN_PATH, parsePinFile } from './lib/pin-check.mjs';
 
 const commandStartedAt = Date.now();
 const args = parseArgs(process.argv.slice(2), {
@@ -439,6 +440,14 @@ function validateDocumentHeaderChecks() {
   }
 }
 
+function validatePinFile() {
+  if (!existsSync(pathOf(PIN_PATH))) return;
+  const result = parsePinFile(readFileSync(pathOf(PIN_PATH), 'utf8'));
+  if (!result.ok) {
+    fail(`${PIN_PATH}: ${result.message}`);
+  }
+}
+
 function validateLiveSurfaceMatrixIfPresent() {
   if (!existsSync(pathOf(liveSurfaceMatrixPath))) return;
 
@@ -770,6 +779,7 @@ validateMaintenanceContractPointers();
 validatePlaybookFirstGuidance();
 validateDocumentHeaderChecks();
 validateRequiredVersionBump();
+validatePinFile();
 validateLiveSurfaceMatrixIfPresent();
 
 if (failures.length > 0) {

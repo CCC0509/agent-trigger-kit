@@ -3942,6 +3942,27 @@ Apply the \`demo-ops:deploy-ops\` skill before acting.
   assert.match(result.stderr, /delegates to missing skill demo-ops:deploy-ops/);
 });
 
+test('validate does not emit a pin failure when no pin file exists', (t) => {
+  const root = makeRoot(t);
+  const res = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.doesNotMatch(res.stderr + res.stdout, /\.agent-trigger-kit\/pin:/);
+});
+
+test('validate does not emit a pin failure for a well-formed pin', (t) => {
+  const root = makeRoot(t);
+  write(root, '.agent-trigger-kit/pin', 'v0.2.3');
+  const res = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.doesNotMatch(res.stderr + res.stdout, /\.agent-trigger-kit\/pin:/);
+});
+
+test('validate fails a malformed pin with a path-scoped message', (t) => {
+  const root = makeRoot(t);
+  write(root, '.agent-trigger-kit/pin', 'bad ref\n');
+  const res = runScript('validate-trigger-layer.mjs', ['--root', root]);
+  assert.notEqual(res.status, 0);
+  assert.match(res.stderr + res.stdout, /\.agent-trigger-kit\/pin:/);
+});
+
 test('validator accepts command delegation to a visible skill name that differs from its directory', (t) => {
   const root = makeRoot(t);
   const { pluginDir } = createMinimalPlugin(root);
