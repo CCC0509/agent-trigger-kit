@@ -7,6 +7,7 @@ import {
   latestSemverTag,
   parsePinFile,
   parseRemoteTags,
+  runPinCheck,
 } from '../scripts/lib/pin-check.mjs';
 
 const ACCEPT = [
@@ -109,3 +110,112 @@ test('classifyPin maps every status', () => {
 function semver(version) {
   return { ok: true, type: 'semver_tag', ref: `v${version}`, version };
 }
+
+function fakeFetch(tags) {
+  return () => tags;
+}
+
+const REPO = 'CCC0509/agent-trigger-kit';
+const PIN_CHECK_TAGS = [{ tag: 'v0.2.4', version: '0.2.4' }];
+
+test('runPinCheck: advisory behind is exit 0 and outcome skipped', () => {
+  const r = runPinCheck({
+    repo: REPO,
+    readPin: () => ({ present: true, text: 'v0.2.3\n' }),
+    fetchTags: fakeFetch(PIN_CHECK_TAGS),
+    strict: false,
+  });
+  assert.equal(r.report.status, 'behind');
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.outcome.outcome, 'skipped');
+  assert.equal(r.outcome.failureCategory, undefined);
+});
+
+test('runPinCheck: strict behind is exit 1 and failure version_skew', () => {
+  const r = runPinCheck({
+    repo: REPO,
+    readPin: () => ({ present: true, text: 'v0.2.3' }),
+    fetchTags: fakeFetch(PIN_CHECK_TAGS),
+    strict: true,
+  });
+  assert.equal(r.exitCode, 1);
+  assert.equal(r.outcome.outcome, 'failure');
+  assert.equal(r.outcome.failureCategory, 'version_skew');
+  assert.equal(r.outcome.failureDriver, 'config');
+});
+
+test('runPinCheck: current is success exit 0', () => {
+  const r = runPinCheck({
+    repo: REPO,
+    readPin: () => ({ present: true, text: 'v0.2.4' }),
+    fetchTags: fakeFetch(PIN_CHECK_TAGS),
+    strict: false,
+  });
+  assert.equal(r.report.status, 'current');
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.outcome.outcome, 'success');
+});
+
+test('runPinCheck: missing pin is skipped advisory, blocked+exit2 strict', () => {
+  const advisory = runPinCheck({
+    repo: REPO,
+    readPin: () => ({ present: false }),
+    fetchTags: fakeFetch(PIN_CHECK_TAGS),
+    strict: false,
+  });
+  assert.equal(advisory.report.status, 'missing_pin');
+  assert.equal(advisory.exitCode, 0);
+  assert.equal(advisory.outcome.outcome, 'skipped');
+
+  const strict = runPinCheck({
+    repo: REPO,
+    readPin: () => ({ present: false }),
+    fetchTags: fakeFetch(PIN_CHECK_TAGS),
+    strict: true,
+  });
+  assert.equal(strict.exitCode, 2);
+  assert.equal(strict.outcome.outcome, 'blocked');
+});
+
+test('runPinCheck: degraded fetch is skipped exit 0 in both modes', () => {
+  const fail = () => {
+    throw new Error('network down');
+  };
+  for (const strict of [false, true]) {
+    const r = runPinCheck({
+      repo: REPO,
+      readPin: () => ({ present: true, text: 'v0.2.3' }),
+      fetchTags: fail,
+      strict,
+    });
+    assert.equal(r.report.status, 'degraded');
+    assert.equal(r.exitCode, 0);
+    assert.equal(r.outcome.outcome, 'skipped');
+  }
+});
+
+test('runPinCheck: non_semver_ref is skipped and not compared', () => {
+  const r = runPinCheck({
+    repo: REPO,
+    readPin: () => ({ present: true, text: '1a2b3c4' }),
+    fetchTags: fakeFetch(PIN_CHECK_TAGS),
+    strict: false,
+  });
+  assert.equal(r.report.status, 'non_semver_ref');
+  assert.equal(r.outcome.outcome, 'skipped');
+});
+
+test('runPinCheck: report has stable shape', () => {
+  const r = runPinCheck({
+    repo: REPO,
+    readPin: () => ({ present: true, text: 'v0.2.3' }),
+    fetchTags: fakeFetch(PIN_CHECK_TAGS),
+    strict: false,
+  });
+  assert.equal(r.report.kind, 'pin_check');
+  assert.equal(r.report.repo, REPO);
+  assert.equal(r.report.pinPath, '.agent-trigger-kit/pin');
+  assert.deepEqual(r.report.current, { ref: 'v0.2.3', type: 'semver_tag', version: '0.2.3' });
+  assert.deepEqual(r.report.latest, { tag: 'v0.2.4', version: '0.2.4' });
+  assert.equal(r.report.exitCode, 0);
+});

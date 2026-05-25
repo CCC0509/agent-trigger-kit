@@ -86,3 +86,75 @@ export function classifyPin({ pinResult, latest }) {
   if (cmp < 0) return { status: 'behind' };
   return { status: 'ahead' };
 }
+
+export const PIN_PATH = '.agent-trigger-kit/pin';
+
+function readPinResult(readPin) {
+  const raw = readPin();
+  if (!raw.present) return { missing: true };
+  return parsePinFile(raw.text);
+}
+
+function classifyOutcome(status, strict) {
+  switch (status) {
+    case 'current':
+    case 'ahead':
+      return { outcome: 'success' };
+    case 'non_semver_ref':
+    case 'degraded':
+      return { outcome: 'skipped' };
+    case 'behind':
+      return strict
+        ? { outcome: 'failure', failureCategory: 'version_skew', failureDriver: 'config' }
+        : { outcome: 'skipped' };
+    case 'missing_pin':
+    case 'invalid_pin':
+      return strict ? { outcome: 'blocked' } : { outcome: 'skipped' };
+    default:
+      return { outcome: 'skipped' };
+  }
+}
+
+function exitCodeFor(status, strict) {
+  if (!strict) return 0;
+  if (status === 'behind') return 1;
+  if (status === 'missing_pin' || status === 'invalid_pin') return 2;
+  return 0;
+}
+
+export function runPinCheck({ repo, readPin, fetchTags, strict = false }) {
+  const pinResult = readPinResult(readPin);
+
+  let latest = null;
+  let degraded = false;
+  // Only fetch when the pin is a comparable semver tag.
+  if (pinResult.ok && pinResult.type === 'semver_tag') {
+    try {
+      latest = latestSemverTag(fetchTags(repo));
+      if (!latest) degraded = true;
+    } catch {
+      degraded = true;
+    }
+  }
+
+  const classified = degraded ? { status: 'degraded' } : classifyPin({ pinResult, latest });
+  const { status } = classified;
+  const exitCode = exitCodeFor(status, strict);
+  const outcomeClass = classifyOutcome(status, strict);
+
+  const report = {
+    kind: 'pin_check',
+    repo,
+    pinPath: PIN_PATH,
+    current: pinResult.ok
+      ? { ref: pinResult.ref, type: pinResult.type, version: pinResult.version }
+      : null,
+    latest: latest ? { tag: latest.tag, version: latest.version } : null,
+    status,
+    strict,
+    exitCode,
+  };
+  if (classified.error) report.error = classified.error;
+
+  return { exitCode, report, outcome: { ...outcomeClass, exitCode } };
+}
