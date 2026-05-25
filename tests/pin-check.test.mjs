@@ -164,6 +164,8 @@ test('runPinCheck: missing pin is skipped advisory, blocked+exit2 strict', () =>
     strict: false,
   });
   assert.equal(advisory.report.status, 'missing_pin');
+  assert.equal(advisory.report.error.code, 'missing_pin');
+  assert.match(advisory.report.error.message, /\.agent-trigger-kit\/pin/);
   assert.equal(advisory.exitCode, 0);
   assert.equal(advisory.outcome.outcome, 'skipped');
 
@@ -189,9 +191,46 @@ test('runPinCheck: degraded fetch is skipped exit 0 in both modes', () => {
       strict,
     });
     assert.equal(r.report.status, 'degraded');
+    assert.equal(r.report.error.code, 'latest_lookup_failed');
+    assert.match(r.report.error.message, /network down/);
     assert.equal(r.exitCode, 0);
     assert.equal(r.outcome.outcome, 'skipped');
   }
+});
+
+test('runPinCheck: no semver tags is degraded with stable error', () => {
+  const r = runPinCheck({
+    repo: REPO,
+    readPin: () => ({ present: true, text: 'v0.2.3' }),
+    fetchTags: fakeFetch([]),
+    strict: false,
+  });
+  assert.equal(r.report.status, 'degraded');
+  assert.equal(r.report.error.code, 'no_semver_tags');
+});
+
+test('runPinCheck: invalid pin preserves advisory and strict semantics', () => {
+  const advisory = runPinCheck({
+    repo: REPO,
+    readPin: () => ({ present: true, text: 'v0.2.3\nv0.2.4\n' }),
+    fetchTags: fakeFetch(PIN_CHECK_TAGS),
+    strict: false,
+  });
+  assert.equal(advisory.report.status, 'invalid_pin');
+  assert.equal(advisory.report.error.code, 'invalid_pin');
+  assert.equal(advisory.exitCode, 0);
+  assert.equal(advisory.outcome.outcome, 'skipped');
+
+  const strict = runPinCheck({
+    repo: REPO,
+    readPin: () => ({ present: true, text: 'v0.2.3\nv0.2.4\n' }),
+    fetchTags: fakeFetch(PIN_CHECK_TAGS),
+    strict: true,
+  });
+  assert.equal(strict.report.status, 'invalid_pin');
+  assert.equal(strict.report.error.code, 'invalid_pin');
+  assert.equal(strict.exitCode, 2);
+  assert.equal(strict.outcome.outcome, 'blocked');
 });
 
 test('runPinCheck: non_semver_ref is skipped and not compared', () => {

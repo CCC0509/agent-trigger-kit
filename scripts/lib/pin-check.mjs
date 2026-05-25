@@ -122,22 +122,40 @@ function exitCodeFor(status, strict) {
   return 0;
 }
 
+function errorForStatus(status) {
+  if (status === 'missing_pin') {
+    return { code: 'missing_pin', message: `${PIN_PATH} is missing` };
+  }
+  return null;
+}
+
 export function runPinCheck({ repo, readPin, fetchTags, strict = false }) {
   const pinResult = readPinResult(readPin);
 
   let latest = null;
   let degraded = false;
+  let degradedError = null;
   // Only fetch when the pin is a comparable semver tag.
   if (pinResult.ok && pinResult.type === 'semver_tag') {
     try {
       latest = latestSemverTag(fetchTags(repo));
-      if (!latest) degraded = true;
-    } catch {
+      if (!latest) {
+        degraded = true;
+        degradedError = { code: 'no_semver_tags', message: 'no semver tags were found' };
+      }
+    } catch (error) {
       degraded = true;
+      const detail = error instanceof Error && error.message ? `: ${error.message}` : '';
+      degradedError = {
+        code: 'latest_lookup_failed',
+        message: `latest tag lookup failed${detail}`,
+      };
     }
   }
 
-  const classified = degraded ? { status: 'degraded' } : classifyPin({ pinResult, latest });
+  const classified = degraded
+    ? { status: 'degraded', error: degradedError }
+    : classifyPin({ pinResult, latest });
   const { status } = classified;
   const exitCode = exitCodeFor(status, strict);
   const outcomeClass = classifyOutcome(status, strict);
@@ -154,7 +172,8 @@ export function runPinCheck({ repo, readPin, fetchTags, strict = false }) {
     strict,
     exitCode,
   };
-  if (classified.error) report.error = classified.error;
+  const reportError = classified.error ?? errorForStatus(status);
+  if (reportError) report.error = reportError;
 
   return { exitCode, report, outcome: { ...outcomeClass, exitCode } };
 }
