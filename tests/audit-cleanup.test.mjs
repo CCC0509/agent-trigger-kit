@@ -8,6 +8,7 @@ import test from 'node:test';
 import { makeTempDir } from './helpers/tmp.mjs';
 import {
   SCRATCH_COMMAND_CHUNK_SIZE,
+  SCRATCH_COMMAND_OMITTED_PERMISSION_RESTRICTED,
   SCRATCH_COMMAND_OMITTED_TOO_MANY_PATHS,
   SCRATCH_EXPLICIT_COMMAND_PATH_LIMIT,
   SCRATCH_GROUP_THRESHOLD,
@@ -556,7 +557,7 @@ test('audit-cleanup omits grouped cleanup commands when any scratch path is rest
   assert.deepEqual(finding.suggested_commands, []);
   assert.equal(
     finding.details.command_omitted_reason,
-    'permission_restricted_paths_require_manual_review',
+    SCRATCH_COMMAND_OMITTED_PERMISSION_RESTRICTED,
   );
 });
 
