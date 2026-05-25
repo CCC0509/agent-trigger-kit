@@ -43,3 +43,33 @@ export function parsePinFile(text) {
   }
   return { ok: true, ref, type: 'non_semver_ref' };
 }
+
+export function parseRemoteTags(stdout) {
+  const seen = new Set();
+  const tags = [];
+  for (const line of String(stdout).split('\n')) {
+    const match = /\trefs\/tags\/(.+?)(\^\{\})?$/.exec(line);
+    if (!match) continue;
+    const tag = match[1];
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    const semver = SEMVER_RE.exec(tag);
+    if (!semver) continue; // ignore prerelease/build-metadata/non-semver tags
+    tags.push({ tag, version: `${semver[1]}.${semver[2]}.${semver[3]}` });
+  }
+  return tags;
+}
+
+export function compareSemver(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i += 1) {
+    if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+  }
+  return 0;
+}
+
+export function latestSemverTag(tags) {
+  if (!Array.isArray(tags) || tags.length === 0) return null;
+  return tags.reduce((best, tag) => (compareSemver(tag.version, best.version) > 0 ? tag : best));
+}

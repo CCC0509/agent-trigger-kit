@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parsePinFile } from '../scripts/lib/pin-check.mjs';
+import {
+  compareSemver,
+  latestSemverTag,
+  parsePinFile,
+  parseRemoteTags,
+} from '../scripts/lib/pin-check.mjs';
 
 const ACCEPT = [
   ['v0.2.3\n', { type: 'semver_tag', version: '0.2.3' }],
@@ -49,4 +54,35 @@ test('parsePinFile rejects unsafe or malformed refs', () => {
     assert.equal(result.code, 'invalid_pin');
     assert.equal(typeof result.message, 'string');
   }
+});
+
+const LS_REMOTE = [
+  '1111111111111111111111111111111111111111\trefs/tags/v0.2.3',
+  '2222222222222222222222222222222222222222\trefs/tags/v0.2.3^{}',
+  '3333333333333333333333333333333333333333\trefs/tags/v0.2.10',
+  '4444444444444444444444444444444444444444\trefs/tags/v0.3.0-rc1',
+  '5555555555555555555555555555555555555555\trefs/tags/not-a-version',
+].join('\n');
+
+test('parseRemoteTags normalizes derefs, dedups, drops non-semver', () => {
+  const tags = parseRemoteTags(LS_REMOTE);
+  assert.deepEqual(
+    tags.map((t) => t.tag),
+    ['v0.2.3', 'v0.2.10'],
+  );
+});
+
+test('compareSemver orders numerically, not lexically', () => {
+  assert.equal(compareSemver('0.2.3', '0.2.10'), -1);
+  assert.equal(compareSemver('0.2.10', '0.2.3'), 1);
+  assert.equal(compareSemver('0.2.3', '0.2.3'), 0);
+});
+
+test('latestSemverTag picks the highest by semver', () => {
+  const tags = parseRemoteTags(LS_REMOTE);
+  assert.deepEqual(latestSemverTag(tags), { tag: 'v0.2.10', version: '0.2.10' });
+});
+
+test('latestSemverTag returns null when no semver tags', () => {
+  assert.equal(latestSemverTag([]), null);
 });
