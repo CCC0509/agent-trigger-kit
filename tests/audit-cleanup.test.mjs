@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -415,12 +415,59 @@ test('audit-cleanup reports temp scratch residue from repeatable tmp roots and e
   assert.equal(finding.category, 'scratch');
   assert.equal(finding.severity, 'actionable');
   assert.equal(finding.details.path, residue);
+  assert.equal(finding.details.tmp_root, firstTmpRoot);
+  assert.equal(finding.details.name, 'agent-trigger-kit-old-residue');
+  assert.equal(finding.details.permission_restricted, false);
   assert.deepEqual(finding.suggested_commands, [`rm -rf ${residue}`]);
   assert.equal(
     report.findings.some((candidate) => candidate.details.path === homeDir),
     false,
     JSON.stringify(report.findings, null, 2),
   );
+});
+
+test('audit-cleanup suggests chmod before removing permission-restricted scratch directories', (t) => {
+  if (typeof process.getuid !== 'function') {
+    t.skip('process.getuid is unavailable on this platform');
+  }
+
+  const root = initRepo(t);
+  const tmpRoot = makeTempDir(t, 'agent-trigger-kit-audit-blocked-tmp-');
+  const residue = join(tmpRoot, 'agent-trigger-kit-blocked-residue');
+  mkdirSync(residue, { recursive: true });
+  chmodSync(residue, 0o000);
+  t.after(() => {
+    try {
+      chmodSync(residue, 0o700);
+    } catch {
+      // Best-effort cleanup permission restore.
+    }
+  });
+
+  const report = runAuditJson(t, root, ['--tmp-root', tmpRoot]);
+  const finding = assertFinding(report, 'scratch.residue.agent-trigger-kit-blocked-residue');
+
+  assert.equal(finding.category, 'scratch');
+  assert.equal(finding.details.path, residue);
+  assert.equal(finding.details.permission_restricted, true);
+  assert.deepEqual(finding.suggested_commands, [`chmod -R u+rwX ${residue} && rm -rf ${residue}`]);
+});
+
+test('audit-cleanup preserves scratch tmp-root unreadable warnings', (t) => {
+  const root = initRepo(t);
+  const tmpParent = makeTempDir(t, 'agent-trigger-kit-audit-missing-parent-');
+  const missingTmpRoot = join(tmpParent, 'agent-trigger-kit-missing-root');
+
+  const report = runAuditJson(t, root, ['--tmp-root', missingTmpRoot]);
+  const warning = report.warnings.find((candidate) =>
+    candidate.id.startsWith('scratch.tmp_root_unreadable.'),
+  );
+
+  assert.ok(warning, JSON.stringify(report.warnings, null, 2));
+  assert.equal(warning.category, 'scratch');
+  assert.equal(warning.severity, 'warning');
+  assert.match(warning.summary, /could not be inspected/);
+  assert.equal(warning.details.code, 'ENOENT');
 });
 
 test('audit-cleanup JSON output remains parseable with many findings', (t) => {

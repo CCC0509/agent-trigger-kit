@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { readdirSync, realpathSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 
 import { runGit } from './git-base.mjs';
@@ -452,9 +452,9 @@ function addScratchFindings({ report, root, cwd, homeDir, tmpRoots }) {
   );
 
   for (const tmpRoot of tmpRoots) {
-    let entries;
+    let candidates;
     try {
-      entries = readdirSync(tmpRoot, { withFileTypes: true });
+      candidates = collectScratchCandidates({ tmpRoot, excluded });
     } catch (error) {
       report.warnings.push({
         id: `scratch.tmp_root_unreadable.${safeId(tmpRoot)}`,
@@ -466,25 +466,72 @@ function addScratchFindings({ report, root, cwd, homeDir, tmpRoots }) {
       continue;
     }
 
-    for (const entry of entries) {
-      if (!entry.name.startsWith(SCRATCH_PREFIX)) continue;
-      const path = resolve(tmpRoot, entry.name);
-      const real = safeRealPath(path) || path;
-      if (excluded.has(real)) continue;
-
-      report.findings.push(
-        finding({
-          id: `scratch.residue.${entry.name}`,
-          category: 'scratch',
-          severity: 'actionable',
-          summary: `Temp scratch path ${path} looks like Agent Trigger Kit residue.`,
-          details: { path, tmp_root: tmpRoot, name: entry.name },
-          suggested_commands: [`rm -rf ${shellQuote(path)}`],
-          requires_human_judgment: true,
-        }),
-      );
+    for (const candidate of sortScratchCandidates(candidates)) {
+      report.findings.push(individualScratchFinding(candidate));
     }
   }
+}
+
+function collectScratchCandidates({ tmpRoot, excluded }) {
+  const entries = readdirSync(tmpRoot, { withFileTypes: true });
+  const candidates = [];
+
+  for (const entry of entries) {
+    if (!entry.name.startsWith(SCRATCH_PREFIX)) continue;
+    const path = resolve(tmpRoot, entry.name);
+    const realPath = safeRealPath(path) || path;
+    if (excluded.has(realPath)) continue;
+
+    candidates.push({
+      path,
+      real_path: realPath,
+      tmp_root: tmpRoot,
+      name: entry.name,
+      permission_restricted: isPermissionRestrictedScratchPath(path),
+    });
+  }
+
+  return candidates;
+}
+
+function individualScratchFinding(candidate) {
+  return finding({
+    id: `scratch.residue.${candidate.name}`,
+    category: 'scratch',
+    severity: 'actionable',
+    summary: `Temp scratch path ${candidate.path} looks like Agent Trigger Kit residue.`,
+    details: {
+      path: candidate.path,
+      tmp_root: candidate.tmp_root,
+      name: candidate.name,
+      permission_restricted: candidate.permission_restricted,
+    },
+    suggested_commands: [scratchRemovalCommand(candidate)],
+    requires_human_judgment: true,
+  });
+}
+
+function scratchRemovalCommand(candidate) {
+  if (candidate.permission_restricted) {
+    return `chmod -R u+rwX ${shellQuote(candidate.path)} && rm -rf ${shellQuote(candidate.path)}`;
+  }
+  return `rm -rf ${shellQuote(candidate.path)}`;
+}
+
+function isPermissionRestrictedScratchPath(path) {
+  if (typeof process.getuid !== 'function') return false;
+
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return false;
+  }
+
+  if (!stat.isDirectory()) return false;
+  if (stat.uid !== process.getuid()) return false;
+
+  return (stat.mode & 0o700) !== 0o700;
 }
 
 export function scratchGroupId(tmpRoot) {
