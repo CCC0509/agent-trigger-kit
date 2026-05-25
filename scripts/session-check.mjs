@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { R_OK, W_OK, X_OK, accessSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -145,14 +145,14 @@ export function probeOutcomeStore({ root = process.cwd(), homeDir = homedir() } 
       if (!dirStat.isDirectory()) {
         throw new Error(`outcome store path is not a directory: ${storePath.dir}`);
       }
-      accessSync(storePath.dir, R_OK);
+      accessSync(storePath.dir, constants.R_OK);
 
       const eventsStat = statIfPresent(storePath.eventsPath);
       if (eventsStat) {
         if (!eventsStat.isFile()) {
           throw new Error(`outcome events path is not a file: ${storePath.eventsPath}`);
         }
-        accessSync(storePath.eventsPath, R_OK);
+        accessSync(storePath.eventsPath, constants.R_OK);
         validateOutcomeEventsFile(storePath.eventsPath);
       }
 
@@ -164,7 +164,7 @@ export function probeOutcomeStore({ root = process.cwd(), homeDir = homedir() } 
     if (!ancestorStat.isDirectory()) {
       throw new Error(`outcome store ancestor is not a directory: ${ancestor}`);
     }
-    accessSync(ancestor, X_OK);
+    accessSync(ancestor, constants.X_OK);
 
     return base;
   } catch (error) {
@@ -325,7 +325,7 @@ function probeOutcomeStoreWritable(storePath) {
 
 function accessWritable(path, reason) {
   try {
-    accessSync(path, W_OK);
+    accessSync(path, constants.W_OK);
     return writeProbe(true);
   } catch {
     return writeProbe(false, reason);
