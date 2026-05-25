@@ -8,6 +8,11 @@ Claude marketplace, and Claude plugin versions aligned.
 
 ## 0.2.4
 
+- Pin checks: added `.agent-trigger-kit/pin`, the `pin-check` command,
+  validation for committed pin files, and Renovate auto-bump documentation.
+
+## 0.2.3
+
 - Workflow helpers: added `spec-graduate`, `audit-cleanup`, and `ship-gate` for
   mechanical spec graduation, read-only post-merge cleanup audit, and local
   pre-PR composite checks.
