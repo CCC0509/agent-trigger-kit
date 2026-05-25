@@ -195,14 +195,20 @@ test('runPinCheck: degraded fetch is skipped exit 0 in both modes', () => {
 });
 
 test('runPinCheck: non_semver_ref is skipped and not compared', () => {
+  let fetchCalls = 0;
+  const fetchTags = () => {
+    fetchCalls += 1;
+    throw new Error('fetchTags should not be called for non-semver pins');
+  };
   const r = runPinCheck({
     repo: REPO,
     readPin: () => ({ present: true, text: '1a2b3c4' }),
-    fetchTags: fakeFetch(PIN_CHECK_TAGS),
+    fetchTags,
     strict: false,
   });
   assert.equal(r.report.status, 'non_semver_ref');
   assert.equal(r.outcome.outcome, 'skipped');
+  assert.equal(fetchCalls, 0);
 });
 
 test('runPinCheck: report has stable shape', () => {
