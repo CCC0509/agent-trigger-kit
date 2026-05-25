@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  classifyPin,
   compareSemver,
   latestSemverTag,
   parsePinFile,
@@ -86,3 +87,25 @@ test('latestSemverTag picks the highest by semver', () => {
 test('latestSemverTag returns null when no semver tags', () => {
   assert.equal(latestSemverTag([]), null);
 });
+
+const latest = { tag: 'v0.2.4', version: '0.2.4' };
+
+test('classifyPin maps every status', () => {
+  assert.equal(classifyPin({ pinResult: { missing: true }, latest }).status, 'missing_pin');
+  assert.equal(
+    classifyPin({ pinResult: { ok: false, code: 'invalid_pin', message: 'x' }, latest }).status,
+    'invalid_pin',
+  );
+  assert.equal(
+    classifyPin({ pinResult: { ok: true, type: 'non_semver_ref', ref: 'main' }, latest }).status,
+    'non_semver_ref',
+  );
+  assert.equal(classifyPin({ pinResult: semver('0.2.3'), latest: null }).status, 'degraded');
+  assert.equal(classifyPin({ pinResult: semver('0.2.4'), latest }).status, 'current');
+  assert.equal(classifyPin({ pinResult: semver('0.2.3'), latest }).status, 'behind');
+  assert.equal(classifyPin({ pinResult: semver('0.2.5'), latest }).status, 'ahead');
+});
+
+function semver(version) {
+  return { ok: true, type: 'semver_tag', ref: `v${version}`, version };
+}

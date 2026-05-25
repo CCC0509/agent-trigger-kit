@@ -73,3 +73,16 @@ export function latestSemverTag(tags) {
   if (!Array.isArray(tags) || tags.length === 0) return null;
   return tags.reduce((best, tag) => (compareSemver(tag.version, best.version) > 0 ? tag : best));
 }
+
+export function classifyPin({ pinResult, latest }) {
+  if (pinResult.missing) return { status: 'missing_pin' };
+  if (!pinResult.ok) {
+    return { status: 'invalid_pin', error: { code: pinResult.code, message: pinResult.message } };
+  }
+  if (pinResult.type !== 'semver_tag') return { status: 'non_semver_ref' };
+  if (!latest) return { status: 'degraded' };
+  const cmp = compareSemver(pinResult.version, latest.version);
+  if (cmp === 0) return { status: 'current' };
+  if (cmp < 0) return { status: 'behind' };
+  return { status: 'ahead' };
+}
