@@ -303,6 +303,16 @@ test('CLI invalid pin advisory: exit 0; --json emits invalid_pin', (t) => {
   assert.equal(report.status, 'invalid_pin');
 });
 
+test('CLI invalid pin human output includes diagnostics and next action', (t) => {
+  const root = makeTempDir(t, 'pin-check-cli-');
+  mkdirSync(join(root, '.agent-trigger-kit'), { recursive: true });
+  writeFileSync(join(root, '.agent-trigger-kit/pin'), 'bad ref\n');
+  const res = runCli(['--root', root, '--strict']);
+  assert.equal(res.status, 2);
+  assert.match(res.stdout, /Error: ref must not contain whitespace/);
+  assert.match(res.stdout, /Next: edit \.agent-trigger-kit\/pin/);
+});
+
 test('CLI unknown --repo shape: usage exit 2', (t) => {
   const root = makeTempDir(t, 'pin-check-cli-');
   const res = runCli(['--root', root, '--repo', 'not-a-valid-repo']);

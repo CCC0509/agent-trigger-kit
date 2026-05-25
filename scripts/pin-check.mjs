@@ -63,16 +63,43 @@ function writeHuman(r) {
     `Latest: ${r.latest ? r.latest.tag : '(unknown)'}`,
     `Status: ${r.status}`,
   ];
-  if (r.status === 'missing_pin') {
-    lines.push(
-      '',
-      'Create it with:',
-      '  mkdir -p .agent-trigger-kit',
-      "  printf 'v0.2.3\\n' > .agent-trigger-kit/pin",
-    );
+  if (r.error?.message) {
+    lines.push(`Error: ${r.error.message}`);
   }
-  if (r.status === 'behind') {
-    lines.push('', `Next: bump ${r.pinPath} to ${r.latest.tag} (Renovate can open this PR).`);
+
+  switch (r.status) {
+    case 'missing_pin':
+      lines.push('', 'Next: create the pin file with the Agent Trigger Kit tag to pin.');
+      lines.push(
+        'Create it with:',
+        '  mkdir -p .agent-trigger-kit',
+        "  printf 'v0.2.3\\n' > .agent-trigger-kit/pin",
+      );
+      break;
+    case 'invalid_pin':
+      lines.push('', `Next: edit ${r.pinPath} to contain one valid ref token.`);
+      break;
+    case 'behind':
+      lines.push('', `Next: bump ${r.pinPath} to ${r.latest.tag} (Renovate can open this PR).`);
+      break;
+    case 'degraded':
+      lines.push(
+        '',
+        'Next: retry later, or verify network access and the --repo owner/name value.',
+      );
+      break;
+    case 'non_semver_ref':
+      lines.push('', 'Next: leave this ref as-is, or switch to a semver tag for freshness checks.');
+      break;
+    case 'current':
+      lines.push('', 'Next: no action needed.');
+      break;
+    case 'ahead':
+      lines.push('', 'Next: confirm the pin intentionally points ahead of fetched semver tags.');
+      break;
+    default:
+      lines.push('', 'Next: inspect the JSON report for details.');
+      break;
   }
   process.stdout.write(`${lines.join('\n')}\n`);
 }
