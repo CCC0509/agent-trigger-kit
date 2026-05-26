@@ -16,6 +16,10 @@ function readCiWorkflow() {
   return parseYaml(read('.github/workflows/ci.yml'));
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function parseChangelogPatchVersions(changelog) {
   return [...changelog.matchAll(/^## (\d+)\.(\d+)\.(\d+)(?:\b|$)/gm)].map((match) => ({
     major: Number(match[1]),
@@ -70,6 +74,11 @@ test('package exposes lint format and preflight tooling with locked dev dependen
   assert.equal(pkg.scripts['format:check'], 'prettier --check .');
   assert.equal(pkg.scripts['check:scratch-namespace'], 'node scripts/check-scratch-namespace.mjs');
   assert.equal(pkg.scripts.validate, 'node scripts/validate-trigger-layer.mjs --root .');
+  assert.equal(
+    pkg.scripts['ops:premerge-version-check'],
+    'node scripts/premerge-version-check.mjs',
+  );
+  assert.equal(pkg.scripts['ops:release-tag'], 'node scripts/release-tag.mjs');
   assert.equal(
     pkg.scripts.preflight,
     'npm run lint && npm run format:check && npm test && npm run validate && npm run check:scratch-namespace',
@@ -268,4 +277,82 @@ test('scratch namespace advisory CI job reports PR warnings without blocking rev
   assert.doesNotMatch(advisoryJob, /continue-on-error/);
   assert.doesNotMatch(advisoryJob, /needs: validate/);
   assert.doesNotMatch(advisoryJob, /npm ci/);
+});
+
+test('ci wires PR premerge and main release tag gates', () => {
+  const workflow = readCiWorkflow();
+  const premerge = workflow.jobs['premerge-version'];
+  const releaseTag = workflow.jobs['release-tag'];
+  const runCommands = (job) =>
+    job.steps
+      .map((step) => (typeof step.run === 'string' ? step.run.trim() : step.run))
+      .filter(Boolean);
+
+  assert.deepEqual(workflow.permissions, { contents: 'read' });
+
+  assert.ok(premerge, 'expected ci workflow to define premerge-version job');
+  assert.ok(Array.isArray(premerge.steps), 'expected premerge-version job to define steps');
+  assert.equal(premerge.name, 'Pre-Merge Version Reconciliation');
+  assert.equal(premerge.if, "github.event_name == 'pull_request'");
+  assert.equal(premerge['runs-on'], 'ubuntu-latest');
+  const premergeCheckout = premerge.steps.find((step) => step.uses === 'actions/checkout@v4');
+  assert.ok(premergeCheckout, 'expected premerge-version job to checkout the repo');
+  assert.equal(premergeCheckout.with['fetch-depth'], 0);
+  assert.deepEqual(runCommands(premerge), [
+    'npm ci',
+    'npm run ops:premerge-version-check -- --base origin/${{ github.base_ref }}',
+  ]);
+
+  assert.ok(releaseTag, 'expected ci workflow to define release-tag job');
+  assert.ok(Array.isArray(releaseTag.steps), 'expected release-tag job to define steps');
+  assert.equal(releaseTag.name, 'Release Tag');
+  assert.equal(releaseTag.if, "github.event_name == 'push' && github.ref == 'refs/heads/main'");
+  assert.equal(releaseTag['runs-on'], 'ubuntu-latest');
+  assert.equal(releaseTag.needs, 'validate');
+  assert.deepEqual(releaseTag.permissions, { contents: 'write' });
+  const releaseCheckout = releaseTag.steps.find((step) => step.uses === 'actions/checkout@v4');
+  assert.ok(releaseCheckout, 'expected release-tag job to checkout the repo');
+  assert.equal(releaseCheckout.with['fetch-depth'], 0);
+  assert.deepEqual(runCommands(releaseTag), [
+    'npm ci',
+    'git config user.name "github-actions[bot]"\n' +
+      'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"',
+    'npm run ops:release-tag -- --apply',
+  ]);
+});
+
+test('release docs describe source-visible tagging and immutable tag policy', () => {
+  const contributing = read('CONTRIBUTING.md');
+  const readme = read('README.md');
+  const prTemplate = read('.github/PULL_REQUEST_TEMPLATE.md');
+
+  for (const path of [
+    'package.json',
+    'package-lock.json',
+    '.agents/plugins/marketplace.json',
+    '.claude-plugin/marketplace.json',
+    'plugins/<plugin-name>/**',
+    'scripts/**',
+    'templates/**',
+  ]) {
+    assert.match(contributing, new RegExp(escapeRegExp(path)));
+  }
+
+  assert.match(contributing, /repo-level docs-only/i);
+  assert.match(contributing, /README\.md/);
+  assert.match(contributing, /CONTRIBUTING\.md/);
+  assert.match(contributing, /docs\/\*\*/);
+  assert.match(contributing, /immutable/i);
+  assert.match(contributing, /never moves it/i);
+  assert.match(contributing, /direct pushes/i);
+  assert.match(contributing, /branch protection/i);
+  assert.match(contributing, /v0\.2\.5/);
+  assert.match(contributing, /v0\.2\.6/);
+
+  assert.match(readme, /Renovate consumers/i);
+  assert.match(readme, /semver tag/i);
+  assert.match(readme, /ops:release-tag/);
+
+  assert.match(prTemplate, /source-visible/i);
+  assert.match(prTemplate, /version\/changelog bump/i);
 });
