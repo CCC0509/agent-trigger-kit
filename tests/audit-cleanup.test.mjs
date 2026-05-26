@@ -311,7 +311,7 @@ test('audit-cleanup suppresses fresh upstream branches with non-no-op cherry out
   );
 });
 
-test('audit-cleanup reports unmarked outcome events and ignores marked events', (t) => {
+test('audit-cleanup reports unmarked success outcome events and ignores marked events', (t) => {
   const root = initRepo(t);
   const homeDir = makeHome(t);
   const unmarked = recordOutcomeEvent({
@@ -347,9 +347,56 @@ test('audit-cleanup reports unmarked outcome events and ignores marked events', 
   assert.equal(findById(report, `outcome.unmarked.${marked.id.slice(0, 8)}`), undefined);
   assert.equal(finding.category, 'outcome');
   assert.equal(finding.severity, 'actionable');
+  assert.deepEqual(finding.details, {
+    event_id: unmarked.id,
+    short_id: unmarked.id.slice(0, 8),
+    ts: '2026-05-23T08:00:00.000Z',
+    verb: 'validate',
+    outcome: 'success',
+    surface: 'repo',
+    failure_category: null,
+    failure_driver: null,
+  });
   assert.deepEqual(finding.suggested_commands, [
     `agent-trigger-kit outcome mark --root ${root} ${unmarked.id} --outcome success --note "reviewed during audit-cleanup"`,
   ]);
+  assert.equal(finding.requires_human_judgment, true);
+});
+
+test('audit-cleanup echoes failure outcome details in unmarked outcome suggestions', (t) => {
+  const root = initRepo(t);
+  const homeDir = makeHome(t);
+  const unmarked = recordOutcomeEvent({
+    root,
+    homeDir,
+    surface: 'repo',
+    verb: 'validate',
+    outcome: 'failure',
+    failureCategory: 'missing_artifact',
+    failureDriver: 'human',
+    exitCode: 1,
+    now: new Date('2026-05-23T08:03:00.000Z'),
+  }).record;
+
+  const report = runAuditJson(t, root, [], { homeDir });
+  const finding = assertFinding(report, `outcome.unmarked.${unmarked.id.slice(0, 8)}`);
+
+  assert.equal(finding.category, 'outcome');
+  assert.equal(finding.severity, 'actionable');
+  assert.deepEqual(finding.details, {
+    event_id: unmarked.id,
+    short_id: unmarked.id.slice(0, 8),
+    ts: '2026-05-23T08:03:00.000Z',
+    verb: 'validate',
+    outcome: 'failure',
+    surface: 'repo',
+    failure_category: 'missing_artifact',
+    failure_driver: 'human',
+  });
+  assert.deepEqual(finding.suggested_commands, [
+    `agent-trigger-kit outcome mark --root ${root} ${unmarked.id} --outcome failure --failure-category missing_artifact --failure-driver human --note "reviewed during audit-cleanup"`,
+  ]);
+  assert.equal(finding.requires_human_judgment, true);
 });
 
 test('audit-cleanup reports more than 1000 unmarked outcome events', (t) => {
