@@ -100,23 +100,35 @@ implicit assumption.
 The guard composes `ops:plugin-version-check -- --surface source` for the five
 aligned source versions, then verifies that the base is an ancestor of `HEAD`,
 the `CHANGELOG.md` head matches the aligned source version, and source-visible
-changes have bumped the aligned version above the base version.
+changes have bumped the aligned version above the base version. A non-source-visible
+diff does not require a version bump.
 
 `CHANGELOG.md` does not use `## Unreleased`; the first `## x.y.z` heading must
 match the aligned source version.
 
-Source-visible paths currently include:
+Source-visible paths are defined by exact paths and prefixes:
 
-- `.agents/plugins/marketplace.json`
-- `.claude-plugin/marketplace.json`
 - `package.json`
 - `package-lock.json`
-- `plugins/agent-trigger-kit/**`
+- `.agents/plugins/marketplace.json`
+- `.claude-plugin/marketplace.json`
+- `plugins/<plugin-name>/**`
 - `scripts/**`
 - `templates/**`
 
-`package-lock.json` is intentionally included because lockfile drift can change
-fresh install behavior in CI and clean clones.
+`plugins/<plugin-name>/**` includes shipped plugin skills, commands,
+plugin-local docs, and manifests. `package-lock.json` is intentionally included
+because lockfile drift can change fresh install behavior in CI and clean clones.
+
+Repo-level docs-only changes, such as `README.md`, `CONTRIBUTING.md`, `docs/**`,
+and `.github/**`, do not require a version bump when they are the only changed
+files.
+
+Source-visible changes should enter `main` through pull requests guarded by the
+premerge version check. Branch protection should prevent direct pushes to
+`main`; if maintainers keep direct pushes available, every source-visible direct
+push must carry a fresh aligned version. Same-version source-visible direct
+pushes are a known release-tag gap because published tags are immutable.
 
 To install an opt-in local pre-push hook for main-bound Agent Trigger Kit work:
 
@@ -170,6 +182,22 @@ the Pre-Merge Version Reconciliation above already ran.
    result. An agent may mark the **success** events its own session gates
    produced, using the `outcome mark` commands the closeout prints, to reach exit 0. Any **failure** event stays human-confirmed; report it and leave the
    decision to a maintainer rather than auto-marking it.
+
+6. **Let CI publish the missing release tag.** On pushes to `main`, the
+   `Release Tag` workflow job runs after `validate`. It first checks source
+   version consistency, then creates and pushes a missing annotated
+   `v<package.version>` tag. Existing tags are immutable: if the tag already
+   exists, the job reports a no-op or warning and never moves it.
+
+   The recovery tags for the current gap are one-time backfills:
+
+   ```bash
+   git tag -a v0.2.5 133a06d -m "Release v0.2.5"
+   git tag -a v0.2.6 f10e961 -m "Release v0.2.6"
+   git push origin v0.2.5 v0.2.6
+   ```
+
+   After those tags exist on the remote, do not recreate or move them.
 
 ## Code Style
 

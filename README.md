@@ -594,10 +594,16 @@ Before publishing or tagging:
 ```bash
 npm test
 npm run validate
-npm run ops:plugin-version-check -- agent-trigger-kit
+npm run ops:plugin-version-check -- --surface source agent-trigger-kit
+npm run ops:release-tag -- --dry-run
 claude plugin validate .
 claude plugin validate plugins/agent-trigger-kit
 ```
+
+Renovate consumers can only discover Agent Trigger Kit updates after the
+matching semver tag exists. On `main` pushes, CI runs `ops:release-tag -- --apply`
+after validation and creates a missing immutable `v<source-version>` annotated
+tag. If a tag already exists, CI leaves it unchanged.
 
 Run the `/private/tmp` smoke flow from this README's project examples when
 generator behavior changes.
