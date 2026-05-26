@@ -129,6 +129,48 @@ The hook always runs `npm run check:scratch-namespace` and
 sandbox remote or a non-main integration target, use `git push --no-verify` or
 edit the hook for that local checkout.
 
+## Merging And Post-Merge
+
+After CI passes on the pull request, integrate it as follows. This phase assumes
+the Pre-Merge Version Reconciliation above already ran.
+
+1. **Wait for CI to be green.** Do not merge while required checks are pending or
+   failing. Confirm with `gh pr checks <number> --watch`. The two
+   `Validate Trigger Layer (...)` jobs are the required checks and must pass.
+   `Scratch Namespace Advisory` is non-blocking and may be skipped or absent on
+   ready pull requests.
+
+2. **Squash-merge and delete the branch.** This project keeps `main` linear with
+   one commit per pull request:
+
+   ```bash
+   gh pr merge <number> --squash --delete-branch
+   ```
+
+3. **Sync local `main`.**
+
+   ```bash
+   git checkout main
+   git pull --ff-only origin main
+   ```
+
+4. **Run the post-merge cleanup review.** Apply the Workflow Helper Checklist's
+   `agent-trigger-kit audit-cleanup` step above. The audit is read-only; branch
+   deletion, remote pruning, outcome marking, and temp cleanup stay
+   human-confirmed.
+
+5. **Run the session closeout and resolve its outcome events.** The push and
+   pre-merge gates record their own outcome events, so closeout will list them:
+
+   ```bash
+   agent-trigger-kit session-check --closeout
+   ```
+
+   Trust the reported exit code; do not run a different command to mask a nonzero
+   result. An agent may mark the **success** events its own session gates
+   produced, using the `outcome mark` commands the closeout prints, to reach exit 0. Any **failure** event stays human-confirmed; report it and leave the
+   decision to a maintainer rather than auto-marking it.
+
 ## Code Style
 
 - Keep scripts small and focused.
