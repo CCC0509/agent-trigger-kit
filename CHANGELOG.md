@@ -6,6 +6,13 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.2.7
+
+- Release tagging: added source-visible release tag automation, PR premerge
+  version reconciliation in CI, immutable tag documentation, and a dry-run
+  `ops:release-tag` maintainer check so Renovate consumers can discover new
+  semver-tagged kit releases.
+
 ## 0.2.6
 
 - Audit cleanup: unmarked outcome suggestions now echo each event's recorded
