@@ -20,6 +20,7 @@
     "ops:plugin-version-check": "node scripts/check-plugin-version.mjs",
     "ops:backfill-outcomes": "node scripts/backfill-historical-outcomes.mjs",
     "ops:premerge-version-check": "node scripts/premerge-version-check.mjs",
+    "ops:release-tag": "node scripts/release-tag.mjs",
     "validate": "node scripts/validate-trigger-layer.mjs --root ."
   },
   "engines": {
