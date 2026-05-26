@@ -11,7 +11,7 @@
       "name": "agent-trigger-kit",
       "source": "./plugins/agent-trigger-kit",
       "description": "Cross-agent trigger layer toolkit for Codex, Claude Code, and Cursor",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "author": {
         "name": "Agent Trigger Kit"
       },

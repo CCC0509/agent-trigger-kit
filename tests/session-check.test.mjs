@@ -250,7 +250,9 @@ test('session-check closeout suggests an executable outcome mark command', (t) =
   assert.match(result.stdout, /Session closeout check/);
   assert.match(
     result.stdout,
-    new RegExp(`agent-trigger-kit outcome mark --root ${escapeRegExp(root)} ${event.id}`),
+    new RegExp(
+      `agent-trigger-kit outcome mark --root ${escapeRegExp(root)} ${event.id} --outcome success`,
+    ),
   );
 });
 

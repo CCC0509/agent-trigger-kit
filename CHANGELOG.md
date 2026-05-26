@@ -6,6 +6,11 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.2.5
+
+- Session check: closeout now prints executable `outcome mark` suggestions with
+  the required `--outcome success` flag.
+
 ## 0.2.4
 
 - Pin checks: added `.agent-trigger-kit/pin`, the `pin-check` command,
