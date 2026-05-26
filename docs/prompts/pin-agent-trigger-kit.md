@@ -1,6 +1,6 @@
 # Runbook prompt: pin Agent Trigger Kit (consumer repo)
 
-**Version:** v4-final
+**Version:** v5-closeout-policy
 **Purpose:** A paste-ready operator prompt that wires a _consumer_ repository onto
 the Agent Trigger Kit pinned auto-update flow, then drives it all the way through
 PR merge, local sync, and Renovate enablement guidance.
@@ -11,7 +11,8 @@ stops if it detects it is running in the kit repo.
 
 ## How to use
 
-1. Copy the fenced block below into a fresh agent session opened in the consumer repo.
+1. Copy the fenced `Prompt (v5-closeout-policy)` block below into a fresh agent session
+   opened in the consumer repo.
 2. **Fill the top two lines with real values** before sending, e.g.:
 
    ```text
@@ -42,7 +43,7 @@ stops if it detects it is running in the kit repo.
   default branch is tree-identical to origin after a squash merge.
 - **Honest Renovate handoff:** the agent never claims it confirmed the Mend UI.
 
-## Prompt (v4-final)
+## Prompt (v5-closeout-policy)
 
 ```text
 ═══════════════════════════════════════════════
@@ -127,6 +128,27 @@ Resume / Idempotency（像 state machine，可重入）
 - 不要建立或 commit .claude/settings.local.json。
 
 ═══════════════════════════════════════════════
+Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
+═══════════════════════════════════════════════
+- A closeout attempt counts as having run only when output includes:
+    Session closeout check
+- If JSON output is used, require both:
+    "kind": "session_check"
+    "mode": "closeout"
+- When a closeout report appears, trust that report and its printed exit code.
+  Do not run a later tier to mask a non-zero closeout result.
+- For normal consumer repos, use this invocation ladder:
+    1. npx --no-install agent-trigger-kit session-check --closeout --root .
+    2. npx --yes "$KIT_SPEC" session-check --closeout --root .
+- If no closeout report appears:
+    * local package missing → note not_installed, then try pinned external
+    * missing pin → report skipped_missing_pin with the expected pin path
+    * explicit sandbox / approval / host policy denial before any report → blocked_by_policy
+    * network / npm cache / package resolution / unknown failure → invocation_error
+- When the denial signal is unclear, ambiguous no-report failures default to invocation_error.
+  This conservative fallback avoids hiding real command, npm, cache, network, or package failures.
+
+═══════════════════════════════════════════════
 實作
 ═══════════════════════════════════════════════
 1. 建立 .agent-trigger-kit/pin：內容為 PIN_VERSION 加單一結尾 newline。
@@ -135,6 +157,18 @@ Resume / Idempotency（像 state machine，可重入）
 
 2. 更新或建立 AGENTS.md，加入 Agent Trigger Kit checks 段落。
    依「KIT_REPO 落地規則」：段內先定義 KIT_REPO，再用 KIT_SPEC 公式 derive，不硬編版本號。
+   AGENTS.md snippet 必須同時包含：
+   - KIT_REPO 常數與 KIT_SPEC derive 公式：
+       KIT_REPO="<owner>/<repo>"
+       KIT_SPEC="github:${KIT_REPO}#$(cat .agent-trigger-kit/pin)"
+   - trigger surface 變更後跑：
+       npx --yes "$KIT_SPEC" validate --root .
+   - 完成前跑 closeout，並遵守上方 Closeout invocation policy：
+       npx --no-install agent-trigger-kit session-check --closeout --root .
+       npx --yes "$KIT_SPEC" session-check --closeout --root .
+   - closeout blocked / failed 時，使用 not_installed、skipped_missing_pin、
+     blocked_by_policy、invocation_error 這組分類，不把 sandbox policy block 當成 closeout fail，
+     也不把真正的 closeout fail 降級成 policy block。
 
 3. Renovate config：
    - 已有 → 合併，不覆蓋既有欄位/規則；沒有 → 建立 renovate.json。
@@ -171,6 +205,10 @@ Resume / Idempotency（像 state machine，可重入）
 - repo-local trigger-layer validator（若存在，例如 node scripts/validate-agent-trigger-layer.mjs）
 - npx --yes "$KIT_SPEC" validate --root .
 - npx --yes "$KIT_SPEC" pin-check --strict --root .
+- closeout invocation proof：依 Closeout invocation policy 跑 closeout ladder；
+  只有看到 Session closeout check（或 JSON 同時有 kind=session_check、mode=closeout）
+  才算 closeout 真的跑過。若 pinned external 因 sandbox / approval policy 在報告前被擋，
+  回報 blocked_by_policy；其他 no-report failure 回報 invocation_error。
 - renovate-config-validator --no-global（若可用）
 - 專案自有檢查（package.json 有 scripts.check 就跑 npm run check；其他語言用其慣用 lint/test 入口）
 
@@ -190,6 +228,8 @@ PR 流程
     * 接上 ATK pinned auto-update flow，pin=<PIN_VERSION>
     * KIT_SPEC 由 pin derive（附公式）；KIT_REPO 各 surface 以常數落地
     * CI 新增 validate + pin-check --strict 兩道 gate
+    * AGENTS.md 補上 closeout invocation policy；說明 blocked_by_policy 是 invocation 層 meta-status，
+      不改 session-check exit code / schema。
     * Renovate 新增/合併 customManager 追蹤 pin
     * 若該 kit 版本 validator 強制文件 slug 唯一、而 repo 有 duplicate slug：
       說明做了哪個 heading rename 以通過 validator，且未改語意。（無此情況則略過，不要硬造。）
@@ -207,6 +247,8 @@ CI 紅燈 / 被擋處理：
 - CI 從 pin derive KIT_SPEC（無硬編版本號）
 - KIT_REPO 在各 surface 只作為常數/depNameTemplate 出現；KIT_SPEC 沒有直接硬拼 github:<repo>#<version>
 - Renovate config 沒蓋掉既有設定（既有規則仍在）、customManager 欄位正確（Template key、實際 depName）
+- closeout invocation policy 已寫入 AGENTS.md / Cursor 指令；報告存在與否是判定 closeout 是否跑過的真相來源，
+  blocked_by_policy 只用於 external tier 在報告前被 policy / sandbox 擋下。
 - docs heading rename（若有）沒改語意
 列完後「停下，等我明確回覆『可以 merge』」。只有收到我明確同意，才執行：
   gh pr merge <PR> --squash --delete-branch
@@ -251,6 +293,8 @@ CLI 先查並回報：
 - PR URL / merge commit SHA / pin 目前版本 / 實際使用的 branch 名
 - validate 結果（獨立 exit code 與摘要）
 - pin-check 結果（獨立 exit code 與摘要）
+- closeout invocation 結果：report present / not_installed / blocked_by_policy / invocation_error / skipped_missing_pin，
+  並附關鍵證據；若 report present，列出 exit code。
 - CI 結果
 - Renovate config 是「新增」還是「合併」
 - local/remote branch cleanup 結果
@@ -259,8 +303,67 @@ CLI 先查並回報：
 - Renovate UI：依我回覆記為「已 enabled」或「未 enabled + 下一步」
 ```
 
+## Existing v4-final Repos Closeout Addendum
+
+Use this when a consumer repo already completed `Prompt (v4-final)` and only needs
+the closeout invocation policy update.
+
+```text
+This repo already ran Agent Trigger Kit Prompt (v4-final).
+
+Do not rerun the full pin/Renovate/CI setup. Do not change `.agent-trigger-kit/pin`, Renovate, or CI unless they are currently missing or broken. Do not open a second pin setup PR.
+
+Goal: add the Agent Trigger Kit closeout invocation policy to this repo's agent
+instructions only.
+
+Precheck:
+- Read AGENTS.md / CLAUDE.md / Cursor rules if present and follow their local rules.
+- Report git status --short --branch.
+- Confirm `.agent-trigger-kit/pin` exists.
+- Derive KIT_SPEC from the existing pin:
+    KIT_REPO="<owner>/<repo>"
+    KIT_SPEC="github:${KIT_REPO}#$(cat .agent-trigger-kit/pin)"
+- Check whether AGENTS.md / CLAUDE.md / Cursor already document closeout invocation policy.
+
+Implementation:
+- Update AGENTS.md / CLAUDE.md / Cursor instructions where this repo documents Agent Trigger Kit checks.
+- Add this closeout rule:
+    * A closeout attempt counts as having run only when output includes `Session closeout check`.
+    * If JSON output is used, require both `"kind": "session_check"` and `"mode": "closeout"`.
+    * If a closeout report appears, trust its exit code. Do not run a later tier to hide a nonzero result.
+    * For normal consumer repos, try:
+        1. `npx --no-install agent-trigger-kit session-check --closeout --root .`
+        2. if no local package is installed, run:
+           `npx --yes "$KIT_SPEC" session-check --closeout --root .`
+    * If no report appears:
+        - local package missing → `not_installed`, then try pinned external
+        - missing pin → `skipped_missing_pin`
+        - explicit sandbox / approval / host policy denial before report → `blocked_by_policy`
+        - network / npm cache / package resolution / unknown failure → `invocation_error`
+        - ambiguous no-report failures default to invocation_error
+
+Verification:
+- `git diff --check -- <changed files>`
+- `npx --yes "$KIT_SPEC" validate --root .`
+- `npx --yes "$KIT_SPEC" pin-check --strict --root .`
+- Run the repo's normal docs/check command if one exists.
+
+PR / final report:
+- Commit only the instruction/doc changes.
+- PR title suggestion: `docs: add agent-trigger-kit closeout invocation policy`
+- State that this is a v4-final addendum, not a pin/Renovate/CI rerun.
+- Report validate, pin-check, closeout invocation evidence, and final git status.
+```
+
 ## Changelog
 
+- **v5-closeout-policy** — added: closeout invocation policy for AGENTS/Cursor/final
+  reporting; report-presence rule (`Session closeout check`, or JSON
+  `kind=session_check` + `mode=closeout`); consumer closeout ladder
+  (`npx --no-install` → pinned `npx --yes "$KIT_SPEC"`); no-report status taxonomy
+  (`not_installed`, `skipped_missing_pin`, `blocked_by_policy`, `invocation_error`);
+  existing-v4 migration addendum so repos that already ran v4-final do not rerun
+  pin/Renovate/CI setup.
 - **v4-final** — added: filled-value hard check at top + precheck; feature-branch name
   conflict fallback (`chore/pin-agent-trigger-kit-<version>`); explicit PR lookup by head
   branch; `gh pr view` JSON field fallback so a missing field never skips the merge gate;
