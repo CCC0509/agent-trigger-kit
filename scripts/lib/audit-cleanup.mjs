@@ -156,10 +156,10 @@ function addOutcomeFindings({ report, root, homeDir }) {
             verb: event.verb,
             outcome: event.outcome,
             surface: event.surface,
+            failure_category: event.failure_category,
+            failure_driver: event.failure_driver,
           },
-          suggested_commands: [
-            `agent-trigger-kit outcome mark --root ${shellQuote(root)} ${event.id} --outcome success --note "reviewed during audit-cleanup"`,
-          ],
+          suggested_commands: [buildOutcomeMarkCommand({ root, event })],
           requires_human_judgment: true,
         }),
       );
@@ -177,6 +177,22 @@ function addOutcomeFindings({ report, root, homeDir }) {
       }),
     );
   }
+}
+
+function buildOutcomeMarkCommand({ root, event }) {
+  const parts = [
+    'agent-trigger-kit outcome mark --root',
+    shellQuote(root),
+    event.id,
+    '--outcome',
+    event.outcome,
+  ];
+  if (event.outcome === 'failure') {
+    if (event.failure_category) parts.push('--failure-category', event.failure_category);
+    if (event.failure_driver) parts.push('--failure-driver', event.failure_driver);
+  }
+  parts.push('--note', '"reviewed during audit-cleanup"');
+  return parts.join(' ');
 }
 
 function addBranchFindings({ report, root, base, baseCommit, remote, mergeBaseAgeDays, now }) {

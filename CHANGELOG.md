@@ -6,6 +6,12 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.2.6
+
+- Audit cleanup: unmarked outcome suggestions now echo each event's recorded
+  outcome and preserve failure category/driver fields while retaining the
+  explicit human-review note.
+
 ## 0.2.5
 
 - Session check: closeout now prints executable `outcome mark` suggestions that
