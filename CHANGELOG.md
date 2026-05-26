@@ -6,6 +6,12 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.2.8
+
+- Release tagging polish: routes the PR premerge base ref through an environment
+  variable, skips the local pre-push premerge check for tag-only pushes, and
+  removes redundant release-tag report reason handling.
+
 ## 0.2.7
 
 - Release tagging: added source-visible release tag automation, PR premerge

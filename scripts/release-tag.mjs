@@ -38,7 +38,6 @@ if (sourceErrorMessage) {
     sourceErrorMessage,
     tagTarget,
   });
-  decision = { ...decision, reason: sourceErrorMessage };
 } else {
   const tagNameResult = tagNameForVersion(expectedVersion);
   if (tagNameResult.ok) {

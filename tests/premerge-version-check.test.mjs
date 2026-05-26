@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -231,6 +239,67 @@ test('install hooks writes a main-bound pre-push hook', (t) => {
   assert.match(hook, /npm run check:scratch-namespace/);
   assert.match(hook, /npm run ops:premerge-version-check -- --base origin\/main/);
   assert.equal((statSync(hookPath).mode & 0o111) !== 0, true);
+});
+
+test('installed pre-push hook skips premerge check for tag-only pushes', (t) => {
+  const root = makeRoot(t);
+  initGitFixture(root);
+  const result = runScript('install-hooks.mjs', ['--root', root]);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const hookPath = join(root, '.git', 'hooks', 'pre-push');
+  const npmLog = join(root, 'npm-calls.log');
+  const binDir = join(root, 'fake-bin');
+  mkdirSync(binDir, { recursive: true });
+  const npmPath = join(binDir, 'npm');
+  writeFileSync(npmPath, `#!/bin/sh\nprintf '%s\\n' "$*" >> "${npmLog}"\n`);
+  chmodSync(npmPath, 0o755);
+
+  const hook = spawnSync(hookPath, ['origin', 'git@example.invalid:repo.git'], {
+    cwd: root,
+    encoding: 'utf8',
+    input:
+      'refs/tags/v0.2.6 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/tags/v0.2.6 0000000000000000000000000000000000000000\n',
+    env: {
+      ...process.env,
+      PATH: `${binDir}:${process.env.PATH}`,
+    },
+  });
+
+  assert.equal(hook.status, 0, hook.stderr || hook.stdout);
+  const calls = readFileSync(npmLog, 'utf8');
+  assert.match(calls, /run check:scratch-namespace/);
+  assert.doesNotMatch(calls, /ops:premerge-version-check/);
+  assert.match(hook.stdout, /Skipping premerge version check for tag-only push/);
+});
+
+test('installed pre-push hook still runs premerge check for branch pushes', (t) => {
+  const root = makeRoot(t);
+  initGitFixture(root);
+  const result = runScript('install-hooks.mjs', ['--root', root]);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const hookPath = join(root, '.git', 'hooks', 'pre-push');
+  const npmLog = join(root, 'npm-calls.log');
+  const binDir = join(root, 'fake-bin');
+  mkdirSync(binDir, { recursive: true });
+  const npmPath = join(binDir, 'npm');
+  writeFileSync(npmPath, `#!/bin/sh\nprintf '%s\\n' "$*" >> "${npmLog}"\n`);
+  chmodSync(npmPath, 0o755);
+
+  const hook = spawnSync(hookPath, ['origin', 'git@example.invalid:repo.git'], {
+    cwd: root,
+    encoding: 'utf8',
+    input:
+      'refs/heads/release-tagging-followups bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb refs/heads/release-tagging-followups 0000000000000000000000000000000000000000\n',
+    env: {
+      ...process.env,
+      PATH: `${binDir}:${process.env.PATH}`,
+    },
+  });
+
+  assert.equal(hook.status, 0, hook.stderr || hook.stdout);
+  const calls = readFileSync(npmLog, 'utf8');
+  assert.match(calls, /run check:scratch-namespace/);
+  assert.match(calls, /run ops:premerge-version-check -- --base origin\/main/);
 });
 
 test('install hooks refuses to overwrite an existing pre-push hook', (t) => {
