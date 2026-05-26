@@ -298,9 +298,13 @@ test('ci wires PR premerge and main release tag gates', () => {
   const premergeCheckout = premerge.steps.find((step) => step.uses === 'actions/checkout@v4');
   assert.ok(premergeCheckout, 'expected premerge-version job to checkout the repo');
   assert.equal(premergeCheckout.with['fetch-depth'], 0);
+  const premergeCheck = premerge.steps.find(
+    (step) => step.name === 'Check source-visible version reconciliation',
+  );
+  assert.deepEqual(premergeCheck.env, { BASE_REF: 'origin/${{ github.base_ref }}' });
   assert.deepEqual(runCommands(premerge), [
     'npm ci',
-    'npm run ops:premerge-version-check -- --base origin/${{ github.base_ref }}',
+    'npm run ops:premerge-version-check -- --base "$BASE_REF"',
   ]);
 
   assert.ok(releaseTag, 'expected ci workflow to define release-tag job');

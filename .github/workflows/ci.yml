@@ -79,7 +79,9 @@ jobs:
         run: npm ci
 
       - name: Check source-visible version reconciliation
-        run: npm run ops:premerge-version-check -- --base origin/${{ github.base_ref }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: npm run ops:premerge-version-check -- --base "$BASE_REF"
 
   scratch-namespace-advisory:
     name: Scratch Namespace Advisory

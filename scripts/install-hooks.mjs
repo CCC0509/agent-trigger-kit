@@ -45,7 +45,22 @@ writeFileSync(
 # This hook protects main-bound Agent Trigger Kit work. Disable or edit it when
 # pushing to another integration target.
 npm run check:scratch-namespace
-npm run ops:premerge-version-check -- --base origin/main
+
+has_branch_push=0
+while read local_ref local_oid remote_ref remote_oid
+do
+  case "$local_ref $remote_ref" in
+    *refs/heads/*)
+      has_branch_push=1
+      ;;
+  esac
+done
+
+if [ "$has_branch_push" = "1" ]; then
+  npm run ops:premerge-version-check -- --base origin/main
+else
+  echo "Skipping premerge version check for tag-only push."
+fi
 `,
 );
 chmodSync(hookPath, 0o755);
