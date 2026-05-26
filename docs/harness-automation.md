@@ -133,6 +133,45 @@ Then call `npx agent-trigger-kit ...` (resolves from `node_modules/.bin`) in the
 hooks instead of `npx --yes github:...`, and change the `PostToolUse`
 `spawnSync` arguments to `["agent-trigger-kit","validate","--root",dir]`.
 
+### Closeout invocation policy
+
+The Stop hook above is advisory. It may stay compact; operators can also run the
+full ladder manually when the hook output does not prove closeout ran. A
+closeout attempt counts as having run only when output includes
+`Session closeout check`. If a caller uses JSON output, require both
+`"kind": "session_check"` and `"mode": "closeout"`.
+
+When a closeout report appears, trust that report and its printed exit code. Do
+not run a later tier to mask a non-zero closeout result.
+
+Use tiers in this order:
+
+1. Source repo dogfood: `node scripts/cli.mjs session-check --closeout --root .`
+2. Consumer installed package:
+   `npx --no-install agent-trigger-kit session-check --closeout --root .`
+3. Pinned external package:
+   `npx --yes "$KIT_SPEC" session-check --closeout --root .`
+
+For Claude hooks, resolve the project root from `CLAUDE_PROJECT_DIR`, read the
+pin from `$CLAUDE_PROJECT_DIR/.agent-trigger-kit/pin`, and pass
+`--root "$CLAUDE_PROJECT_DIR"` to closeout commands. Do not assume the hook
+current working directory is the project root.
+
+If no closeout report appears:
+
+- Installed package tier cannot resolve a local binary: note `not_installed`,
+  then continue to the pinned external tier instead of treating that miss as a
+  closeout failure.
+- Missing pin: report `skipped_missing_pin` with the expected pin path.
+- Explicit host, sandbox, approval, or policy denial before any report: report
+  `blocked_by_policy` with the denial evidence.
+- Network, npm cache, package resolution, or unknown failures: report
+  `invocation_error` with captured output.
+
+When the denial signal is unclear, ambiguous no-report failures default to invocation_error.
+That conservative fallback avoids hiding real command, npm, cache, network, or
+package failures behind a policy label.
+
 ### Where pin-check runs
 
 - `SessionStart`: run `pin-check --no-outcome` as a notification only. It should
@@ -146,6 +185,12 @@ hooks instead of `npx --yes github:...`, and change the `PostToolUse`
 Neither Codex nor Cursor exposes a deterministic tool-call hook. Wire their
 triggers as instructions in the cross-agent trigger layer the kit already
 manages, and rely on git pre-push + CI for the enforced part.
+
+For closeout, apply the closeout invocation policy above. If output contains
+`Session closeout check`, treat closeout as having run and trust the report. If
+no report appears, use `blocked_by_policy` only for explicit host, sandbox,
+approval, or policy denial evidence; otherwise report `invocation_error` with
+the captured output.
 
 For **Codex**, add a clearly-marked section to `AGENTS.md`:
 
