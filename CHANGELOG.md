@@ -8,8 +8,9 @@ Claude marketplace, and Claude plugin versions aligned.
 
 ## 0.2.5
 
-- Session check: closeout now prints executable `outcome mark` suggestions with
-  the required `--outcome success` flag.
+- Session check: closeout now prints executable `outcome mark` suggestions that
+  echo each event's own recorded outcome (carrying failure category/driver), so a
+  failure event is never silently re-marked as success.
 
 ## 0.2.4
 

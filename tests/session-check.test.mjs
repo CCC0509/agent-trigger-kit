@@ -248,12 +248,47 @@ test('session-check closeout suggests an executable outcome mark command', (t) =
 
   assert.equal(result.status, 4);
   assert.match(result.stdout, /Session closeout check/);
+  // The suggestion echoes the event's own recorded outcome so a failure event is
+  // never silently re-marked as success. emitUnmarked records a failure with a
+  // category and driver, so the faithful command carries that classification.
+  assert.match(
+    result.stdout,
+    new RegExp(
+      `agent-trigger-kit outcome mark --root ${escapeRegExp(root)} ${event.id} ` +
+        `--outcome failure --failure-category missing_artifact --failure-driver human`,
+    ),
+  );
+});
+
+test('session-check closeout suggests a success mark for an unmarked success event', (t) => {
+  const root = makeRoot(t);
+  const homeDir = makeHome(t);
+  createValidTriggerLayer(root);
+  const event = recordOutcomeEvent({
+    root,
+    homeDir,
+    plugin: 'demo-ops',
+    surface: 'repo',
+    verb: 'validate',
+    outcome: 'success',
+    exitCode: 0,
+    durationMs: 1,
+    now: new Date('2026-05-23T10:00:00.000Z'),
+  }).record;
+
+  const result = runCli(
+    ['session-check', '--root', root, '--closeout', '--since', '2026-05-01T00:00:00.000Z'],
+    homeDir,
+  );
+
+  assert.equal(result.status, 4);
   assert.match(
     result.stdout,
     new RegExp(
       `agent-trigger-kit outcome mark --root ${escapeRegExp(root)} ${event.id} --outcome success`,
     ),
   );
+  assert.doesNotMatch(result.stdout, /--failure-category/);
 });
 
 test('session-check returns validate failure before outcome-state failures', (t) => {

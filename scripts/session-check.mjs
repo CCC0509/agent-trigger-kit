@@ -396,9 +396,28 @@ function buildNextActions({ root, mode, unmarkedEvents }) {
   return unmarkedEvents.map((event) => ({
     event_id: event.id,
     short_id: event.short_id,
-    command: `agent-trigger-kit outcome mark --root ${shellQuote(root)} ${event.id} --outcome success`,
+    command: buildMarkCommand({ root, event }),
     cwd: root,
   }));
+}
+
+// Echo the event's own recorded outcome so the suggestion stays faithful: a
+// failure event is never nudged toward being re-marked as success, which would
+// mask the failure in the effective gate report. Failure classification is
+// carried through so the mark preserves the original category/driver.
+function buildMarkCommand({ root, event }) {
+  const parts = [
+    'agent-trigger-kit outcome mark --root',
+    shellQuote(root),
+    event.id,
+    '--outcome',
+    event.outcome,
+  ];
+  if (event.outcome === 'failure') {
+    if (event.failure_category) parts.push('--failure-category', event.failure_category);
+    if (event.failure_driver) parts.push('--failure-driver', event.failure_driver);
+  }
+  return parts.join(' ');
 }
 
 function shellQuote(value) {
