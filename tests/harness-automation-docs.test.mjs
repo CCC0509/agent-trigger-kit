@@ -78,7 +78,7 @@ function runCloseoutLadder(t, options = {}) {
       ),
   );
 
-  return spawnSync('sh', ['-c', closeoutLadderBlock()], {
+  return spawnSync('sh', [options.errexit ? '-ec' : '-c', closeoutLadderBlock()], {
     cwd: root,
     encoding: 'utf8',
     env: {
@@ -242,6 +242,26 @@ test('closeout ladder stops after local closeout report even when local exits no
   assert.doesNotMatch(result.stdout, /path tier should not run|npx tier should not run/);
 });
 
+test('closeout ladder keeps nonzero local reports visible under errexit', (t) => {
+  const result = runCloseoutLadder(t, {
+    errexit: true,
+    localScript: [
+      '#!/bin/sh',
+      'echo "Session closeout check"',
+      'echo "local tier ran"',
+      'exit 4',
+      '',
+    ].join('\n'),
+    pathScript: ['#!/bin/sh', 'echo "path tier should not run"', 'exit 0', ''].join('\n'),
+    npxScript: ['#!/bin/sh', 'echo "npx tier should not run"', 'exit 0', ''].join('\n'),
+  });
+
+  assert.equal(result.status, 4);
+  assert.match(result.stdout, /Session closeout check/);
+  assert.match(result.stdout, /local tier ran/);
+  assert.doesNotMatch(result.stdout, /path tier should not run|npx tier should not run/);
+});
+
 test('closeout ladder uses matching PATH binary before pinned external', (t) => {
   const result = runCloseoutLadder(t, {
     pathScript: [
@@ -262,6 +282,24 @@ test('closeout ladder uses matching PATH binary before pinned external', (t) => 
 
 test('closeout ladder falls through when PATH version is unknown', (t) => {
   const result = runCloseoutLadder(t, {
+    pathScript: [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then exit 2; fi',
+      'echo "path closeout should not run"',
+      'exit 0',
+      '',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /status=path_version_unknown/);
+  assert.doesNotMatch(result.stdout, /path closeout should not run/);
+  assert.match(result.stdout, /npx tier ran/);
+});
+
+test('closeout ladder falls through when PATH version is unknown under errexit', (t) => {
+  const result = runCloseoutLadder(t, {
+    errexit: true,
     pathScript: [
       '#!/bin/sh',
       'if [ "$1" = "--version" ]; then exit 2; fi',

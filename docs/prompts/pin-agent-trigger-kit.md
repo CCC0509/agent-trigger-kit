@@ -166,13 +166,32 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
     CLOSEOUT_REPORT_SEEN=0
     CLOSEOUT_EXIT=1
 
+    capture_command_output() {
+      CAPTURE_ERREXIT=0
+      case $- in
+        *e*)
+          CAPTURE_ERREXIT=1
+          set +e
+          ;;
+      esac
+
+      CAPTURE_OUTPUT="$("$@" 2>&1)"
+      CAPTURE_STATUS="$?"
+
+      if [ "$CAPTURE_ERREXIT" -eq 1 ]; then
+        set -e
+      fi
+      return 0
+    }
+
     run_closeout_tier() {
       if [ "$CLOSEOUT_REPORT_SEEN" -eq 1 ]; then
         return 0
       fi
 
-      CLOSEOUT_OUTPUT="$("$@" 2>&1)"
-      CLOSEOUT_EXIT="$?"
+      capture_command_output "$@"
+      CLOSEOUT_OUTPUT="$CAPTURE_OUTPUT"
+      CLOSEOUT_EXIT="$CAPTURE_STATUS"
       printf '%s\n' "$CLOSEOUT_OUTPUT"
       if printf '%s\n' "$CLOSEOUT_OUTPUT" | grep -q 'Session closeout check'; then
         CLOSEOUT_REPORT_SEEN=1
@@ -215,8 +234,9 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
           if ! printf '%s' "$PIN_REF" | grep -Eq '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "agent-trigger-kit PATH fallback skipped; status=path_non_semver_pin"
           else
-            PATH_VERSION_RAW="$("$PATH_ATK" --version 2>/dev/null)"
-            PATH_VERSION_STATUS="$?"
+            capture_command_output "$PATH_ATK" --version
+            PATH_VERSION_RAW="$CAPTURE_OUTPUT"
+            PATH_VERSION_STATUS="$CAPTURE_STATUS"
             PATH_VERSION="$(printf '%s' "$PATH_VERSION_RAW" | tr -d '[:space:]')"
             if [ "$PATH_VERSION_STATUS" -ne 0 ] || [ -z "$PATH_VERSION" ]; then
               echo "agent-trigger-kit PATH version unknown; status=path_version_unknown"
@@ -246,7 +266,9 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
 
     exit 1
 - The ladder preserves the first-report-wins rule mechanically. If no closeout
-  report appears after all tiers, the no-report path exits 1.
+  report appears after all tiers, the no-report path exits 1. It temporarily
+  disables and restores `errexit` around output captures, so nonzero closeout
+  reports still print and set the first-report marker under `set -e`.
 - If no closeout report appears:
     * local package missing → note not_installed, then try PATH/global and pinned external
     * missing pin → report skipped_missing_pin with the expected pin path
@@ -292,13 +314,32 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
        CLOSEOUT_REPORT_SEEN=0
        CLOSEOUT_EXIT=1
 
+       capture_command_output() {
+         CAPTURE_ERREXIT=0
+         case $- in
+           *e*)
+             CAPTURE_ERREXIT=1
+             set +e
+             ;;
+         esac
+
+         CAPTURE_OUTPUT="$("$@" 2>&1)"
+         CAPTURE_STATUS="$?"
+
+         if [ "$CAPTURE_ERREXIT" -eq 1 ]; then
+           set -e
+         fi
+         return 0
+       }
+
        run_closeout_tier() {
          if [ "$CLOSEOUT_REPORT_SEEN" -eq 1 ]; then
            return 0
          fi
 
-         CLOSEOUT_OUTPUT="$("$@" 2>&1)"
-         CLOSEOUT_EXIT="$?"
+         capture_command_output "$@"
+         CLOSEOUT_OUTPUT="$CAPTURE_OUTPUT"
+         CLOSEOUT_EXIT="$CAPTURE_STATUS"
          printf '%s\n' "$CLOSEOUT_OUTPUT"
          if printf '%s\n' "$CLOSEOUT_OUTPUT" | grep -q 'Session closeout check'; then
            CLOSEOUT_REPORT_SEEN=1
@@ -341,8 +382,9 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
              if ! printf '%s' "$PIN_REF" | grep -Eq '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$'; then
                echo "agent-trigger-kit PATH fallback skipped; status=path_non_semver_pin"
              else
-               PATH_VERSION_RAW="$("$PATH_ATK" --version 2>/dev/null)"
-               PATH_VERSION_STATUS="$?"
+               capture_command_output "$PATH_ATK" --version
+               PATH_VERSION_RAW="$CAPTURE_OUTPUT"
+               PATH_VERSION_STATUS="$CAPTURE_STATUS"
                PATH_VERSION="$(printf '%s' "$PATH_VERSION_RAW" | tr -d '[:space:]')"
                if [ "$PATH_VERSION_STATUS" -ne 0 ] || [ -z "$PATH_VERSION" ]; then
                  echo "agent-trigger-kit PATH version unknown; status=path_version_unknown"
@@ -569,13 +611,32 @@ Implementation:
         CLOSEOUT_REPORT_SEEN=0
         CLOSEOUT_EXIT=1
 
+        capture_command_output() {
+          CAPTURE_ERREXIT=0
+          case $- in
+            *e*)
+              CAPTURE_ERREXIT=1
+              set +e
+              ;;
+          esac
+
+          CAPTURE_OUTPUT="$("$@" 2>&1)"
+          CAPTURE_STATUS="$?"
+
+          if [ "$CAPTURE_ERREXIT" -eq 1 ]; then
+            set -e
+          fi
+          return 0
+        }
+
         run_closeout_tier() {
           if [ "$CLOSEOUT_REPORT_SEEN" -eq 1 ]; then
             return 0
           fi
 
-          CLOSEOUT_OUTPUT="$("$@" 2>&1)"
-          CLOSEOUT_EXIT="$?"
+          capture_command_output "$@"
+          CLOSEOUT_OUTPUT="$CAPTURE_OUTPUT"
+          CLOSEOUT_EXIT="$CAPTURE_STATUS"
           printf '%s\n' "$CLOSEOUT_OUTPUT"
           if printf '%s\n' "$CLOSEOUT_OUTPUT" | grep -q 'Session closeout check'; then
             CLOSEOUT_REPORT_SEEN=1
@@ -618,8 +679,9 @@ Implementation:
               if ! printf '%s' "$PIN_REF" | grep -Eq '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$'; then
                 echo "agent-trigger-kit PATH fallback skipped; status=path_non_semver_pin"
               else
-                PATH_VERSION_RAW="$("$PATH_ATK" --version 2>/dev/null)"
-                PATH_VERSION_STATUS="$?"
+                capture_command_output "$PATH_ATK" --version
+                PATH_VERSION_RAW="$CAPTURE_OUTPUT"
+                PATH_VERSION_STATUS="$CAPTURE_STATUS"
                 PATH_VERSION="$(printf '%s' "$PATH_VERSION_RAW" | tr -d '[:space:]')"
                 if [ "$PATH_VERSION_STATUS" -ne 0 ] || [ -z "$PATH_VERSION" ]; then
                   echo "agent-trigger-kit PATH version unknown; status=path_version_unknown"
@@ -649,7 +711,9 @@ Implementation:
 
         exit 1
     * The ladder preserves the first-report-wins rule mechanically. If no closeout
-      report appears after all tiers, the no-report path exits 1.
+      report appears after all tiers, the no-report path exits 1. It temporarily
+      disables and restores `errexit` around output captures, so nonzero closeout
+      reports still print and set the first-report marker under `set -e`.
     * If no report appears:
         - local package missing → `not_installed`, then try PATH/global and pinned external
         - PATH binary missing, PATH duplicate-local, non-semver pin, unknown PATH

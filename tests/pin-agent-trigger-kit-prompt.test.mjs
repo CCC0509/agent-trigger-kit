@@ -73,6 +73,8 @@ test('pin prompt main flow carries closeout invocation policy', () => {
   assertIncludes(mainPrompt, 'path_version_mismatch');
   assertIncludes(mainPrompt, 'path_version_unknown');
   assertIncludes(mainPrompt, 'command -v agent-trigger-kit');
+  assertIncludes(mainPrompt, 'capture_command_output');
+  assertIncludes(mainPrompt, 'errexit');
   assert.match(mainPrompt, /version equality[\s\S]*not proof|not proof[\s\S]*version equality/i);
   assert.match(mainPrompt, /opportunistic|low-integrity/i);
   assert.doesNotMatch(mainPrompt, /npx --no-install agent-trigger-kit session-check --closeout/);
@@ -133,6 +135,8 @@ test('pin prompt addendum gives already-v4 repos a no-rerun migration path', () 
   assertIncludes(addendum, 'path_version_mismatch');
   assertIncludes(addendum, 'path_version_unknown');
   assertIncludes(addendum, 'command -v agent-trigger-kit');
+  assertIncludes(addendum, 'capture_command_output');
+  assertIncludes(addendum, 'errexit');
   assert.match(addendum, /version equality[\s\S]*not proof|not proof[\s\S]*version equality/i);
   assert.match(addendum, /opportunistic|low-integrity/i);
   assert.doesNotMatch(addendum, /npx --no-install agent-trigger-kit session-check --closeout/);
