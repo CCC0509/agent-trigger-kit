@@ -26,11 +26,11 @@ function sectionFrom(startMarker) {
 }
 
 test('pin prompt metadata matches the active prompt version', () => {
-  assertIncludes(prompt, '**Version:** v6-localbin-guard');
-  assertIncludes(prompt, 'Prompt (v6-localbin-guard)');
+  assertIncludes(prompt, '**Version:** v7-verified-path-fallback');
+  assertIncludes(prompt, 'Prompt (v7-verified-path-fallback)');
   assert.ok(
-    prompt.indexOf('**Version:** v6-localbin-guard') <
-      prompt.indexOf('## Prompt (v6-localbin-guard)'),
+    prompt.indexOf('**Version:** v7-verified-path-fallback') <
+      prompt.indexOf('## Prompt (v7-verified-path-fallback)'),
     'expected metadata before active prompt',
   );
   assert.doesNotMatch(
@@ -38,13 +38,15 @@ test('pin prompt metadata matches the active prompt version', () => {
     /KIT_SPEC="github:\$\{KIT_REPO\}#\$\(cat \.agent-trigger-kit\/pin\)"/,
   );
   assert.doesNotMatch(prompt, /KIT_SPEC="github:\$\{KIT_REPO\}#\$\(cat "\$PIN_FILE"\)"/);
+  assert.doesNotMatch(prompt, /\$\{KIT_REPO:-CCC0509\/agent-trigger-kit\}/);
+  assert.doesNotMatch(prompt, /KIT_REPO:-/);
   assertIncludes(prompt, 'KIT_REF="$(tr -d \'[:space:]\' < "$PIN_FILE")"');
   assertIncludes(prompt, 'KIT_SPEC="github:${KIT_REPO}#$KIT_REF"');
 });
 
 test('pin prompt main flow carries closeout invocation policy', () => {
   const mainPrompt = sectionBetween(
-    '## Prompt (v6-localbin-guard)',
+    '## Prompt (v7-verified-path-fallback)',
     '## Existing v4-final Repos Closeout Addendum',
   );
 
@@ -66,6 +68,15 @@ test('pin prompt main flow carries closeout invocation policy', () => {
   assertIncludes(mainPrompt, 'KIT_REF="$(tr -d \'[:space:]\' < "$PIN_FILE")"');
   assertIncludes(mainPrompt, 'KIT_SPEC="github:${KIT_REPO}#$KIT_REF"');
   assertIncludes(mainPrompt, 'npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"');
+  assertIncludes(mainPrompt, 'agent-trigger-kit --version');
+  assertIncludes(mainPrompt, 'path_non_semver_pin');
+  assertIncludes(mainPrompt, 'path_version_mismatch');
+  assertIncludes(mainPrompt, 'path_version_unknown');
+  assertIncludes(mainPrompt, 'command -v agent-trigger-kit');
+  assertIncludes(mainPrompt, 'capture_command_output');
+  assertIncludes(mainPrompt, 'errexit');
+  assert.match(mainPrompt, /version equality[\s\S]*not proof|not proof[\s\S]*version equality/i);
+  assert.match(mainPrompt, /opportunistic|low-integrity/i);
   assert.doesNotMatch(mainPrompt, /npx --no-install agent-trigger-kit session-check --closeout/);
   assert.doesNotMatch(mainPrompt, /CLAUDE_PROJECT_DIR/);
   assert.doesNotMatch(
@@ -83,6 +94,23 @@ test('pin prompt main flow carries closeout invocation policy', () => {
   assertIncludes(mainPrompt, 'ambiguous no-report failures default to invocation_error');
   assertIncludes(mainPrompt, 'AGENTS.md snippet 必須同時包含');
   assertIncludes(mainPrompt, 'closeout invocation policy 已寫入 AGENTS.md / Cursor 指令');
+
+  const agentsTaxonomy = sectionBetween(
+    '- closeout blocked / failed 時，使用',
+    '3. Renovate config',
+  );
+  assertIncludes(agentsTaxonomy, 'path_not_found');
+  assertIncludes(agentsTaxonomy, 'path_duplicate_local');
+
+  const finalReport = sectionBetween(
+    '最後回報（逐項）',
+    '## Existing v4-final Repos Closeout Addendum',
+  );
+  assertIncludes(finalReport, 'path_not_found');
+  assertIncludes(finalReport, 'path_duplicate_local');
+  assertIncludes(finalReport, 'path_non_semver_pin');
+  assertIncludes(finalReport, 'path_version_unknown');
+  assertIncludes(finalReport, 'path_version_mismatch');
 });
 
 test('pin prompt addendum gives already-v4 repos a no-rerun migration path', () => {
@@ -102,6 +130,15 @@ test('pin prompt addendum gives already-v4 repos a no-rerun migration path', () 
   assertIncludes(addendum, 'KIT_REPO="<owner>/<repo>"');
   assertIncludes(addendum, 'KIT_REF="$(tr -d \'[:space:]\' < "$PIN_FILE")"');
   assertIncludes(addendum, 'KIT_SPEC="github:${KIT_REPO}#$KIT_REF"');
+  assertIncludes(addendum, 'agent-trigger-kit --version');
+  assertIncludes(addendum, 'path_non_semver_pin');
+  assertIncludes(addendum, 'path_version_mismatch');
+  assertIncludes(addendum, 'path_version_unknown');
+  assertIncludes(addendum, 'command -v agent-trigger-kit');
+  assertIncludes(addendum, 'capture_command_output');
+  assertIncludes(addendum, 'errexit');
+  assert.match(addendum, /version equality[\s\S]*not proof|not proof[\s\S]*version equality/i);
+  assert.match(addendum, /opportunistic|low-integrity/i);
   assert.doesNotMatch(addendum, /npx --no-install agent-trigger-kit session-check --closeout/);
   assert.doesNotMatch(addendum, /CLAUDE_PROJECT_DIR/);
   assert.doesNotMatch(
@@ -119,13 +156,19 @@ test('pin prompt addendum gives already-v4 repos a no-rerun migration path', () 
   assertIncludes(addendum, 'Do not open a second pin setup PR');
 });
 
-test('pin prompt changelog records the local-bin guard revision', () => {
+test('pin prompt changelog records the verified PATH fallback revision', () => {
   const changelog = sectionFrom('## Changelog');
 
+  assertIncludes(changelog, '**v7-verified-path-fallback**');
+  assertIncludes(changelog, 'verified PATH fallback');
   assertIncludes(changelog, '**v6-localbin-guard**');
   assertIncludes(changelog, 'local-bin guard');
   assertIncludes(changelog, '**v5-closeout-policy**');
   assertIncludes(changelog, 'existing-v4 migration addendum');
+  assert.ok(
+    changelog.indexOf('**v7-verified-path-fallback**') < changelog.indexOf('**v6-localbin-guard**'),
+    'expected v7 changelog entry before v6-localbin-guard',
+  );
   assert.ok(
     changelog.indexOf('**v6-localbin-guard**') < changelog.indexOf('**v5-closeout-policy**'),
     'expected v6 changelog entry before v5-closeout-policy',

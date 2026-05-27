@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+
+import { makeTempDir } from './helpers/tmp.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const doc = readFileSync(join(repoRoot, 'docs/harness-automation.md'), 'utf8');
@@ -30,6 +32,62 @@ function sectionBetween(startHeading, endHeading) {
   const end = doc.indexOf(endHeading, start);
   assert.notEqual(end, -1, `expected ${endHeading} after ${startHeading}`);
   return doc.slice(start, end);
+}
+
+function closeoutLadderBlock() {
+  const section = sectionBetween('<!-- closeout-ladder:start -->', '<!-- closeout-ladder:end -->');
+  const match = /```sh\n([\s\S]*?)\n```/.exec(section);
+  assert.ok(match, 'expected marked closeout ladder shell block');
+  return match[1];
+}
+
+function writeExecutable(path, content) {
+  writeFileSync(path, content);
+  chmodSync(path, 0o755);
+}
+
+function toolPath() {
+  return ['/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':');
+}
+
+function runCloseoutLadder(t, options = {}) {
+  const root = makeTempDir(t, 'agent-trigger-kit-closeout-ladder-');
+  const fakeBin = join(root, 'fake-bin');
+  mkdirSync(fakeBin, { recursive: true });
+
+  if (options.pin !== false) {
+    mkdirSync(join(root, '.agent-trigger-kit'), { recursive: true });
+    writeFileSync(join(root, '.agent-trigger-kit', 'pin'), `${options.pin || 'v0.2.9'}\n`);
+  }
+
+  if (options.localScript) {
+    const localBin = join(root, 'node_modules', '.bin');
+    mkdirSync(localBin, { recursive: true });
+    writeExecutable(join(localBin, 'agent-trigger-kit'), options.localScript);
+  }
+
+  if (options.pathScript) {
+    writeExecutable(join(fakeBin, 'agent-trigger-kit'), options.pathScript);
+  }
+
+  writeExecutable(
+    join(fakeBin, 'npx'),
+    options.npxScript ||
+      ['#!/bin/sh', 'echo "npx tier ran"', 'echo "Session closeout check"', 'exit 0', ''].join(
+        '\n',
+      ),
+  );
+
+  return spawnSync('sh', [options.errexit ? '-ec' : '-c', closeoutLadderBlock()], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${fakeBin}:${toolPath()}`,
+      ROOT: '.',
+      KIT_REPO: 'CCC0509/agent-trigger-kit',
+    },
+  });
 }
 
 function assertIncludes(haystack, needle, label = needle) {
@@ -110,9 +168,11 @@ test('harness doc documents closeout invocation policy and ladder', () => {
     '## Codex and Cursor (instruction-based)',
     '## Agent Trigger Kit checks',
   );
+  const codexExample = sectionBetween('## Agent Trigger Kit checks', 'For **Cursor**, add');
   const tierFragments = [
     'node scripts/cli.mjs session-check --closeout',
     'node_modules/.bin/agent-trigger-kit',
+    'command -v agent-trigger-kit',
     'npx --yes "$KIT_SPEC" session-check --closeout',
   ];
 
@@ -121,7 +181,7 @@ test('harness doc documents closeout invocation policy and ladder', () => {
   }
 
   assertOrdered(policy, tierFragments, 'closeout policy tier order');
-  // Compact Stop hooks embed only Tier 3. If a future hook carries all tiers,
+  // Compact Stop hooks embed only pinned external Tier 4. If a future hook carries all tiers,
   // require the full embedded ladder in the documented order.
   assertEmbeddedTierOrder(command, tierFragments);
 
@@ -135,8 +195,157 @@ test('harness doc documents closeout invocation policy and ladder', () => {
   assertIncludes(policy, 'not_installed');
   assertIncludes(policy, 'skipped_missing_pin');
   assertIncludes(policy, 'CLAUDE_PROJECT_DIR');
+  assertIncludes(policy, 'agent-trigger-kit --version');
+  assertIncludes(policy, 'path_non_semver_pin');
+  assertIncludes(policy, 'path_version_mismatch');
+  assertIncludes(policy, 'path_version_unknown');
+  assertIncludes(policy, 'realpath_or_same');
+  assert.match(policy, /version equality[\s\S]*not proof|not proof[\s\S]*version equality/i);
+  assert.match(policy, /opportunistic/i);
+  assert.match(policy, /low-integrity/i);
 
   assert.match(codexCursor, /closeout invocation policy/i);
   assertIncludes(codexCursor, 'Session closeout check');
   assertIncludes(codexCursor, 'invocation_error');
+  assertIncludes(codexCursor, 'agent-trigger-kit --version');
+  assertIncludes(codexCursor, 'path_non_semver_pin');
+  assertIncludes(codexCursor, 'path_version_mismatch');
+
+  assertIncludes(codexExample, 'agent-trigger-kit --version');
+  assertIncludes(codexExample, 'path_non_semver_pin');
+  assertIncludes(codexExample, 'path_version_mismatch');
+  assertIncludes(codexExample, 'PATH/global');
+  assertIncludes(codexExample, 'pinned external');
+  assert.doesNotMatch(codexExample, /otherwise use the same pinned[\s\S]*KIT_SPEC[\s\S]*fallback/);
+});
+
+test('marked closeout ladder shell block is syntactically valid', () => {
+  const result = spawnSync('sh', ['-n', '-c', closeoutLadderBlock()], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('closeout ladder stops after local closeout report even when local exits nonzero', (t) => {
+  const result = runCloseoutLadder(t, {
+    localScript: [
+      '#!/bin/sh',
+      'echo "Session closeout check"',
+      'echo "local tier ran"',
+      'exit 4',
+      '',
+    ].join('\n'),
+    pathScript: ['#!/bin/sh', 'echo "path tier should not run"', 'exit 0', ''].join('\n'),
+    npxScript: ['#!/bin/sh', 'echo "npx tier should not run"', 'exit 0', ''].join('\n'),
+  });
+
+  assert.equal(result.status, 4);
+  assert.match(result.stdout, /local tier ran/);
+  assert.doesNotMatch(result.stdout, /path tier should not run|npx tier should not run/);
+});
+
+test('closeout ladder keeps nonzero local reports visible under errexit', (t) => {
+  const result = runCloseoutLadder(t, {
+    errexit: true,
+    localScript: [
+      '#!/bin/sh',
+      'echo "Session closeout check"',
+      'echo "local tier ran"',
+      'exit 4',
+      '',
+    ].join('\n'),
+    pathScript: ['#!/bin/sh', 'echo "path tier should not run"', 'exit 0', ''].join('\n'),
+    npxScript: ['#!/bin/sh', 'echo "npx tier should not run"', 'exit 0', ''].join('\n'),
+  });
+
+  assert.equal(result.status, 4);
+  assert.match(result.stdout, /Session closeout check/);
+  assert.match(result.stdout, /local tier ran/);
+  assert.doesNotMatch(result.stdout, /path tier should not run|npx tier should not run/);
+});
+
+test('closeout ladder uses matching PATH binary before pinned external', (t) => {
+  const result = runCloseoutLadder(t, {
+    pathScript: [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then echo "0.2.9"; exit 0; fi',
+      'echo "path tier ran"',
+      'echo "Session closeout check"',
+      'exit 0',
+      '',
+    ].join('\n'),
+    npxScript: ['#!/bin/sh', 'echo "npx tier should not run"', 'exit 0', ''].join('\n'),
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /path tier ran/);
+  assert.doesNotMatch(result.stdout, /npx tier should not run/);
+});
+
+test('closeout ladder falls through when PATH version is unknown', (t) => {
+  const result = runCloseoutLadder(t, {
+    pathScript: [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then exit 2; fi',
+      'echo "path closeout should not run"',
+      'exit 0',
+      '',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /status=path_version_unknown/);
+  assert.doesNotMatch(result.stdout, /path closeout should not run/);
+  assert.match(result.stdout, /npx tier ran/);
+});
+
+test('closeout ladder falls through when PATH version is unknown under errexit', (t) => {
+  const result = runCloseoutLadder(t, {
+    errexit: true,
+    pathScript: [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then exit 2; fi',
+      'echo "path closeout should not run"',
+      'exit 0',
+      '',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /status=path_version_unknown/);
+  assert.doesNotMatch(result.stdout, /path closeout should not run/);
+  assert.match(result.stdout, /npx tier ran/);
+});
+
+test('closeout ladder falls through when PATH version mismatches pin', (t) => {
+  const result = runCloseoutLadder(t, {
+    pathScript: [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then echo "0.2.8"; exit 0; fi',
+      'echo "path closeout should not run"',
+      'exit 0',
+      '',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /status=path_version_mismatch/);
+  assert.doesNotMatch(result.stdout, /path closeout should not run/);
+  assert.match(result.stdout, /npx tier ran/);
+});
+
+test('closeout ladder skips PATH gate for non-semver pins', (t) => {
+  const result = runCloseoutLadder(t, {
+    pin: 'main',
+    pathScript: [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then echo "0.2.9"; exit 0; fi',
+      'echo "path closeout should not run"',
+      'exit 0',
+      '',
+    ].join('\n'),
+  });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /status=path_non_semver_pin/);
+  assert.doesNotMatch(result.stdout, /path closeout should not run/);
+  assert.match(result.stdout, /npx tier ran/);
 });

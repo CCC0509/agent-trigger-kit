@@ -6,6 +6,17 @@ This project is currently in the `0.x` stage. Until a formal SemVer policy is
 published, releases keep `package.json`, Codex marketplace, Codex plugin,
 Claude marketplace, and Claude plugin versions aligned.
 
+## 0.2.9
+
+- CLI: added top-level `agent-trigger-kit --version`, which prints the package
+  version as a bare stdout string for local version gates.
+- Closeout: documented a verified PATH/global fallback between local package
+  and pinned external `npx`, with semver-pin version gating, non-semver skips,
+  mismatch breadcrumbs, and first-report-wins shell behavior.
+- Consumer prompt: updated the pin prompt to v7 with the same verified PATH
+  fallback policy while keeping pinned external `npx` as the strict
+  ref-resolving fallback.
+
 ## 0.2.8
 
 - Release tagging polish: routes the PR premerge base ref through an environment

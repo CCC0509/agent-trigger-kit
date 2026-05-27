@@ -1,6 +1,6 @@
 # Runbook prompt: pin Agent Trigger Kit (consumer repo)
 
-**Version:** v6-localbin-guard
+**Version:** v7-verified-path-fallback
 **Purpose:** A paste-ready operator prompt that wires a _consumer_ repository onto
 the Agent Trigger Kit pinned auto-update flow, then drives it all the way through
 PR merge, local sync, and Renovate enablement guidance.
@@ -11,7 +11,7 @@ stops if it detects it is running in the kit repo.
 
 ## How to use
 
-1. Copy the fenced `Prompt (v6-localbin-guard)` block below into a fresh agent session
+1. Copy the fenced `Prompt (v7-verified-path-fallback)` block below into a fresh agent session
    opened in the consumer repo.
 2. **Fill the top two lines with real values** before sending, e.g.:
 
@@ -46,7 +46,7 @@ stops if it detects it is running in the kit repo.
   default branch is tree-identical to origin after a squash merge.
 - **Honest Renovate handoff:** the agent never claims it confirmed the Mend UI.
 
-## Prompt (v6-localbin-guard)
+## Prompt (v7-verified-path-fallback)
 
 ```text
 ═══════════════════════════════════════════════
@@ -143,28 +143,138 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
     "mode": "closeout"
 - When a closeout report appears, trust that report and its printed exit code.
   Do not run a later tier to mask a non-zero closeout result.
+- Use tiers in this order:
+    1. Consumer installed package: `$ROOT/node_modules/.bin/agent-trigger-kit`
+    2. Verified PATH/global package: `command -v agent-trigger-kit` plus a semver pin version gate
+    3. Pinned external package: `npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"`
+- The PATH/global tier is an opportunistic, low-integrity optimization.
+  `agent-trigger-kit --version` reports the PATH binary's package version.
+  The PATH tier invokes `$PATH_ATK --version` after `command -v agent-trigger-kit`
+  resolves the binary. Package-version equality only proves the binary declares
+  the same package version as a semver pin; it is not proof of pinned-ref content
+  equivalence.
+- Non-semver pins skip the PATH tier with `status=path_non_semver_pin`.
+  Version mismatches use `status=path_version_mismatch` and fall through to
+  pinned external `npx`.
 - For normal consumer repos, do not use `npx --no-install agent-trigger-kit ...` as
-  the local tier; local misses can enter npm registry resolution. Use this
-  local-bin guard, then pinned fallback:
+  the installed-package tier; local misses can enter npm registry resolution. Use
+  this first-report-wins self-chaining ladder:
     ROOT="${ROOT:-.}"
     LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
     PIN_FILE="$ROOT/.agent-trigger-kit/pin"
     KIT_REPO="<owner>/<repo>"
+    CLOSEOUT_REPORT_SEEN=0
+    CLOSEOUT_EXIT=1
+
+    capture_command_output() {
+      CAPTURE_ERREXIT=0
+      case $- in
+        *e*)
+          CAPTURE_ERREXIT=1
+          set +e
+          ;;
+      esac
+
+      CAPTURE_OUTPUT="$("$@" 2>&1)"
+      CAPTURE_STATUS="$?"
+
+      if [ "$CAPTURE_ERREXIT" -eq 1 ]; then
+        set -e
+      fi
+      return 0
+    }
+
+    run_closeout_tier() {
+      if [ "$CLOSEOUT_REPORT_SEEN" -eq 1 ]; then
+        return 0
+      fi
+
+      capture_command_output "$@"
+      CLOSEOUT_OUTPUT="$CAPTURE_OUTPUT"
+      CLOSEOUT_EXIT="$CAPTURE_STATUS"
+      printf '%s\n' "$CLOSEOUT_OUTPUT"
+      if printf '%s\n' "$CLOSEOUT_OUTPUT" | grep -q 'Session closeout check'; then
+        CLOSEOUT_REPORT_SEEN=1
+      fi
+      return 0
+    }
+
+    realpath_or_same() {
+      if command -v realpath >/dev/null 2>&1; then
+        realpath "$1" 2>/dev/null || printf '%s' "$1"
+      else
+        printf '%s' "$1"
+      fi
+    }
+
     if [ -x "$LOCAL_ATK" ]; then
-      "$LOCAL_ATK" session-check --closeout --root "$ROOT"
+      run_closeout_tier "$LOCAL_ATK" session-check --closeout --root "$ROOT"
     else
       echo "agent-trigger-kit local binary missing; status=not_installed"
+    fi
+
+    if [ "$CLOSEOUT_REPORT_SEEN" -eq 0 ]; then
+      PATH_ATK="$(command -v agent-trigger-kit 2>/dev/null || true)"
+      LOCAL_ATK_REAL=""
+      if [ -x "$LOCAL_ATK" ]; then
+        LOCAL_ATK_REAL="$(realpath_or_same "$LOCAL_ATK")"
+      fi
+
+      if [ -z "$PATH_ATK" ]; then
+        echo "agent-trigger-kit PATH binary missing; status=path_not_found"
+      else
+        PATH_ATK_REAL="$(realpath_or_same "$PATH_ATK")"
+        if [ -n "$LOCAL_ATK_REAL" ] && [ "$PATH_ATK_REAL" = "$LOCAL_ATK_REAL" ]; then
+          echo "agent-trigger-kit PATH binary already tried as local package; status=path_duplicate_local"
+        elif [ ! -f "$PIN_FILE" ]; then
+          echo "agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin"
+        else
+          PIN_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+          PIN_VERSION="$(printf '%s' "$PIN_REF" | sed 's/^[vV]//')"
+          if ! printf '%s' "$PIN_REF" | grep -Eq '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "agent-trigger-kit PATH fallback skipped; status=path_non_semver_pin"
+          else
+            capture_command_output "$PATH_ATK" --version
+            PATH_VERSION_RAW="$CAPTURE_OUTPUT"
+            PATH_VERSION_STATUS="$CAPTURE_STATUS"
+            PATH_VERSION="$(printf '%s' "$PATH_VERSION_RAW" | tr -d '[:space:]')"
+            if [ "$PATH_VERSION_STATUS" -ne 0 ] || [ -z "$PATH_VERSION" ]; then
+              echo "agent-trigger-kit PATH version unknown; status=path_version_unknown"
+            elif [ "$PATH_VERSION" = "$PIN_VERSION" ]; then
+              run_closeout_tier "$PATH_ATK" session-check --closeout --root "$ROOT"
+            else
+              echo "agent-trigger-kit PATH version mismatch; status=path_version_mismatch pin=$PIN_VERSION path=${PATH_VERSION:-unknown}"
+            fi
+          fi
+        fi
+      fi
+    fi
+
+    if [ "$CLOSEOUT_REPORT_SEEN" -eq 0 ]; then
       if [ ! -f "$PIN_FILE" ]; then
         echo "agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin"
       else
         KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
         KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
-        npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"
+        run_closeout_tier npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"
       fi
     fi
+
+    if [ "$CLOSEOUT_REPORT_SEEN" -eq 1 ]; then
+      exit "$CLOSEOUT_EXIT"
+    fi
+
+    exit 1
+- The ladder preserves the first-report-wins rule mechanically. If no closeout
+  report appears after all tiers, the no-report path exits 1. It temporarily
+  disables and restores `errexit` around output captures, so nonzero closeout
+  reports still print and set the first-report marker under `set -e`.
 - If no closeout report appears:
-    * local package missing → note not_installed, then try pinned external
+    * local package missing → note not_installed, then try PATH/global and pinned external
     * missing pin → report skipped_missing_pin with the expected pin path
+    * PATH binary missing, PATH duplicate-local, non-semver pin, unknown PATH
+      version, or PATH version mismatch → treat the PATH tier as a skipped
+      optimization and continue to pinned external npx
     * explicit sandbox / approval / host policy denial before any report → blocked_by_policy
     * network / npm cache / package resolution / unknown failure → invocation_error
 - When the denial signal is unclear, ambiguous no-report failures default to invocation_error.
@@ -188,26 +298,125 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
        KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
    - trigger surface 變更後跑：
        npx --yes "$KIT_SPEC" validate --root .
+   - PATH/global integrity wording：
+       The PATH/global tier is an opportunistic, low-integrity optimization.
+       `agent-trigger-kit --version` reports the PATH binary's package version.
+       Package-version equality only proves the binary declares the same package
+       version as a semver pin; it is not proof of pinned-ref content equivalence.
+       Non-semver pins skip the PATH tier with `status=path_non_semver_pin`.
+       Version mismatches use `status=path_version_mismatch` and fall through to
+       pinned external `npx`.
    - 完成前跑 closeout，並遵守上方 Closeout invocation policy：
        ROOT="${ROOT:-.}"
        LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
        PIN_FILE="$ROOT/.agent-trigger-kit/pin"
        KIT_REPO="<owner>/<repo>"
+       CLOSEOUT_REPORT_SEEN=0
+       CLOSEOUT_EXIT=1
+
+       capture_command_output() {
+         CAPTURE_ERREXIT=0
+         case $- in
+           *e*)
+             CAPTURE_ERREXIT=1
+             set +e
+             ;;
+         esac
+
+         CAPTURE_OUTPUT="$("$@" 2>&1)"
+         CAPTURE_STATUS="$?"
+
+         if [ "$CAPTURE_ERREXIT" -eq 1 ]; then
+           set -e
+         fi
+         return 0
+       }
+
+       run_closeout_tier() {
+         if [ "$CLOSEOUT_REPORT_SEEN" -eq 1 ]; then
+           return 0
+         fi
+
+         capture_command_output "$@"
+         CLOSEOUT_OUTPUT="$CAPTURE_OUTPUT"
+         CLOSEOUT_EXIT="$CAPTURE_STATUS"
+         printf '%s\n' "$CLOSEOUT_OUTPUT"
+         if printf '%s\n' "$CLOSEOUT_OUTPUT" | grep -q 'Session closeout check'; then
+           CLOSEOUT_REPORT_SEEN=1
+         fi
+         return 0
+       }
+
+       realpath_or_same() {
+         if command -v realpath >/dev/null 2>&1; then
+           realpath "$1" 2>/dev/null || printf '%s' "$1"
+         else
+           printf '%s' "$1"
+         fi
+       }
+
        if [ -x "$LOCAL_ATK" ]; then
-         "$LOCAL_ATK" session-check --closeout --root "$ROOT"
+         run_closeout_tier "$LOCAL_ATK" session-check --closeout --root "$ROOT"
        else
          echo "agent-trigger-kit local binary missing; status=not_installed"
+       fi
+
+       if [ "$CLOSEOUT_REPORT_SEEN" -eq 0 ]; then
+         PATH_ATK="$(command -v agent-trigger-kit 2>/dev/null || true)"
+         LOCAL_ATK_REAL=""
+         if [ -x "$LOCAL_ATK" ]; then
+           LOCAL_ATK_REAL="$(realpath_or_same "$LOCAL_ATK")"
+         fi
+
+         if [ -z "$PATH_ATK" ]; then
+           echo "agent-trigger-kit PATH binary missing; status=path_not_found"
+         else
+           PATH_ATK_REAL="$(realpath_or_same "$PATH_ATK")"
+           if [ -n "$LOCAL_ATK_REAL" ] && [ "$PATH_ATK_REAL" = "$LOCAL_ATK_REAL" ]; then
+             echo "agent-trigger-kit PATH binary already tried as local package; status=path_duplicate_local"
+           elif [ ! -f "$PIN_FILE" ]; then
+             echo "agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin"
+           else
+             PIN_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+             PIN_VERSION="$(printf '%s' "$PIN_REF" | sed 's/^[vV]//')"
+             if ! printf '%s' "$PIN_REF" | grep -Eq '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$'; then
+               echo "agent-trigger-kit PATH fallback skipped; status=path_non_semver_pin"
+             else
+               capture_command_output "$PATH_ATK" --version
+               PATH_VERSION_RAW="$CAPTURE_OUTPUT"
+               PATH_VERSION_STATUS="$CAPTURE_STATUS"
+               PATH_VERSION="$(printf '%s' "$PATH_VERSION_RAW" | tr -d '[:space:]')"
+               if [ "$PATH_VERSION_STATUS" -ne 0 ] || [ -z "$PATH_VERSION" ]; then
+                 echo "agent-trigger-kit PATH version unknown; status=path_version_unknown"
+               elif [ "$PATH_VERSION" = "$PIN_VERSION" ]; then
+                 run_closeout_tier "$PATH_ATK" session-check --closeout --root "$ROOT"
+               else
+                 echo "agent-trigger-kit PATH version mismatch; status=path_version_mismatch pin=$PIN_VERSION path=${PATH_VERSION:-unknown}"
+               fi
+             fi
+           fi
+         fi
+       fi
+
+       if [ "$CLOSEOUT_REPORT_SEEN" -eq 0 ]; then
          if [ ! -f "$PIN_FILE" ]; then
            echo "agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin"
          else
            KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
            KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
-           npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"
+           run_closeout_tier npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"
          fi
        fi
+
+       if [ "$CLOSEOUT_REPORT_SEEN" -eq 1 ]; then
+         exit "$CLOSEOUT_EXIT"
+       fi
+
+       exit 1
    - closeout blocked / failed 時，使用 not_installed、skipped_missing_pin、
-     blocked_by_policy、invocation_error 這組分類，不把 sandbox policy block 當成 closeout fail，
-     也不把真正的 closeout fail 降級成 policy block。
+     path_not_found、path_duplicate_local、path_non_semver_pin、path_version_unknown、
+     path_version_mismatch、blocked_by_policy、invocation_error 這組分類，不把 sandbox
+     policy block 當成 closeout fail，也不把真正的 closeout fail 降級成 policy block。
 
 3. Renovate config：
    - 已有 → 合併，不覆蓋既有欄位/規則；沒有 → 建立 renovate.json。
@@ -250,8 +459,11 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
   只有看到 Session closeout check（或 JSON 同時有 kind=session_check、mode=closeout）
   才算 closeout 真的跑過。local tier miss 先用
   `$ROOT/node_modules/.bin/agent-trigger-kit` guard 判定並回報 not_installed，再嘗試
-  pinned external。若 pinned external 因 sandbox / approval policy 在報告前被擋，回報
-  blocked_by_policy；其他 no-report failure 回報 invocation_error。
+  verified PATH/global tier；只有 semver pin 且 `agent-trigger-kit --version` package-version
+  equality 時才跑 PATH closeout，否則用 path_non_semver_pin / path_version_unknown /
+  path_version_mismatch breadcrumb 後落到 pinned external。若 pinned external 因 sandbox /
+  approval policy 在報告前被擋，回報 blocked_by_policy；其他 no-report failure 回報
+  invocation_error。
 - renovate-config-validator --no-global（若可用）
 - 專案自有檢查（package.json 有 scripts.check 就跑 npm run check；其他語言用其慣用 lint/test 入口）
 
@@ -336,7 +548,9 @@ CLI 先查並回報：
 - PR URL / merge commit SHA / pin 目前版本 / 實際使用的 branch 名
 - validate 結果（獨立 exit code 與摘要）
 - pin-check 結果（獨立 exit code 與摘要）
-- closeout invocation 結果：report present / not_installed / blocked_by_policy / invocation_error / skipped_missing_pin，
+- closeout invocation 結果：report present / not_installed / skipped_missing_pin / path_not_found /
+  path_duplicate_local / path_non_semver_pin / path_version_unknown / path_version_mismatch /
+  blocked_by_policy / invocation_error，
   並附關鍵證據；若 report present，列出 exit code。
 - CI 結果
 - Renovate config 是「新增」還是「合併」
@@ -377,26 +591,134 @@ Implementation:
     * A closeout attempt counts as having run only when output includes `Session closeout check`.
     * If JSON output is used, require both `"kind": "session_check"` and `"mode": "closeout"`.
     * If a closeout report appears, trust its exit code. Do not run a later tier to hide a nonzero result.
+    * Use tiers in this order: local binary, verified PATH/global package, then pinned external `npx`.
+    * The PATH/global tier is an opportunistic, low-integrity optimization.
+      `agent-trigger-kit --version` reports the PATH binary's package version.
+      The PATH tier invokes `$PATH_ATK --version` after `command -v agent-trigger-kit`
+      resolves the binary. Package-version equality only proves the binary declares
+      the same package version as a semver pin; it is not proof of pinned-ref content
+      equivalence.
+    * Non-semver pins skip the PATH tier with `status=path_non_semver_pin`.
+      Version mismatches use `status=path_version_mismatch` and fall through to
+      pinned external `npx`.
     * For normal consumer repos, do not use `npx --no-install agent-trigger-kit ...`
-      as the local tier; local misses can enter npm registry resolution. Use:
+      as the installed-package tier; local misses can enter npm registry resolution. Use
+      this first-report-wins self-chaining ladder:
         ROOT="${ROOT:-.}"
         LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
         PIN_FILE="$ROOT/.agent-trigger-kit/pin"
         KIT_REPO="<owner>/<repo>"
+        CLOSEOUT_REPORT_SEEN=0
+        CLOSEOUT_EXIT=1
+
+        capture_command_output() {
+          CAPTURE_ERREXIT=0
+          case $- in
+            *e*)
+              CAPTURE_ERREXIT=1
+              set +e
+              ;;
+          esac
+
+          CAPTURE_OUTPUT="$("$@" 2>&1)"
+          CAPTURE_STATUS="$?"
+
+          if [ "$CAPTURE_ERREXIT" -eq 1 ]; then
+            set -e
+          fi
+          return 0
+        }
+
+        run_closeout_tier() {
+          if [ "$CLOSEOUT_REPORT_SEEN" -eq 1 ]; then
+            return 0
+          fi
+
+          capture_command_output "$@"
+          CLOSEOUT_OUTPUT="$CAPTURE_OUTPUT"
+          CLOSEOUT_EXIT="$CAPTURE_STATUS"
+          printf '%s\n' "$CLOSEOUT_OUTPUT"
+          if printf '%s\n' "$CLOSEOUT_OUTPUT" | grep -q 'Session closeout check'; then
+            CLOSEOUT_REPORT_SEEN=1
+          fi
+          return 0
+        }
+
+        realpath_or_same() {
+          if command -v realpath >/dev/null 2>&1; then
+            realpath "$1" 2>/dev/null || printf '%s' "$1"
+          else
+            printf '%s' "$1"
+          fi
+        }
+
         if [ -x "$LOCAL_ATK" ]; then
-          "$LOCAL_ATK" session-check --closeout --root "$ROOT"
+          run_closeout_tier "$LOCAL_ATK" session-check --closeout --root "$ROOT"
         else
           echo "agent-trigger-kit local binary missing; status=not_installed"
+        fi
+
+        if [ "$CLOSEOUT_REPORT_SEEN" -eq 0 ]; then
+          PATH_ATK="$(command -v agent-trigger-kit 2>/dev/null || true)"
+          LOCAL_ATK_REAL=""
+          if [ -x "$LOCAL_ATK" ]; then
+            LOCAL_ATK_REAL="$(realpath_or_same "$LOCAL_ATK")"
+          fi
+
+          if [ -z "$PATH_ATK" ]; then
+            echo "agent-trigger-kit PATH binary missing; status=path_not_found"
+          else
+            PATH_ATK_REAL="$(realpath_or_same "$PATH_ATK")"
+            if [ -n "$LOCAL_ATK_REAL" ] && [ "$PATH_ATK_REAL" = "$LOCAL_ATK_REAL" ]; then
+              echo "agent-trigger-kit PATH binary already tried as local package; status=path_duplicate_local"
+            elif [ ! -f "$PIN_FILE" ]; then
+              echo "agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin"
+            else
+              PIN_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+              PIN_VERSION="$(printf '%s' "$PIN_REF" | sed 's/^[vV]//')"
+              if ! printf '%s' "$PIN_REF" | grep -Eq '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$'; then
+                echo "agent-trigger-kit PATH fallback skipped; status=path_non_semver_pin"
+              else
+                capture_command_output "$PATH_ATK" --version
+                PATH_VERSION_RAW="$CAPTURE_OUTPUT"
+                PATH_VERSION_STATUS="$CAPTURE_STATUS"
+                PATH_VERSION="$(printf '%s' "$PATH_VERSION_RAW" | tr -d '[:space:]')"
+                if [ "$PATH_VERSION_STATUS" -ne 0 ] || [ -z "$PATH_VERSION" ]; then
+                  echo "agent-trigger-kit PATH version unknown; status=path_version_unknown"
+                elif [ "$PATH_VERSION" = "$PIN_VERSION" ]; then
+                  run_closeout_tier "$PATH_ATK" session-check --closeout --root "$ROOT"
+                else
+                  echo "agent-trigger-kit PATH version mismatch; status=path_version_mismatch pin=$PIN_VERSION path=${PATH_VERSION:-unknown}"
+                fi
+              fi
+            fi
+          fi
+        fi
+
+        if [ "$CLOSEOUT_REPORT_SEEN" -eq 0 ]; then
           if [ ! -f "$PIN_FILE" ]; then
             echo "agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin"
           else
             KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
             KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
-            npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"
+            run_closeout_tier npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"
           fi
         fi
+
+        if [ "$CLOSEOUT_REPORT_SEEN" -eq 1 ]; then
+          exit "$CLOSEOUT_EXIT"
+        fi
+
+        exit 1
+    * The ladder preserves the first-report-wins rule mechanically. If no closeout
+      report appears after all tiers, the no-report path exits 1. It temporarily
+      disables and restores `errexit` around output captures, so nonzero closeout
+      reports still print and set the first-report marker under `set -e`.
     * If no report appears:
-        - local package missing → `not_installed`, then try pinned external
+        - local package missing → `not_installed`, then try PATH/global and pinned external
+        - PATH binary missing, PATH duplicate-local, non-semver pin, unknown PATH
+          version, or PATH version mismatch → treat the PATH tier as a skipped
+          optimization and continue to pinned external `npx`
         - missing pin → `skipped_missing_pin`
         - explicit sandbox / approval / host policy denial before report → `blocked_by_policy`
         - network / npm cache / package resolution / unknown failure → `invocation_error`
@@ -417,6 +739,12 @@ PR / final report:
 
 ## Changelog
 
+- **v7-verified-path-fallback** — changed: closeout ladders now try a verified PATH fallback
+  between the local binary and pinned external `npx`; package-version
+  equality is opportunistic/low-integrity and not proof of pinned-ref content
+  equivalence; non-semver pins skip the PATH tier with `path_non_semver_pin`, while
+  PATH version mismatches leave `path_version_mismatch` breadcrumbs before falling
+  through to pinned external.
 - **v6-localbin-guard** — changed: live closeout ladders now use a root-aware
   local-bin guard (`$ROOT/node_modules/.bin/agent-trigger-kit`) before pinned
   fallback; `KIT_SPEC` derivation is root-aware through `PIN_FILE` and
