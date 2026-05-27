@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,6 +43,16 @@ function printUsage() {
       '  version-check  Check source and installed plugin versions',
     ].join('\n'),
   );
+}
+
+function readPackageJson() {
+  return JSON.parse(readFileSync(join(scriptDir, '..', 'package.json'), 'utf8'));
+}
+
+if (command === '--version') {
+  const packageJson = readPackageJson();
+  console.log(packageJson.version);
+  process.exit(0);
 }
 
 if (!command || command === '--help' || command === '-h') {
