@@ -112,7 +112,7 @@ test('harness doc documents closeout invocation policy and ladder', () => {
   );
   const tierFragments = [
     'node scripts/cli.mjs session-check --closeout',
-    'npx --no-install agent-trigger-kit session-check --closeout',
+    'node_modules/.bin/agent-trigger-kit',
     'npx --yes "$KIT_SPEC" session-check --closeout',
   ];
 
@@ -129,6 +129,8 @@ test('harness doc documents closeout invocation policy and ladder', () => {
   assertIncludes(policy, '"kind": "session_check"');
   assertIncludes(policy, '"mode": "closeout"');
   assertIncludes(policy, 'ambiguous no-report failures default to invocation_error');
+  assertIncludes(policy, '[ -x "$LOCAL_ATK" ]');
+  assertIncludes(policy, 'agent-trigger-kit local binary missing; status=not_installed');
   assertIncludes(policy, 'blocked_by_policy');
   assertIncludes(policy, 'not_installed');
   assertIncludes(policy, 'skipped_missing_pin');
