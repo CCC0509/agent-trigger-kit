@@ -147,13 +147,54 @@ not run a later tier to mask a non-zero closeout result.
 Use tiers in this order:
 
 1. Source repo dogfood: `node scripts/cli.mjs session-check --closeout --root .`
-2. Consumer installed package:
-   `npx --no-install agent-trigger-kit session-check --closeout --root .`
+2. Consumer installed package, guarded as a local binary:
+
+   ```sh
+   ROOT="${ROOT:-.}"
+   LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
+   if [ -x "$LOCAL_ATK" ]; then
+     "$LOCAL_ATK" session-check --closeout --root "$ROOT"
+   else
+     echo "agent-trigger-kit local binary missing; status=not_installed"
+   fi
+   ```
+
 3. Pinned external package:
    `npx --yes "$KIT_SPEC" session-check --closeout --root .`
 
+Do not use `npx --no-install agent-trigger-kit ...` as the installed-package
+tier: npm 11.6.2 can still hit the registry on a local miss before any closeout
+report appears.
+
+For a normal consumer shell ladder, run the next tier only when the previous
+tier produced no `Session closeout check` report:
+
+```sh
+ROOT="${ROOT:-.}"
+LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
+PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+
+if [ -x "$LOCAL_ATK" ]; then
+  "$LOCAL_ATK" session-check --closeout --root "$ROOT"
+else
+  echo "agent-trigger-kit local binary missing; status=not_installed"
+  if [ ! -f "$PIN_FILE" ]; then
+    echo "agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin"
+  else
+    KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+    KIT_SPEC="github:CCC0509/agent-trigger-kit#$KIT_REF"
+    npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"
+  fi
+fi
+```
+
+The `github:CCC0509/agent-trigger-kit#$KIT_REF` fallback is for harness docs and
+test consumers only; product documentation should pin whatever distribution it
+actually supports.
+
 For Claude hooks, resolve the project root from `CLAUDE_PROJECT_DIR`, read the
-pin from `$CLAUDE_PROJECT_DIR/.agent-trigger-kit/pin`, and pass
+installed package from `$CLAUDE_PROJECT_DIR/node_modules/.bin/agent-trigger-kit`,
+read the pin from `$CLAUDE_PROJECT_DIR/.agent-trigger-kit/pin`, and pass
 `--root "$CLAUDE_PROJECT_DIR"` to closeout commands. Do not assume the hook
 current working directory is the project root.
 
@@ -171,6 +212,10 @@ If no closeout report appears:
 When the denial signal is unclear, ambiguous no-report failures default to invocation_error.
 That conservative fallback avoids hiding real command, npm, cache, network, or
 package failures behind a policy label.
+
+The compact Stop hook already runs only pinned external Tier 3, so this
+correction changes the manual/prose ladder and consumer instructions rather
+than the shipped example hook command.
 
 ### Where pin-check runs
 
@@ -199,12 +244,20 @@ For **Codex**, add a clearly-marked section to `AGENTS.md`:
 
 Use the version in `.agent-trigger-kit/pin`.
 
-- Derive `KIT_SPEC` before running checks:
-  `KIT_REF="$(tr -d '[:space:]' < .agent-trigger-kit/pin)"; KIT_SPEC="github:CCC0509/agent-trigger-kit#$KIT_REF"`
+- Derive the local binary and pin before running checks:
+  `ROOT="${ROOT:-.}"; LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"; PIN_FILE="$ROOT/.agent-trigger-kit/pin"`
+- Derive `KIT_SPEC` before session-start and validate commands:
+  `KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"; KIT_SPEC="github:CCC0509/agent-trigger-kit#$KIT_REF"`
+- For closeout, try `"$LOCAL_ATK" session-check --closeout --root "$ROOT"` only
+  when `[ -x "$LOCAL_ATK" ]`; otherwise report
+  `agent-trigger-kit local binary missing; status=not_installed`.
+- If the local closeout binary is missing, require `PIN_FILE`. When it is
+  missing, report `status=skipped_missing_pin`; otherwise use the same pinned
+  `KIT_SPEC` fallback.
 - At session start: `npx --yes "$KIT_SPEC" session-check --root .`
 - After editing `.agents/`, `.claude-plugin/`, `.cursor/`, `.agent-trigger-kit/`,
   or `AGENTS.md`: `npx --yes "$KIT_SPEC" validate --root .`
-- Before reporting completion: `npx --yes "$KIT_SPEC" session-check --closeout --root .`
+- Before reporting completion: follow the closeout invocation policy above.
 - Record real failures (skill missing, stale cache, wrong command) with
   `npx --yes "$KIT_SPEC" outcome record ...`. Never fabricate successes.
 ```
@@ -219,12 +272,20 @@ alwaysApply: true
 ---
 
 Use the version in `.agent-trigger-kit/pin`. Derive
-`KIT_SPEC="github:CCC0509/agent-trigger-kit#$KIT_REF"` from that file with
-`tr -d '[:space:]'`. Run `session-check` at session start, `validate` after
+`ROOT="${ROOT:-.}"`, `LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"`,
+and `PIN_FILE="$ROOT/.agent-trigger-kit/pin"`. Then derive
+`KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"` and
+`KIT_SPEC="github:CCC0509/agent-trigger-kit#$KIT_REF"` before session-start and
+validate commands. Run `session-check` at session start and `validate` after
 editing trigger surfaces (`.agents/`, `.claude-plugin/`, `.cursor/`,
-`.agent-trigger-kit/`, `AGENTS.md`), and `session-check --closeout` before
-reporting done. Record real failures with `outcome record`; never fabricate
-successes.
+`.agent-trigger-kit/`, `AGENTS.md`). Before reporting done, follow the closeout
+invocation policy: use
+`"$LOCAL_ATK" session-check --closeout --root "$ROOT"` only when
+`[ -x "$LOCAL_ATK" ]`; otherwise report
+`agent-trigger-kit local binary missing; status=not_installed`. If the local
+closeout binary is missing, require `PIN_FILE`; when it is missing, report
+`status=skipped_missing_pin`, otherwise use the same pinned `KIT_SPEC` fallback.
+Record real failures with `outcome record`; never fabricate successes.
 ```
 
 These are best-effort: they fire only if the agent follows them. The git

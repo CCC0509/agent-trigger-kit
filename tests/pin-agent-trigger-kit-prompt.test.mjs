@@ -26,18 +26,25 @@ function sectionFrom(startMarker) {
 }
 
 test('pin prompt metadata matches the active prompt version', () => {
-  assertIncludes(prompt, '**Version:** v5-closeout-policy');
-  assertIncludes(prompt, 'Prompt (v5-closeout-policy)');
+  assertIncludes(prompt, '**Version:** v6-localbin-guard');
+  assertIncludes(prompt, 'Prompt (v6-localbin-guard)');
   assert.ok(
-    prompt.indexOf('**Version:** v5-closeout-policy') <
-      prompt.indexOf('## Prompt (v5-closeout-policy)'),
+    prompt.indexOf('**Version:** v6-localbin-guard') <
+      prompt.indexOf('## Prompt (v6-localbin-guard)'),
     'expected metadata before active prompt',
   );
+  assert.doesNotMatch(
+    prompt,
+    /KIT_SPEC="github:\$\{KIT_REPO\}#\$\(cat \.agent-trigger-kit\/pin\)"/,
+  );
+  assert.doesNotMatch(prompt, /KIT_SPEC="github:\$\{KIT_REPO\}#\$\(cat "\$PIN_FILE"\)"/);
+  assertIncludes(prompt, 'KIT_REF="$(tr -d \'[:space:]\' < "$PIN_FILE")"');
+  assertIncludes(prompt, 'KIT_SPEC="github:${KIT_REPO}#$KIT_REF"');
 });
 
 test('pin prompt main flow carries closeout invocation policy', () => {
   const mainPrompt = sectionBetween(
-    '## Prompt (v5-closeout-policy)',
+    '## Prompt (v6-localbin-guard)',
     '## Existing v4-final Repos Closeout Addendum',
   );
 
@@ -46,11 +53,29 @@ test('pin prompt main flow carries closeout invocation policy', () => {
   assertIncludes(mainPrompt, '"kind": "session_check"');
   assertIncludes(mainPrompt, '"mode": "closeout"');
   assertIncludes(mainPrompt, 'Do not run a later tier to mask a non-zero closeout result');
+  assertIncludes(mainPrompt, 'ROOT="${ROOT:-.}"');
+  assertIncludes(mainPrompt, 'LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"');
+  assertIncludes(mainPrompt, '[ -x "$LOCAL_ATK" ]');
+  assertIncludes(mainPrompt, 'agent-trigger-kit local binary missing; status=not_installed');
+  assertIncludes(mainPrompt, 'PIN_FILE="$ROOT/.agent-trigger-kit/pin"');
   assertIncludes(
     mainPrompt,
-    'npx --no-install agent-trigger-kit session-check --closeout --root .',
+    'agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin',
   );
-  assertIncludes(mainPrompt, 'npx --yes "$KIT_SPEC" session-check --closeout --root .');
+  assertIncludes(mainPrompt, 'KIT_REPO="<owner>/<repo>"');
+  assertIncludes(mainPrompt, 'KIT_REF="$(tr -d \'[:space:]\' < "$PIN_FILE")"');
+  assertIncludes(mainPrompt, 'KIT_SPEC="github:${KIT_REPO}#$KIT_REF"');
+  assertIncludes(mainPrompt, 'npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"');
+  assert.doesNotMatch(mainPrompt, /npx --no-install agent-trigger-kit session-check --closeout/);
+  assert.doesNotMatch(mainPrompt, /CLAUDE_PROJECT_DIR/);
+  assert.doesNotMatch(
+    mainPrompt,
+    /KIT_SPEC="github:\$\{KIT_REPO\}#\$\(cat "\$PIN_FILE"\)"\s+npx --yes "\$KIT_SPEC" session-check --closeout --root "\$ROOT"/,
+  );
+  assert.doesNotMatch(
+    mainPrompt,
+    /KIT_SPEC="github:\$\{KIT_REPO\}#\$\(cat \.agent-trigger-kit\/pin\)"/,
+  );
   assertIncludes(mainPrompt, 'not_installed');
   assertIncludes(mainPrompt, 'skipped_missing_pin');
   assertIncludes(mainPrompt, 'blocked_by_policy');
@@ -70,20 +95,39 @@ test('pin prompt addendum gives already-v4 repos a no-rerun migration path', () 
   assertIncludes(addendum, 'Session closeout check');
   assertIncludes(addendum, '"kind": "session_check"');
   assertIncludes(addendum, '"mode": "closeout"');
-  assertIncludes(addendum, 'npx --no-install agent-trigger-kit session-check --closeout --root .');
-  assertIncludes(addendum, 'npx --yes "$KIT_SPEC" session-check --closeout --root .');
+  assertIncludes(addendum, 'ROOT="${ROOT:-.}"');
+  assertIncludes(addendum, 'LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"');
+  assertIncludes(addendum, '[ -x "$LOCAL_ATK" ]');
+  assertIncludes(addendum, 'PIN_FILE="$ROOT/.agent-trigger-kit/pin"');
+  assertIncludes(addendum, 'KIT_REPO="<owner>/<repo>"');
+  assertIncludes(addendum, 'KIT_REF="$(tr -d \'[:space:]\' < "$PIN_FILE")"');
+  assertIncludes(addendum, 'KIT_SPEC="github:${KIT_REPO}#$KIT_REF"');
+  assert.doesNotMatch(addendum, /npx --no-install agent-trigger-kit session-check --closeout/);
+  assert.doesNotMatch(addendum, /CLAUDE_PROJECT_DIR/);
+  assert.doesNotMatch(
+    addendum,
+    /KIT_SPEC="github:\$\{KIT_REPO\}#\$\(cat "\$PIN_FILE"\)"\s+npx --yes "\$KIT_SPEC" session-check --closeout --root "\$ROOT"/,
+  );
+  assert.doesNotMatch(
+    addendum,
+    /KIT_SPEC="github:\$\{KIT_REPO\}#\$\(cat \.agent-trigger-kit\/pin\)"/,
+  );
+  assertIncludes(addendum, 'npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"');
+  assertIncludes(addendum, 'skipped_missing_pin');
   assertIncludes(addendum, 'blocked_by_policy');
   assertIncludes(addendum, 'invocation_error');
   assertIncludes(addendum, 'Do not open a second pin setup PR');
 });
 
-test('pin prompt changelog records the closeout-policy revision', () => {
+test('pin prompt changelog records the local-bin guard revision', () => {
   const changelog = sectionFrom('## Changelog');
 
+  assertIncludes(changelog, '**v6-localbin-guard**');
+  assertIncludes(changelog, 'local-bin guard');
   assertIncludes(changelog, '**v5-closeout-policy**');
   assertIncludes(changelog, 'existing-v4 migration addendum');
   assert.ok(
-    changelog.indexOf('**v5-closeout-policy**') < changelog.indexOf('**v4-final**'),
-    'expected v5 changelog entry before v4-final',
+    changelog.indexOf('**v6-localbin-guard**') < changelog.indexOf('**v5-closeout-policy**'),
+    'expected v6 changelog entry before v5-closeout-policy',
   );
 });

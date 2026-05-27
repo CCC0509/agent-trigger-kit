@@ -1,6 +1,6 @@
 # Runbook prompt: pin Agent Trigger Kit (consumer repo)
 
-**Version:** v5-closeout-policy
+**Version:** v6-localbin-guard
 **Purpose:** A paste-ready operator prompt that wires a _consumer_ repository onto
 the Agent Trigger Kit pinned auto-update flow, then drives it all the way through
 PR merge, local sync, and Renovate enablement guidance.
@@ -11,7 +11,7 @@ stops if it detects it is running in the kit repo.
 
 ## How to use
 
-1. Copy the fenced `Prompt (v5-closeout-policy)` block below into a fresh agent session
+1. Copy the fenced `Prompt (v6-localbin-guard)` block below into a fresh agent session
    opened in the consumer repo.
 2. **Fill the top two lines with real values** before sending, e.g.:
 
@@ -34,8 +34,11 @@ stops if it detects it is running in the kit repo.
 
 - **Repo-agnostic:** swap `KIT_REPO` / `PIN_VERSION` only; everything else
   (consumer repo slug, `KIT_SPEC`, Renovate `depName`, default branch) is auto-derived.
-- **Single derivation formula:** `KIT_SPEC="github:${KIT_REPO}#$(cat .agent-trigger-kit/pin)"`
-  is the only way `KIT_SPEC` is built — no hardcoded version, no inline `repo#version`.
+- **Single derivation formula:** define `ROOT="${ROOT:-.}"`,
+  `PIN_FILE="$ROOT/.agent-trigger-kit/pin"`,
+  `KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"`, then
+  `KIT_SPEC="github:${KIT_REPO}#$KIT_REF"` — this is the only way `KIT_SPEC`
+  is built; no hardcoded version, no inline `repo#version`.
 - **`validate` and `pin-check` never share an exit code** — separate CI steps and logs.
 - **Re-entrant:** idempotent rules for existing branch / PR / merged / enabled states,
   so an interrupted run resumes safely instead of opening a second PR.
@@ -43,7 +46,7 @@ stops if it detects it is running in the kit repo.
   default branch is tree-identical to origin after a squash merge.
 - **Honest Renovate handoff:** the agent never claims it confirmed the Mend UI.
 
-## Prompt (v5-closeout-policy)
+## Prompt (v6-localbin-guard)
 
 ```text
 ═══════════════════════════════════════════════
@@ -77,7 +80,10 @@ KIT_REPO 落地規則（避免公式失效）
     (d) PR body / final report（說明用）
   「單一常數」的意思是：每個 surface 用一份常數，而「不要在 KIT_SPEC 裡重複硬拼 repo+version」。
 - 凡是要組 KIT_SPEC，一律且只用：
-    KIT_SPEC="github:${KIT_REPO}#$(cat .agent-trigger-kit/pin)"
+    ROOT="${ROOT:-.}"
+    PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+    KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+    KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
   不得在 KIT_SPEC 裡直接拼 github:owner/repo#version，也不得硬編版本號。
 - AGENTS.md 若寫出 KIT_SPEC 公式，同一段內必須先定義 KIT_REPO，否則公式無意義。
 
@@ -137,9 +143,25 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
     "mode": "closeout"
 - When a closeout report appears, trust that report and its printed exit code.
   Do not run a later tier to mask a non-zero closeout result.
-- For normal consumer repos, use this invocation ladder:
-    1. npx --no-install agent-trigger-kit session-check --closeout --root .
-    2. npx --yes "$KIT_SPEC" session-check --closeout --root .
+- For normal consumer repos, do not use `npx --no-install agent-trigger-kit ...` as
+  the local tier; local misses can enter npm registry resolution. Use this
+  local-bin guard, then pinned fallback:
+    ROOT="${ROOT:-.}"
+    LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
+    PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+    KIT_REPO="<owner>/<repo>"
+    if [ -x "$LOCAL_ATK" ]; then
+      "$LOCAL_ATK" session-check --closeout --root "$ROOT"
+    else
+      echo "agent-trigger-kit local binary missing; status=not_installed"
+      if [ ! -f "$PIN_FILE" ]; then
+        echo "agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin"
+      else
+        KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+        KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
+        npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"
+      fi
+    fi
 - If no closeout report appears:
     * local package missing → note not_installed, then try pinned external
     * missing pin → report skipped_missing_pin with the expected pin path
@@ -159,13 +181,30 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
    依「KIT_REPO 落地規則」：段內先定義 KIT_REPO，再用 KIT_SPEC 公式 derive，不硬編版本號。
    AGENTS.md snippet 必須同時包含：
    - KIT_REPO 常數與 KIT_SPEC derive 公式：
+       ROOT="${ROOT:-.}"
        KIT_REPO="<owner>/<repo>"
-       KIT_SPEC="github:${KIT_REPO}#$(cat .agent-trigger-kit/pin)"
+       PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+       KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+       KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
    - trigger surface 變更後跑：
        npx --yes "$KIT_SPEC" validate --root .
    - 完成前跑 closeout，並遵守上方 Closeout invocation policy：
-       npx --no-install agent-trigger-kit session-check --closeout --root .
-       npx --yes "$KIT_SPEC" session-check --closeout --root .
+       ROOT="${ROOT:-.}"
+       LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
+       PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+       KIT_REPO="<owner>/<repo>"
+       if [ -x "$LOCAL_ATK" ]; then
+         "$LOCAL_ATK" session-check --closeout --root "$ROOT"
+       else
+         echo "agent-trigger-kit local binary missing; status=not_installed"
+         if [ ! -f "$PIN_FILE" ]; then
+           echo "agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin"
+         else
+           KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+           KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
+           npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"
+         fi
+       fi
    - closeout blocked / failed 時，使用 not_installed、skipped_missing_pin、
      blocked_by_policy、invocation_error 這組分類，不把 sandbox policy block 當成 closeout fail，
      也不把真正的 closeout fail 降級成 policy block。
@@ -190,10 +229,12 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
    - KIT_REPO 以 workflow env 落地一次；步驟：
        a. 確認 .agent-trigger-kit/pin 存在
        b. 讀 pin 並防空白後組 KIT_SPEC：
-            KIT_REF="$(cat .agent-trigger-kit/pin)"
+            ROOT="${ROOT:-.}"
+            PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+            KIT_REF="$(cat "$PIN_FILE")"
             test "$KIT_REF" = "$(printf '%s' "$KIT_REF" | tr -d '[:space:]')" || {
               echo "pin contains whitespace around version"; exit 1; }
-            KIT_SPEC="github:${KIT_REPO}#$(cat .agent-trigger-kit/pin)"
+            KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
        c. npx --yes "$KIT_SPEC" validate --root .
        d. npx --yes "$KIT_SPEC" pin-check --strict --root .
    - validate 與 pin-check 必須「分開兩個 step」，各自獨立 exit code 與 log，不可合併成只看最後 exit code。
@@ -207,8 +248,10 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
 - npx --yes "$KIT_SPEC" pin-check --strict --root .
 - closeout invocation proof：依 Closeout invocation policy 跑 closeout ladder；
   只有看到 Session closeout check（或 JSON 同時有 kind=session_check、mode=closeout）
-  才算 closeout 真的跑過。若 pinned external 因 sandbox / approval policy 在報告前被擋，
-  回報 blocked_by_policy；其他 no-report failure 回報 invocation_error。
+  才算 closeout 真的跑過。local tier miss 先用
+  `$ROOT/node_modules/.bin/agent-trigger-kit` guard 判定並回報 not_installed，再嘗試
+  pinned external。若 pinned external 因 sandbox / approval policy 在報告前被擋，回報
+  blocked_by_policy；其他 no-report failure 回報 invocation_error。
 - renovate-config-validator --no-global（若可用）
 - 專案自有檢查（package.json 有 scripts.check 就跑 npm run check；其他語言用其慣用 lint/test 入口）
 
@@ -321,8 +364,11 @@ Precheck:
 - Report git status --short --branch.
 - Confirm `.agent-trigger-kit/pin` exists.
 - Derive KIT_SPEC from the existing pin:
+    ROOT="${ROOT:-.}"
     KIT_REPO="<owner>/<repo>"
-    KIT_SPEC="github:${KIT_REPO}#$(cat .agent-trigger-kit/pin)"
+    PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+    KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+    KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
 - Check whether AGENTS.md / CLAUDE.md / Cursor already document closeout invocation policy.
 
 Implementation:
@@ -331,10 +377,24 @@ Implementation:
     * A closeout attempt counts as having run only when output includes `Session closeout check`.
     * If JSON output is used, require both `"kind": "session_check"` and `"mode": "closeout"`.
     * If a closeout report appears, trust its exit code. Do not run a later tier to hide a nonzero result.
-    * For normal consumer repos, try:
-        1. `npx --no-install agent-trigger-kit session-check --closeout --root .`
-        2. if no local package is installed, run:
-           `npx --yes "$KIT_SPEC" session-check --closeout --root .`
+    * For normal consumer repos, do not use `npx --no-install agent-trigger-kit ...`
+      as the local tier; local misses can enter npm registry resolution. Use:
+        ROOT="${ROOT:-.}"
+        LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
+        PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+        KIT_REPO="<owner>/<repo>"
+        if [ -x "$LOCAL_ATK" ]; then
+          "$LOCAL_ATK" session-check --closeout --root "$ROOT"
+        else
+          echo "agent-trigger-kit local binary missing; status=not_installed"
+          if [ ! -f "$PIN_FILE" ]; then
+            echo "agent-trigger-kit pin missing at $PIN_FILE; status=skipped_missing_pin"
+          else
+            KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+            KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
+            npx --yes "$KIT_SPEC" session-check --closeout --root "$ROOT"
+          fi
+        fi
     * If no report appears:
         - local package missing → `not_installed`, then try pinned external
         - missing pin → `skipped_missing_pin`
@@ -357,6 +417,11 @@ PR / final report:
 
 ## Changelog
 
+- **v6-localbin-guard** — changed: live closeout ladders now use a root-aware
+  local-bin guard (`$ROOT/node_modules/.bin/agent-trigger-kit`) before pinned
+  fallback; `KIT_SPEC` derivation is root-aware through `PIN_FILE` and
+  whitespace-stripped through `KIT_REF`; local misses report `not_installed`
+  without relying on `npx --no-install` registry behavior.
 - **v5-closeout-policy** — added: closeout invocation policy for AGENTS/Cursor/final
   reporting; report-presence rule (`Session closeout check`, or JSON
   `kind=session_check` + `mode=closeout`); consumer closeout ladder
