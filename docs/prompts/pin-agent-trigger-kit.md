@@ -1,6 +1,6 @@
 # Runbook prompt: pin Agent Trigger Kit (consumer repo)
 
-**Version:** v7-verified-path-fallback
+**Version:** v7.1-interactive-local-first
 **Purpose:** A paste-ready operator prompt that wires a _consumer_ repository onto
 the Agent Trigger Kit pinned auto-update flow, then drives it all the way through
 PR merge, local sync, and Renovate enablement guidance.
@@ -11,7 +11,7 @@ stops if it detects it is running in the kit repo.
 
 ## How to use
 
-1. Copy the fenced `Prompt (v7-verified-path-fallback)` block below into a fresh agent session
+1. Copy the fenced `Prompt (v7.1-interactive-local-first)` block below into a fresh agent session
    opened in the consumer repo.
 2. **Fill the top two lines with real values** before sending, e.g.:
 
@@ -46,7 +46,7 @@ stops if it detects it is running in the kit repo.
   default branch is tree-identical to origin after a squash merge.
 - **Honest Renovate handoff:** the agent never claims it confirmed the Mend UI.
 
-## Prompt (v7-verified-path-fallback)
+## Prompt (v7.1-interactive-local-first)
 
 ```text
 ═══════════════════════════════════════════════
@@ -290,14 +290,54 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
 2. 更新或建立 AGENTS.md，加入 Agent Trigger Kit checks 段落。
    依「KIT_REPO 落地規則」：段內先定義 KIT_REPO，再用 KIT_SPEC 公式 derive，不硬編版本號。
    AGENTS.md snippet 必須同時包含：
-   - KIT_REPO 常數與 KIT_SPEC derive 公式：
+   - KIT_REPO 常數、pin 檔、local binary、PATH binary，以及 interactive local-first helper：
        ROOT="${ROOT:-.}"
        KIT_REPO="<owner>/<repo>"
+       LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
        PIN_FILE="$ROOT/.agent-trigger-kit/pin"
-       KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
-       KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
-   - trigger surface 變更後跑：
-       npx --yes "$KIT_SPEC" validate --root .
+       PIN_REF="$(tr -d '[:space:]' < "$PIN_FILE" 2>/dev/null || true)"
+       KIT_SPEC="github:${KIT_REPO}#$PIN_REF"
+       PATH_ATK="$(command -v agent-trigger-kit 2>/dev/null || true)"
+
+       atk_run() {
+         if [ -x "$LOCAL_ATK" ]; then "$LOCAL_ATK" "$@"; return $?; fi
+         if ! printf '%s' "$PIN_REF" | grep -Eq '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$'; then return 126; fi
+         PIN_VERSION="$(printf '%s' "$PIN_REF" | sed 's/^[vV]//')"
+         if [ -n "$PATH_ATK" ] && [ "$("$PATH_ATK" --version 2>/dev/null | tr -d '[:space:]')" = "$PIN_VERSION" ]; then
+           "$PATH_ATK" "$@"; return $?
+         fi
+         return 127
+       }
+   - session-start / pin-check 是 advisory，不跑 pinned external npx：
+       run_advisory() {
+         label="$1"; shift
+         atk_run "$@"; rc="$?"
+         case "$rc" in
+           0) ;;
+           126) echo "agent-trigger-kit $label not run; status=path_non_semver_pin" ;;
+           127) echo "agent-trigger-kit $label not run; status=interactive_skipped_local_first" ;;
+           *) echo "agent-trigger-kit $label failed; exit=$rc" ;;
+         esac
+       }
+       run_advisory session-check session-check --root "$ROOT"
+       run_advisory pin-check pin-check --no-outcome --root "$ROOT"
+   - trigger surface 變更後跑 validate，且必須用 exit code 分派，不能用 `atk_run validate || echo ...`：
+       run_validate() {
+         atk_run validate --root "$ROOT"
+         rc="$?"
+         case "$rc" in
+           0) ;;
+           126) echo "agent-trigger-kit validate not run; status=path_non_semver_pin"; return 126 ;;
+           127) echo "agent-trigger-kit validate NOT RUN; status=interactive_validate_unverified"; return 127 ;;
+           *) echo "agent-trigger-kit validate FAILED; exit=$rc"; return "$rc" ;;
+         esac
+       }
+       run_validate
+       若出現 interactive_validate_unverified 或 path_non_semver_pin，final report MUST
+       列 verification gap、受影響檔案，且不得宣稱 trigger surface 已驗證；若出現
+       validate FAILED，保留為真實 validate failure，不得降級成未驗證。
+   - outcome record 使用 `atk_run outcome record ...`。若 helper 回 126/127，
+     回報 `status=interactive_outcome_unavailable`；若 command 本身失敗，回報真實 exit code。
    - PATH/global integrity wording：
        The PATH/global tier is an opportunistic, low-integrity optimization.
        `agent-trigger-kit --version` reports the PATH binary's package version.
@@ -306,6 +346,9 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
        Non-semver pins skip the PATH tier with `status=path_non_semver_pin`.
        Version mismatches use `status=path_version_mismatch` and fall through to
        pinned external `npx`.
+   - Non-Node consumer repos may use a PATH/global install instead of `node_modules/.bin`,
+     but one global version cannot satisfy multiple repos pinned to different kit versions.
+     CI / manual pinned external npx remains the integrity baseline.
    - 完成前跑 closeout，並遵守上方 Closeout invocation policy：
        ROOT="${ROOT:-.}"
        LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
@@ -552,6 +595,10 @@ CLI 先查並回報：
   path_duplicate_local / path_non_semver_pin / path_version_unknown / path_version_mismatch /
   blocked_by_policy / invocation_error，
   並附關鍵證據；若 report present，列出 exit code。
+- interactive local-first 結果：session-check / pin-check 若被 skip，列出
+  interactive_skipped_local_first 或 path_non_semver_pin；validate 若未跑，列出
+  interactive_validate_unverified、受影響檔案與 verification gap；outcome record 若不可用，
+  列出 interactive_outcome_unavailable。不得把 validate FAILED 降級成未驗證。
 - CI 結果
 - Renovate config 是「新增」還是「合併」
 - local/remote branch cleanup 結果
@@ -737,8 +784,103 @@ PR / final report:
 - Report validate, pin-check, closeout invocation evidence, and final git status.
 ```
 
+## Existing v7-verified-path-fallback Repos Interactive Local-First Addendum
+
+Use this when a consumer repo already completed `Prompt (v7-verified-path-fallback)`
+and only needs the interactive local-first session-start / validate / outcome update.
+
+```text
+This repo already ran Agent Trigger Kit Prompt (v7-verified-path-fallback).
+
+Do not rerun the full pin/Renovate/CI setup. Do not change `.agent-trigger-kit/pin`, Renovate, or CI unless they are currently missing or broken. Do not open a second pin setup PR.
+
+Goal: update only AGENTS.md / Cursor / Claude hook instructions so interactive checks prefer local/PATH execution and do not auto-fetch pinned external packages in sandboxed sessions.
+
+Precheck:
+- Read AGENTS.md / CLAUDE.md / Cursor rules if present and follow their local rules.
+- Report git status --short --branch.
+- Confirm `.agent-trigger-kit/pin` exists.
+- Confirm closeout invocation policy already exists. Do not rewrite the closeout ladder unless it is missing or broken.
+
+Implementation:
+- Update session-start instructions to use this helper instead of direct external package execution:
+    ROOT="${ROOT:-.}"
+    LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
+    PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+    PIN_REF="$(tr -d '[:space:]' < "$PIN_FILE" 2>/dev/null || true)"
+    PATH_ATK="$(command -v agent-trigger-kit 2>/dev/null || true)"
+
+    atk_run() {
+      if [ -x "$LOCAL_ATK" ]; then "$LOCAL_ATK" "$@"; return $?; fi
+      if ! printf '%s' "$PIN_REF" | grep -Eq '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$'; then return 126; fi
+      PIN_VERSION="$(printf '%s' "$PIN_REF" | sed 's/^[vV]//')"
+      if [ -n "$PATH_ATK" ] && [ "$("$PATH_ATK" --version 2>/dev/null | tr -d '[:space:]')" = "$PIN_VERSION" ]; then
+        "$PATH_ATK" "$@"; return $?
+      fi
+      return 127
+    }
+
+    run_advisory() {
+      label="$1"; shift
+      atk_run "$@"; rc="$?"
+      case "$rc" in
+        0) ;;
+        126) echo "agent-trigger-kit $label not run; status=path_non_semver_pin" ;;
+        127) echo "agent-trigger-kit $label not run; status=interactive_skipped_local_first" ;;
+        *) echo "agent-trigger-kit $label failed; exit=$rc" ;;
+      esac
+    }
+
+    run_advisory session-check session-check --root "$ROOT"
+    run_advisory pin-check pin-check --no-outcome --root "$ROOT"
+- Update validate instructions to use explicit exit-code dispatch:
+    run_validate() {
+      atk_run validate --root "$ROOT"
+      rc="$?"
+      case "$rc" in
+        0) ;;
+        126) echo "agent-trigger-kit validate not run; status=path_non_semver_pin"; return 126 ;;
+        127) echo "agent-trigger-kit validate NOT RUN; status=interactive_validate_unverified"; return 127 ;;
+        *) echo "agent-trigger-kit validate FAILED; exit=$rc"; return "$rc" ;;
+      esac
+    }
+  A true validate failure must remain `validate FAILED; exit=$rc`. Only 126/127 are
+  unverified interactive states. Final reports must list affected trigger files
+  and a verification gap when validation is unverified.
+- Update outcome record instructions to use `atk_run outcome record ...`; if helper
+  resolution returns 126/127, report `status=interactive_outcome_unavailable`, but
+  keep real command failures as real failures.
+- For Claude PostToolUse hooks, default missing local/PATH validation to warning +
+  exit 0. Strict blocking is opt-in with `ATK_STRICT_VALIDATE="${ATK_STRICT_VALIDATE:-0}"`
+  changed to `1` in `.claude/settings.local.json`.
+- Non-Node repos may use a PATH/global install, but one global version cannot match
+  multiple repos pinned to different kit versions. PATH version equality is
+  convenience, not pinned-ref proof.
+- Do not change CI. CI keeps pinned external package execution as the integrity
+  baseline for validate and pin-check.
+
+Verification:
+- `git diff --check -- <changed files>`
+- Run the repo's focused docs/instruction tests if they exist.
+- Run the repo's normal preflight before committing when available.
+
+PR / final report:
+- Commit only instruction/doc/test changes.
+- State that this is a v7 interactive local-first addendum, not a pin/Renovate/CI rerun.
+- Report any interactive_validate_unverified / path_non_semver_pin / interactive_outcome_unavailable statuses as verification gaps, not successes.
+```
+
 ## Changelog
 
+- **v7.1-interactive-local-first** — changed: interactive local-first policy for
+  Codex/AGENTS, Cursor, and Claude hook examples to prefer local/PATH execution
+  for session-start,
+  `pin-check --no-outcome`, `validate`, and outcome recording instead of
+  auto-fetching pinned external packages in sandboxed sessions; validate callers
+  must dispatch exit codes so real drift remains `validate FAILED` while only
+  helper resolution states become verification gaps. Future: publishing the kit
+  to npm would let consumer repos use normal package-lock/cache behavior and
+  remove much of this helper policy.
 - **v7-verified-path-fallback** — changed: closeout ladders now try a verified PATH fallback
   between the local binary and pinned external `npx`; package-version
   equality is opportunistic/low-integrity and not proof of pinned-ref content

@@ -26,11 +26,11 @@ function sectionFrom(startMarker) {
 }
 
 test('pin prompt metadata matches the active prompt version', () => {
-  assertIncludes(prompt, '**Version:** v7-verified-path-fallback');
-  assertIncludes(prompt, 'Prompt (v7-verified-path-fallback)');
+  assertIncludes(prompt, '**Version:** v7.1-interactive-local-first');
+  assertIncludes(prompt, 'Prompt (v7.1-interactive-local-first)');
   assert.ok(
-    prompt.indexOf('**Version:** v7-verified-path-fallback') <
-      prompt.indexOf('## Prompt (v7-verified-path-fallback)'),
+    prompt.indexOf('**Version:** v7.1-interactive-local-first') <
+      prompt.indexOf('## Prompt (v7.1-interactive-local-first)'),
     'expected metadata before active prompt',
   );
   assert.doesNotMatch(
@@ -46,7 +46,7 @@ test('pin prompt metadata matches the active prompt version', () => {
 
 test('pin prompt main flow carries closeout invocation policy', () => {
   const mainPrompt = sectionBetween(
-    '## Prompt (v7-verified-path-fallback)',
+    '## Prompt (v7.1-interactive-local-first)',
     '## Existing v4-final Repos Closeout Addendum',
   );
 
@@ -93,6 +93,21 @@ test('pin prompt main flow carries closeout invocation policy', () => {
   assertIncludes(mainPrompt, 'invocation_error');
   assertIncludes(mainPrompt, 'ambiguous no-report failures default to invocation_error');
   assertIncludes(mainPrompt, 'AGENTS.md snippet 必須同時包含');
+  assertIncludes(mainPrompt, 'atk_run()');
+  assertIncludes(mainPrompt, 'run_validate()');
+  assertIncludes(mainPrompt, 'interactive_skipped_local_first');
+  assertIncludes(mainPrompt, 'interactive_validate_unverified');
+  assertIncludes(mainPrompt, 'interactive_outcome_unavailable');
+  assertIncludes(mainPrompt, 'case "$rc" in');
+  assertIncludes(mainPrompt, 'validate FAILED; exit=$rc');
+  assert.doesNotMatch(
+    mainPrompt,
+    /At session start:\s+`npx --yes "\$KIT_SPEC" session-check --root \.`/,
+  );
+  assert.doesNotMatch(
+    mainPrompt,
+    /trigger surface 變更後跑：\s+npx --yes "\$KIT_SPEC" validate --root \./,
+  );
   assertIncludes(mainPrompt, 'closeout invocation policy 已寫入 AGENTS.md / Cursor 指令');
 
   const agentsTaxonomy = sectionBetween(
@@ -114,7 +129,10 @@ test('pin prompt main flow carries closeout invocation policy', () => {
 });
 
 test('pin prompt addendum gives already-v4 repos a no-rerun migration path', () => {
-  const addendum = sectionBetween('## Existing v4-final Repos Closeout Addendum', '## Changelog');
+  const addendum = sectionBetween(
+    '## Existing v4-final Repos Closeout Addendum',
+    '## Existing v7-verified-path-fallback Repos Interactive Local-First Addendum',
+  );
 
   assertIncludes(addendum, 'This repo already ran Agent Trigger Kit Prompt (v4-final)');
   assertIncludes(addendum, 'Do not rerun the full pin/Renovate/CI setup');
@@ -156,15 +174,48 @@ test('pin prompt addendum gives already-v4 repos a no-rerun migration path', () 
   assertIncludes(addendum, 'Do not open a second pin setup PR');
 });
 
+test('pin prompt addendum gives v7 repos an interactive local-first migration path', () => {
+  const addendum = sectionBetween(
+    '## Existing v7-verified-path-fallback Repos Interactive Local-First Addendum',
+    '## Changelog',
+  );
+
+  assertIncludes(
+    addendum,
+    'This repo already ran Agent Trigger Kit Prompt (v7-verified-path-fallback)',
+  );
+  assertIncludes(addendum, 'Do not rerun the full pin/Renovate/CI setup');
+  assertIncludes(addendum, 'Do not change `.agent-trigger-kit/pin`, Renovate, or CI');
+  assertIncludes(addendum, 'session-start');
+  assertIncludes(addendum, 'validate');
+  assertIncludes(addendum, 'outcome record');
+  assertIncludes(addendum, 'atk_run()');
+  assertIncludes(addendum, 'run_validate()');
+  assertIncludes(addendum, 'interactive_validate_unverified');
+  assertIncludes(addendum, 'path_non_semver_pin');
+  assertIncludes(addendum, 'case "$rc" in');
+  assertIncludes(addendum, 'validate FAILED; exit=$rc');
+  assert.doesNotMatch(addendum, /npx --yes "\$KIT_SPEC" session-check --root \./);
+  assert.doesNotMatch(addendum, /npx --yes "\$KIT_SPEC" validate --root \./);
+});
+
 test('pin prompt changelog records the verified PATH fallback revision', () => {
   const changelog = sectionFrom('## Changelog');
 
+  assertIncludes(changelog, '**v7.1-interactive-local-first**');
   assertIncludes(changelog, '**v7-verified-path-fallback**');
+  assertIncludes(changelog, 'interactive local-first');
+  assertIncludes(changelog, 'Future');
   assertIncludes(changelog, 'verified PATH fallback');
   assertIncludes(changelog, '**v6-localbin-guard**');
   assertIncludes(changelog, 'local-bin guard');
   assertIncludes(changelog, '**v5-closeout-policy**');
   assertIncludes(changelog, 'existing-v4 migration addendum');
+  assert.ok(
+    changelog.indexOf('**v7.1-interactive-local-first**') <
+      changelog.indexOf('**v7-verified-path-fallback**'),
+    'expected v7.1 changelog entry before v7-verified-path-fallback',
+  );
   assert.ok(
     changelog.indexOf('**v7-verified-path-fallback**') < changelog.indexOf('**v6-localbin-guard**'),
     'expected v7 changelog entry before v6-localbin-guard',

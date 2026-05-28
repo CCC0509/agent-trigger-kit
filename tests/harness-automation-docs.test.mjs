@@ -138,15 +138,19 @@ test('Claude hook example parses and keeps shell commands syntactically valid', 
   }
 });
 
-test('Claude PostToolUse hook reads the pin inside node without a shell wrapper', () => {
+test('Claude PostToolUse hook dispatches validate exit codes under shell wrapper', () => {
   const settings = readClaudeHookExample();
   const command = settings.hooks.PostToolUse[0].hooks[0].command;
 
-  assert.match(command, /^node -e /);
-  assert.doesNotMatch(command, /sh -lc/);
-  assert.doesNotMatch(command, /tr -d/);
-  assert.match(command, /fs\.readFileSync\(pinFile, "utf8"\)\.replace\(\/\\s\+\/g, ""\)/);
-  assert.match(command, /"github:CCC0509\/agent-trigger-kit#"\s*\+\s*kitRef/);
+  assert.match(command, /^sh -lc /);
+  assert.match(command, /node -e /);
+  assert.match(command, /atk_run validate --root "\$ROOT"/);
+  assert.match(command, /case "\$rc" in/);
+  assert.match(command, /126\).*status=path_non_semver_pin/);
+  assert.match(command, /127\).*status=interactive_validate_unverified/);
+  assert.match(command, /\*\).*validate FAILED; exit=\$rc/);
+  assert.match(command, /ATK_STRICT_VALIDATE="\$\{ATK_STRICT_VALIDATE:-0\}"/);
+  assert.doesNotMatch(command, /npx --yes.*validate/);
 });
 
 test('embedded Stop hook tier order check only applies when all tiers are present', () => {
@@ -216,7 +220,66 @@ test('harness doc documents closeout invocation policy and ladder', () => {
   assertIncludes(codexExample, 'path_version_mismatch');
   assertIncludes(codexExample, 'PATH/global');
   assertIncludes(codexExample, 'pinned external');
+  assertIncludes(codexExample, 'atk_run()');
+  assertIncludes(codexExample, 'run_validate()');
+  assertIncludes(codexExample, 'interactive_validate_unverified');
+  assertIncludes(codexExample, 'case "$rc" in');
+  const helperFence =
+    /- Define this interactive local-first helper[\s\S]*?:\n\n {2}```sh\n([\s\S]*?)\n {2}```/.exec(
+      codexExample,
+    );
+  assert.ok(helperFence, 'expected Codex helper to be rendered as a nested shell fence');
+  const helperBlock = helperFence[1].replace(/^ {2}/gm, '');
+  assert.match(helperBlock, /^atk_run\(\) \{$/m);
+  assert.doesNotMatch(helperBlock, /^if \[ -x "\$LOCAL_ATK"/m);
+  for (const line of helperBlock.split('\n')) {
+    const indent = /^ */.exec(line)[0].length;
+    assert.ok(indent <= 4, `helper line is over-indented: ${line}`);
+  }
+  assert.doesNotMatch(
+    codexExample,
+    /At session start:\s+`npx --yes "\$KIT_SPEC" session-check --root \.`/,
+  );
+  assert.doesNotMatch(
+    codexExample,
+    /After editing[\s\S]{0,120}`npx --yes "\$KIT_SPEC" validate --root \.`/,
+  );
   assert.doesNotMatch(codexExample, /otherwise use the same pinned[\s\S]*KIT_SPEC[\s\S]*fallback/);
+
+  const cursorExample = sectionBetween(
+    'For **Cursor**, add `.cursor/rules/agent-trigger-kit.mdc`',
+    'These are best-effort:',
+  );
+  assertIncludes(
+    doc,
+    '````\n\nFor **Cursor**, add `.cursor/rules/agent-trigger-kit.mdc`',
+    'expected Codex 4-backtick close to be followed by Cursor prose without a stray fence',
+  );
+  assert.match(
+    doc,
+    /\n```markdown\n---\ndescription: Agent Trigger Kit checks[\s\S]*?\n```\n\nThese are best-effort/,
+    'Cursor rule template must close with a 3-backtick fence',
+  );
+  assertIncludes(cursorExample, 'atk_run()');
+  assertIncludes(cursorExample, 'run_validate()');
+  assertIncludes(cursorExample, 'interactive_validate_unverified');
+  assertIncludes(cursorExample, 'case "$rc" in');
+  assert.doesNotMatch(cursorExample, /npx --yes "\$KIT_SPEC" session-check --root \./);
+  assert.doesNotMatch(cursorExample, /npx --yes "\$KIT_SPEC" validate --root \./);
+});
+
+test('Claude SessionStart hook runs advisory checks local-first', () => {
+  const settings = readClaudeHookExample();
+  const command = settings.hooks.SessionStart[0].hooks[0].command;
+
+  assert.match(command, /^sh -lc /);
+  assert.match(command, /atk_run\(\)/);
+  assert.match(command, /run_advisory session-check session-check --root "\$ROOT"/);
+  assert.match(command, /run_advisory pin-check pin-check --no-outcome --root "\$ROOT"/);
+  assert.match(command, /status=path_non_semver_pin/);
+  assert.match(command, /status=interactive_skipped_local_first/);
+  assert.doesNotMatch(command, /npx --yes.*session-check/);
+  assert.doesNotMatch(command, /npx --yes.*pin-check/);
 });
 
 test('marked closeout ladder shell block is syntactically valid', () => {

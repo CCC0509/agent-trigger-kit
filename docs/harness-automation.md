@@ -71,7 +71,7 @@ clear message because the hooks are optional harness wiring.
         "hooks": [
           {
             "type": "command",
-            "command": "sh -lc 'PIN_FILE=\"$CLAUDE_PROJECT_DIR/.agent-trigger-kit/pin\"; if [ ! -f \"$PIN_FILE\" ]; then echo \"agent-trigger-kit pin missing at $PIN_FILE; skipping optional harness check\"; exit 0; fi; KIT_REF=\"$(tr -d '\"'\"'[:space:]'\"'\"' < \"$PIN_FILE\")\"; KIT_SPEC=\"github:CCC0509/agent-trigger-kit#$KIT_REF\"; npx --yes \"$KIT_SPEC\" session-check --root \"$CLAUDE_PROJECT_DIR\" || true; npx --yes \"$KIT_SPEC\" pin-check --no-outcome --root \"$CLAUDE_PROJECT_DIR\" || true'",
+            "command": "sh -lc 'ROOT=\"${CLAUDE_PROJECT_DIR:-.}\"; LOCAL_ATK=\"$ROOT/node_modules/.bin/agent-trigger-kit\"; PIN_FILE=\"$ROOT/.agent-trigger-kit/pin\"; PIN_REF=\"$(tr -d \"[:space:]\" < \"$PIN_FILE\" 2>/dev/null || true)\"; PATH_ATK=\"$(command -v agent-trigger-kit 2>/dev/null || true)\"; atk_run(){ if [ -x \"$LOCAL_ATK\" ]; then \"$LOCAL_ATK\" \"$@\"; return $?; fi; if ! printf \"%s\" \"$PIN_REF\" | grep -Eq \"^[vV]?[0-9]+\\.[0-9]+\\.[0-9]+$\"; then return 126; fi; PIN_VERSION=\"$(printf \"%s\" \"$PIN_REF\" | sed \"s/^[vV]//\")\"; if [ -n \"$PATH_ATK\" ] && [ \"$(\"$PATH_ATK\" --version 2>/dev/null | tr -d \"[:space:]\")\" = \"$PIN_VERSION\" ]; then \"$PATH_ATK\" \"$@\"; return $?; fi; return 127; }; run_advisory(){ LABEL=\"$1\"; shift; atk_run \"$@\"; rc=\"$?\"; case \"$rc\" in 0) ;; 126) echo \"agent-trigger-kit $LABEL not run; status=path_non_semver_pin\" ;; 127) echo \"agent-trigger-kit $LABEL not run; status=interactive_skipped_local_first\" ;; *) echo \"agent-trigger-kit $LABEL failed; exit=$rc\" ;; esac; }; if [ ! -f \"$PIN_FILE\" ]; then echo \"agent-trigger-kit pin missing at $PIN_FILE; skipping optional harness check\"; exit 0; fi; run_advisory session-check session-check --root \"$ROOT\"; run_advisory pin-check pin-check --no-outcome --root \"$ROOT\"; exit 0'",
             "statusMessage": "agent-trigger-kit session-check"
           }
         ]
@@ -83,7 +83,7 @@ clear message because the hooks are optional harness wiring.
         "hooks": [
           {
             "type": "command",
-            "command": "node -e 'let d=\"\";process.stdin.on(\"data\",c=>d+=c);process.stdin.on(\"end\",()=>{let i={};try{i=JSON.parse(d)}catch{}const f=(i.tool_input&&i.tool_input.file_path)||\"\";const hit=[\"/.agents/\",\"/.claude-plugin/\",\"/.cursor/\",\"/.agent-trigger-kit/\"].some(s=>f.includes(s))||f.endsWith(\"/AGENTS.md\");if(!hit)return;const fs=require(\"fs\");const path=require(\"path\");const cp=require(\"child_process\");const dir=process.env.CLAUDE_PROJECT_DIR||\".\";const pinFile=path.join(dir,\".agent-trigger-kit/pin\");if(!fs.existsSync(pinFile)){console.log(\"agent-trigger-kit pin missing at \"+pinFile+\"; skipping optional harness check\");return;}const kitRef=fs.readFileSync(pinFile, \"utf8\").replace(/\\s+/g, \"\");const kitSpec=\"github:CCC0509/agent-trigger-kit#\"+kitRef;const r=cp.spawnSync(\"npx\",[\"--yes\",kitSpec,\"validate\",\"--root\",dir],{stdio:\"inherit\"});process.exit(r.status||0)})'",
+            "command": "sh -lc 'ATK_STRICT_VALIDATE=\"${ATK_STRICT_VALIDATE:-0}\"; if ! command -v node >/dev/null 2>&1; then echo \"node missing; cannot parse PostToolUse payload; status=interactive_validate_unverified\"; [ \"$ATK_STRICT_VALIDATE\" = \"1\" ] && exit 1 || exit 0; fi; payload=\"$(cat)\"; file=\"$(printf \"%s\" \"$payload\" | node -e \"let d=String();process.stdin.on(\\\"data\\\",c=>d+=c);process.stdin.on(\\\"end\\\",()=>{try{const i=JSON.parse(d);process.stdout.write((i.tool_input&&i.tool_input.file_path)||String())}catch{}})\")\"; case \"$file\" in *\"/.agents/\"*|*\"/.claude-plugin/\"*|*\"/.cursor/\"*|*\"/.agent-trigger-kit/\"*|*\"/AGENTS.md\"|\"AGENTS.md\") ;; *) exit 0 ;; esac; ROOT=\"${CLAUDE_PROJECT_DIR:-.}\"; LOCAL_ATK=\"$ROOT/node_modules/.bin/agent-trigger-kit\"; PIN_FILE=\"$ROOT/.agent-trigger-kit/pin\"; PIN_REF=\"$(tr -d \"[:space:]\" < \"$PIN_FILE\" 2>/dev/null || true)\"; PATH_ATK=\"$(command -v agent-trigger-kit 2>/dev/null || true)\"; atk_run(){ if [ -x \"$LOCAL_ATK\" ]; then \"$LOCAL_ATK\" \"$@\"; return $?; fi; if ! printf \"%s\" \"$PIN_REF\" | grep -Eq \"^[vV]?[0-9]+\\.[0-9]+\\.[0-9]+$\"; then return 126; fi; PIN_VERSION=\"$(printf \"%s\" \"$PIN_REF\" | sed \"s/^[vV]//\")\"; if [ -n \"$PATH_ATK\" ] && [ \"$(\"$PATH_ATK\" --version 2>/dev/null | tr -d \"[:space:]\")\" = \"$PIN_VERSION\" ]; then \"$PATH_ATK\" \"$@\"; return $?; fi; return 127; }; if [ ! -f \"$PIN_FILE\" ]; then echo \"agent-trigger-kit pin missing at $PIN_FILE; skipping optional harness check\"; [ \"$ATK_STRICT_VALIDATE\" = \"1\" ] && exit 1 || exit 0; fi; atk_run validate --root \"$ROOT\"; rc=\"$?\"; case \"$rc\" in 0) exit 0 ;; 126) echo \"agent-trigger-kit validate not run; status=path_non_semver_pin\" ;; 127) echo \"agent-trigger-kit validate NOT RUN; status=interactive_validate_unverified\" ;; *) echo \"agent-trigger-kit validate FAILED; exit=$rc\"; exit \"$rc\" ;; esac; [ \"$ATK_STRICT_VALIDATE\" = \"1\" ] && exit 1 || exit 0'",
             "statusMessage": "validate trigger layer"
           }
         ]
@@ -94,7 +94,7 @@ clear message because the hooks are optional harness wiring.
         "hooks": [
           {
             "type": "command",
-            "command": "sh -lc 'PIN_FILE=\"$CLAUDE_PROJECT_DIR/.agent-trigger-kit/pin\"; if [ ! -f \"$PIN_FILE\" ]; then echo \"agent-trigger-kit pin missing at $PIN_FILE; skipping optional harness check\"; exit 0; fi; KIT_REF=\"$(tr -d '\"'\"'[:space:]'\"'\"' < \"$PIN_FILE\")\"; KIT_SPEC=\"github:CCC0509/agent-trigger-kit#$KIT_REF\"; npx --yes \"$KIT_SPEC\" session-check --closeout --root \"$CLAUDE_PROJECT_DIR\" || true'",
+            "command": "sh -lc 'ROOT=\"${CLAUDE_PROJECT_DIR:-.}\"; LOCAL_ATK=\"$ROOT/node_modules/.bin/agent-trigger-kit\"; PIN_FILE=\"$ROOT/.agent-trigger-kit/pin\"; PIN_REF=\"$(tr -d \"[:space:]\" < \"$PIN_FILE\" 2>/dev/null || true)\"; PATH_ATK=\"$(command -v agent-trigger-kit 2>/dev/null || true)\"; atk_run(){ if [ -x \"$LOCAL_ATK\" ]; then \"$LOCAL_ATK\" \"$@\"; return $?; fi; if ! printf \"%s\" \"$PIN_REF\" | grep -Eq \"^[vV]?[0-9]+\\.[0-9]+\\.[0-9]+$\"; then return 126; fi; PIN_VERSION=\"$(printf \"%s\" \"$PIN_REF\" | sed \"s/^[vV]//\")\"; if [ -n \"$PATH_ATK\" ] && [ \"$(\"$PATH_ATK\" --version 2>/dev/null | tr -d \"[:space:]\")\" = \"$PIN_VERSION\" ]; then \"$PATH_ATK\" \"$@\"; return $?; fi; return 127; }; if [ ! -f \"$PIN_FILE\" ]; then echo \"agent-trigger-kit pin missing at $PIN_FILE; skipping optional harness check\"; exit 0; fi; atk_run session-check --closeout --root \"$ROOT\"; rc=\"$?\"; case \"$rc\" in 0) ;; 126) echo \"agent-trigger-kit closeout not run; status=path_non_semver_pin\" ;; 127) echo \"agent-trigger-kit closeout not run; status=interactive_skipped_local_first\" ;; *) echo \"agent-trigger-kit closeout failed; exit=$rc\" ;; esac; exit 0'",
             "statusMessage": "agent-trigger-kit closeout"
           }
         ]
@@ -105,10 +105,13 @@ clear message because the hooks are optional harness wiring.
 ```
 
 The `PostToolUse` command reads the hook payload from stdin, extracts
-`tool_input.file_path`, and only reads `.agent-trigger-kit/pin` and runs
-`validate` when the path touches a trigger surface (`.agents/`,
-`.claude-plugin/`, `.cursor/`, `.agent-trigger-kit/`, or `AGENTS.md`). Every
-other edit is a silent no-op.
+`tool_input.file_path` with Node, and only runs `validate` when the path touches
+a trigger surface (`.agents/`, `.claude-plugin/`, `.cursor/`,
+`.agent-trigger-kit/`, or `AGENTS.md`). Every other edit is a silent no-op.
+Missing local/PATH kit binaries warn and exit 0 by default; set
+`ATK_STRICT_VALIDATE=1` inline in the hook command when an operator wants missing
+interactive validation to block edits. A real `validate` failure still exits
+with the kit's status in both modes.
 
 ### Activation caveat
 
@@ -120,18 +123,19 @@ current session.
 
 ### Speed note
 
-`PostToolUse` fires often. `npx --yes github:...` fetches on first use (and
-caches after), but for repos with heavy trigger-file editing, install the kit
-locally to avoid network on every edit:
+`PostToolUse` fires often. Install the kit locally to make the interactive hooks
+use `node_modules/.bin/agent-trigger-kit` without touching the network:
 
 ```bash
 KIT_REF="$(tr -d '[:space:]' < .agent-trigger-kit/pin)"
 npm i -D "github:CCC0509/agent-trigger-kit#$KIT_REF"
 ```
 
-Then call `npx agent-trigger-kit ...` (resolves from `node_modules/.bin`) in the
-hooks instead of `npx --yes github:...`, and change the `PostToolUse`
-`spawnSync` arguments to `["agent-trigger-kit","validate","--root",dir]`.
+Non-Node consumer repos can instead use a PATH/global `agent-trigger-kit`, but
+only one global version can be active at a time. If repo A pins `0.2.9` and repo
+B pins `0.2.10`, one repo's PATH tier will mismatch and the interactive helper
+will skip it. Treat PATH version equality as convenience, not pinned-ref proof;
+CI remains the integrity baseline.
 
 ### Closeout invocation policy
 
@@ -326,9 +330,9 @@ When the denial signal is unclear, ambiguous no-report failures default to invoc
 That conservative fallback avoids hiding real command, npm, cache, network, or
 package failures behind a policy label.
 
-The compact Stop hook already runs only pinned external Tier 4, so this
-correction changes the manual/prose ladder and consumer instructions rather
-than the shipped example hook command.
+The compact Stop hook is advisory and now uses only the local/PATH interactive
+helper. Operators who need pinned external closeout proof can run the canonical
+ladder manually.
 
 ### Where pin-check runs
 
@@ -358,28 +362,62 @@ Skip the PATH tier for non-semver pins and report
 
 For **Codex**, add a clearly-marked section to `AGENTS.md`:
 
-```markdown
+````markdown
 ## Agent Trigger Kit checks
 
 Use the version in `.agent-trigger-kit/pin`.
 
-- Derive the local binary and pin before running checks:
-  `ROOT="${ROOT:-.}"; LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"; PIN_FILE="$ROOT/.agent-trigger-kit/pin"`
-- Derive `KIT_SPEC` before session-start and validate commands:
-  `KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"; KIT_SPEC="github:CCC0509/agent-trigger-kit#$KIT_REF"`
-- For closeout, try `"$LOCAL_ATK" session-check --closeout --root "$ROOT"` only
-  when `[ -x "$LOCAL_ATK" ]`; otherwise report
-  `agent-trigger-kit local binary missing; status=not_installed`.
-- If the local closeout binary is missing, require `PIN_FILE`. When it is
-  missing, report `status=skipped_missing_pin`; otherwise follow the closeout
-  invocation policy: try verified PATH/global `agent-trigger-kit` only when
-  `agent-trigger-kit --version` exactly matches the normalized semver pin, skip
-  PATH for non-semver pins and report `status=path_non_semver_pin`, report
-  `status=path_version_mismatch` when the PATH version differs, then fall
-  through to pinned external `npx --yes "$KIT_SPEC"`.
-- At session start: `npx --yes "$KIT_SPEC" session-check --root .`
+- Define this interactive local-first helper before session-start, pin-check,
+  validate, or outcome commands:
+
+  ```sh
+  ROOT="${ROOT:-.}"
+  LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
+  PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+  PIN_REF="$(tr -d '[:space:]' < "$PIN_FILE" 2>/dev/null || true)"
+  PATH_ATK="$(command -v agent-trigger-kit 2>/dev/null || true)"
+
+  atk_run() {
+    if [ -x "$LOCAL_ATK" ]; then "$LOCAL_ATK" "$@"; return $?; fi
+    if ! printf '%s' "$PIN_REF" | grep -Eq '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$'; then return 126; fi
+    PIN_VERSION="$(printf '%s' "$PIN_REF" | sed 's/^[vV]//')"
+    if [ -n "$PATH_ATK" ] && [ "$("$PATH_ATK" --version 2>/dev/null | tr -d '[:space:]')" = "$PIN_VERSION" ]; then
+      "$PATH_ATK" "$@"; return $?
+    fi
+    return 127
+  }
+
+  run_advisory() {
+    label="$1"; shift
+    atk_run "$@"; rc="$?"
+    case "$rc" in
+      0) ;;
+      126) echo "agent-trigger-kit $label not run; status=path_non_semver_pin" ;;
+      127) echo "agent-trigger-kit $label not run; status=interactive_skipped_local_first" ;;
+      *) echo "agent-trigger-kit $label failed; exit=$rc" ;;
+    esac
+  }
+
+  run_validate() {
+    atk_run validate --root "$ROOT"
+    rc="$?"
+    case "$rc" in
+      0) ;;
+      126) echo "agent-trigger-kit validate not run; status=path_non_semver_pin"; return 126 ;;
+      127) echo "agent-trigger-kit validate NOT RUN; status=interactive_validate_unverified"; return 127 ;;
+      *) echo "agent-trigger-kit validate FAILED; exit=$rc"; return "$rc" ;;
+    esac
+  }
+  ```
+
+- At session start, run `run_advisory session-check session-check --root "$ROOT"`
+  and `run_advisory pin-check pin-check --no-outcome --root "$ROOT"`.
 - After editing `.agents/`, `.claude-plugin/`, `.cursor/`, `.agent-trigger-kit/`,
-  or `AGENTS.md`: `npx --yes "$KIT_SPEC" validate --root .`
+  or `AGENTS.md`, run `run_validate`. If it prints
+  `interactive_validate_unverified` or `path_non_semver_pin`, the final report
+  MUST include a verification gap listing the affected files, and MUST NOT claim
+  the trigger surface was validated. If it prints `validate FAILED`, preserve
+  that failure as a real validation failure.
 - Before reporting completion: follow the closeout invocation policy above.
   Prefer the local package, then a PATH/global `agent-trigger-kit` only when
   `agent-trigger-kit --version` exactly matches the normalized semver pin. Skip
@@ -387,8 +425,10 @@ Use the version in `.agent-trigger-kit/pin`.
   When the PATH version differs, report `status=path_version_mismatch` and fall
   through to pinned external `npx --yes "$KIT_SPEC"`.
 - Record real failures (skill missing, stale cache, wrong command) with
-  `npx --yes "$KIT_SPEC" outcome record ...`. Never fabricate successes.
-```
+  `atk_run outcome record ...`. If the helper returns 126 or 127, report
+  `status=interactive_outcome_unavailable`; if the command itself fails, report
+  the real exit code. Never fabricate successes.
+````
 
 For **Cursor**, add `.cursor/rules/agent-trigger-kit.mdc` carrying the same four
 instructions:
@@ -399,26 +439,21 @@ description: Agent Trigger Kit checks
 alwaysApply: true
 ---
 
-Use the version in `.agent-trigger-kit/pin`. Derive
-`ROOT="${ROOT:-.}"`, `LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"`,
-and `PIN_FILE="$ROOT/.agent-trigger-kit/pin"`. Then derive
-`KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"` and
-`KIT_SPEC="github:CCC0509/agent-trigger-kit#$KIT_REF"` before session-start and
-validate commands. Run `session-check` at session start and `validate` after
-editing trigger surfaces (`.agents/`, `.claude-plugin/`, `.cursor/`,
-`.agent-trigger-kit/`, `AGENTS.md`). Before reporting done, follow the closeout
-invocation policy: use
-`"$LOCAL_ATK" session-check --closeout --root "$ROOT"` only when
-`[ -x "$LOCAL_ATK" ]`; otherwise report
-`agent-trigger-kit local binary missing; status=not_installed`. If the local
-closeout binary is missing, require `PIN_FILE`; when it is missing, report
-`status=skipped_missing_pin`, otherwise prefer a PATH/global
-`agent-trigger-kit` only when `agent-trigger-kit --version` exactly matches the
-normalized semver pin. Skip the PATH tier for non-semver pins and report
-`status=path_non_semver_pin`. When the PATH version differs, report
-`status=path_version_mismatch` and fall through to pinned external
-`npx --yes "$KIT_SPEC"`.
-Record real failures with `outcome record`; never fabricate successes.
+Use the version in `.agent-trigger-kit/pin`. Use the same interactive helper as
+AGENTS.md: define `ROOT`, `LOCAL_ATK`, `PIN_FILE`, `PIN_REF`, `PATH_ATK`,
+`atk_run()`, `run_advisory()`, and `run_validate()`. Run
+`run_advisory session-check session-check --root "$ROOT"` and
+`run_advisory pin-check pin-check --no-outcome --root "$ROOT"` at session start.
+After editing trigger surfaces (`.agents/`, `.claude-plugin/`, `.cursor/`,
+`.agent-trigger-kit/`, `AGENTS.md`), run `run_validate`; its `case "$rc" in`
+dispatch must keep real validation failures as `validate FAILED; exit=$rc`, while
+126 reports `status=path_non_semver_pin` and 127 reports
+`status=interactive_validate_unverified`. If validation is unverified, the final
+report must list affected files as a verification gap and must not claim the
+trigger surface was validated. Before reporting done, follow the closeout
+invocation policy. Record real failures with `atk_run outcome record ...`;
+unavailable interactive outcome recording reports
+`status=interactive_outcome_unavailable`. Never fabricate successes.
 ```
 
 These are best-effort: they fire only if the agent follows them. The git
@@ -443,7 +478,9 @@ overwrite an existing hook.
 
 Static checks belong in CI, not in interactive hooks alone. See the CI and
 version-check guidance in the README. Derive the kit version from the committed
-pin in CI:
+pin in CI. Keep this pinned external package execution in CI: it is the
+integrity baseline, while interactive local-first helpers are only a sandbox
+ergonomics layer.
 
 ```sh
 test -f .agent-trigger-kit/pin || {
