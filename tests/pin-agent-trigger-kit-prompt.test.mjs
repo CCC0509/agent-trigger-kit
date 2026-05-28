@@ -26,11 +26,11 @@ function sectionFrom(startMarker) {
 }
 
 test('pin prompt metadata matches the active prompt version', () => {
-  assertIncludes(prompt, '**Version:** v7.1-interactive-local-first');
-  assertIncludes(prompt, 'Prompt (v7.1-interactive-local-first)');
+  assertIncludes(prompt, '**Version:** v7.2-node-devdependency-local-first');
+  assertIncludes(prompt, 'Prompt (v7.2-node-devdependency-local-first)');
   assert.ok(
-    prompt.indexOf('**Version:** v7.1-interactive-local-first') <
-      prompt.indexOf('## Prompt (v7.1-interactive-local-first)'),
+    prompt.indexOf('**Version:** v7.2-node-devdependency-local-first') <
+      prompt.indexOf('## Prompt (v7.2-node-devdependency-local-first)'),
     'expected metadata before active prompt',
   );
   assert.doesNotMatch(
@@ -46,7 +46,7 @@ test('pin prompt metadata matches the active prompt version', () => {
 
 test('pin prompt main flow carries closeout invocation policy', () => {
   const mainPrompt = sectionBetween(
-    '## Prompt (v7.1-interactive-local-first)',
+    '## Prompt (v7.2-node-devdependency-local-first)',
     '## Existing v4-final Repos Closeout Addendum',
   );
 
@@ -100,6 +100,21 @@ test('pin prompt main flow carries closeout invocation policy', () => {
   assertIncludes(mainPrompt, 'interactive_outcome_unavailable');
   assertIncludes(mainPrompt, 'case "$rc" in');
   assertIncludes(mainPrompt, 'validate FAILED; exit=$rc');
+  assertIncludes(
+    mainPrompt,
+    'Node consumer repos should install the pinned kit as a devDependency',
+  );
+  assertIncludes(mainPrompt, 'package-lock.json → npm install --save-dev "$KIT_SPEC"');
+  assertIncludes(mainPrompt, 'pnpm-lock.yaml → pnpm add -D "$KIT_SPEC"');
+  assertIncludes(mainPrompt, 'yarn.lock → yarn add -D "$KIT_SPEC"');
+  assertIncludes(mainPrompt, 'package.json（no lockfile）→ npm install --save-dev "$KIT_SPEC"');
+  assertIncludes(mainPrompt, 'devDependency is the local-first happy path');
+  assertIncludes(mainPrompt, 'fresh checkout');
+  assertIncludes(mainPrompt, 'CI keeps pinned external');
+  assert.doesNotMatch(
+    mainPrompt,
+    /(npm install --save-dev|pnpm add -D|yarn add -D) "github:\$\{KIT_REPO\}#\$KIT_REF"/,
+  );
   assert.doesNotMatch(
     mainPrompt,
     /At session start:\s+`npx --yes "\$KIT_SPEC" session-check --root \.`/,
@@ -112,7 +127,7 @@ test('pin prompt main flow carries closeout invocation policy', () => {
 
   const agentsTaxonomy = sectionBetween(
     '- closeout blocked / failed 時，使用',
-    '3. Renovate config',
+    '4. Renovate config',
   );
   assertIncludes(agentsTaxonomy, 'path_not_found');
   assertIncludes(agentsTaxonomy, 'path_duplicate_local');
@@ -195,6 +210,20 @@ test('pin prompt addendum gives v7 repos an interactive local-first migration pa
   assertIncludes(addendum, 'path_non_semver_pin');
   assertIncludes(addendum, 'case "$rc" in');
   assertIncludes(addendum, 'validate FAILED; exit=$rc');
+  assertIncludes(addendum, 'Node repo');
+  assertIncludes(addendum, 'github:${KIT_REPO}#$KIT_REF');
+  assertIncludes(addendum, 'package.json');
+  assertIncludes(addendum, 'package-lock.json');
+  assertIncludes(addendum, 'package-lock.json → npm install --save-dev "$KIT_SPEC"');
+  assertIncludes(addendum, 'pnpm-lock.yaml → pnpm add -D "$KIT_SPEC"');
+  assertIncludes(addendum, 'yarn.lock → yarn add -D "$KIT_SPEC"');
+  assertIncludes(addendum, 'package.json（no lockfile）→ npm install --save-dev "$KIT_SPEC"');
+  assertIncludes(addendum, 'devDependency is the local-first happy path');
+  assertIncludes(addendum, 'Do not change CI');
+  assert.doesNotMatch(
+    addendum,
+    /(npm install --save-dev|pnpm add -D|yarn add -D) "github:\$\{KIT_REPO\}#\$KIT_REF"/,
+  );
   assert.doesNotMatch(addendum, /npx --yes "\$KIT_SPEC" session-check --root \./);
   assert.doesNotMatch(addendum, /npx --yes "\$KIT_SPEC" validate --root \./);
 });
@@ -202,8 +231,11 @@ test('pin prompt addendum gives v7 repos an interactive local-first migration pa
 test('pin prompt changelog records the verified PATH fallback revision', () => {
   const changelog = sectionFrom('## Changelog');
 
+  assertIncludes(changelog, '**v7.2-node-devdependency-local-first**');
   assertIncludes(changelog, '**v7.1-interactive-local-first**');
   assertIncludes(changelog, '**v7-verified-path-fallback**');
+  assertIncludes(changelog, 'Node consumer repos');
+  assertIncludes(changelog, 'devDependency');
   assertIncludes(changelog, 'interactive local-first');
   assertIncludes(changelog, 'Future');
   assertIncludes(changelog, 'verified PATH fallback');
@@ -211,6 +243,11 @@ test('pin prompt changelog records the verified PATH fallback revision', () => {
   assertIncludes(changelog, 'local-bin guard');
   assertIncludes(changelog, '**v5-closeout-policy**');
   assertIncludes(changelog, 'existing-v4 migration addendum');
+  assert.ok(
+    changelog.indexOf('**v7.2-node-devdependency-local-first**') <
+      changelog.indexOf('**v7.1-interactive-local-first**'),
+    'expected v7.2 changelog entry before v7.1',
+  );
   assert.ok(
     changelog.indexOf('**v7.1-interactive-local-first**') <
       changelog.indexOf('**v7-verified-path-fallback**'),

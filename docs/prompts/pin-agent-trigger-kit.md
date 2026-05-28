@@ -1,6 +1,6 @@
 # Runbook prompt: pin Agent Trigger Kit (consumer repo)
 
-**Version:** v7.1-interactive-local-first
+**Version:** v7.2-node-devdependency-local-first
 **Purpose:** A paste-ready operator prompt that wires a _consumer_ repository onto
 the Agent Trigger Kit pinned auto-update flow, then drives it all the way through
 PR merge, local sync, and Renovate enablement guidance.
@@ -11,7 +11,7 @@ stops if it detects it is running in the kit repo.
 
 ## How to use
 
-1. Copy the fenced `Prompt (v7.1-interactive-local-first)` block below into a fresh agent session
+1. Copy the fenced `Prompt (v7.2-node-devdependency-local-first)` block below into a fresh agent session
    opened in the consumer repo.
 2. **Fill the top two lines with real values** before sending, e.g.:
 
@@ -39,6 +39,11 @@ stops if it detects it is running in the kit repo.
   `KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"`, then
   `KIT_SPEC="github:${KIT_REPO}#$KIT_REF"` — this is the only way `KIT_SPEC`
   is built; no hardcoded version, no inline `repo#version`.
+- **Node local happy path:** Node consumer repos should install the pinned kit as
+  a devDependency during initial setup. The devDependency is the local-first
+  happy path; the interactive helper still handles fresh checkout, missing
+  `node_modules`, non-Node repos, and PATH/global fallbacks without auto-fetching
+  external packages from sandboxed sessions.
 - **`validate` and `pin-check` never share an exit code** — separate CI steps and logs.
 - **Re-entrant:** idempotent rules for existing branch / PR / merged / enabled states,
   so an interrupted run resumes safely instead of opening a second PR.
@@ -46,7 +51,7 @@ stops if it detects it is running in the kit repo.
   default branch is tree-identical to origin after a squash merge.
 - **Honest Renovate handoff:** the agent never claims it confirmed the Mend UI.
 
-## Prompt (v7.1-interactive-local-first)
+## Prompt (v7.2-node-devdependency-local-first)
 
 ```text
 ═══════════════════════════════════════════════
@@ -287,7 +292,30 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
    驗證：cat 後用 tr -d '[:space:]' 去空白，結果必須等於 PIN_VERSION；
    不得有第二行、註解或其他內容。
 
-2. 更新或建立 AGENTS.md，加入 Agent Trigger Kit checks 段落。
+2. Node consumer repo local package（local-first happy path）：
+   - 若 repo 有 package.json，Node consumer repos should install the pinned kit as a devDependency。
+     devDependency is the local-first happy path，讓
+     `$ROOT/node_modules/.bin/agent-trigger-kit` 成為 interactive session-start /
+     validate / closeout 的第一層。
+   - 先 derive pin，不硬編版本號：
+       ROOT="${ROOT:-.}"
+       PIN_FILE="$ROOT/.agent-trigger-kit/pin"
+       KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+       KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
+   - 依既有 package manager / lockfile 使用對應命令；只有 package.json 但無 lockfile
+     時才以 npm 為 fallback：
+       package-lock.json → npm install --save-dev "$KIT_SPEC"
+       pnpm-lock.yaml → pnpm add -D "$KIT_SPEC"
+       yarn.lock → yarn add -D "$KIT_SPEC"
+       package.json（no lockfile）→ npm install --save-dev "$KIT_SPEC"
+   - 只提交 package manifest / lockfile 中由 package manager 產生的變更。
+   - 若不是 Node repo 或 package manager 不明，跳過 devDependency，改在 final report
+     說明使用 PATH/global 或 skip guardrail；不要為了 ATK 硬建立 package.json。
+   - devDependency 不取代 interactive local-first helper：fresh checkout、未跑 install、
+     node_modules 被清掉、或 non-Node repo 仍可能回 127 並形成 verification gap。
+     CI keeps pinned external package execution as the integrity baseline.
+
+3. 更新或建立 AGENTS.md，加入 Agent Trigger Kit checks 段落。
    依「KIT_REPO 落地規則」：段內先定義 KIT_REPO，再用 KIT_SPEC 公式 derive，不硬編版本號。
    AGENTS.md snippet 必須同時包含：
    - KIT_REPO 常數、pin 檔、local binary、PATH binary，以及 interactive local-first helper：
@@ -346,7 +374,9 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
        Non-semver pins skip the PATH tier with `status=path_non_semver_pin`.
        Version mismatches use `status=path_version_mismatch` and fall through to
        pinned external `npx`.
-   - Non-Node consumer repos may use a PATH/global install instead of `node_modules/.bin`,
+   - Node repos should normally have the pinned devDependency installed so the
+     local binary tier is the happy path. Non-Node consumer repos may use a
+     PATH/global install instead of `node_modules/.bin`,
      but one global version cannot satisfy multiple repos pinned to different kit versions.
      CI / manual pinned external npx remains the integrity baseline.
    - 完成前跑 closeout，並遵守上方 Closeout invocation policy：
@@ -461,7 +491,7 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
      path_version_mismatch、blocked_by_policy、invocation_error 這組分類，不把 sandbox
      policy block 當成 closeout fail，也不把真正的 closeout fail 降級成 policy block。
 
-3. Renovate config：
+4. Renovate config：
    - 已有 → 合併，不覆蓋既有欄位/規則；沒有 → 建立 renovate.json。
    - customManagers 範本：
        {
@@ -476,7 +506,7 @@ Closeout invocation policy（AGENTS / Cursor / final report 都要一致）
      Renovate config 走 Handlebars，不展開 shell 變數，留字面會產生無效 depName。
    - 目標：Renovate 能偵測 KIT_REPO 的新 tag 並自動發 PR 更新 pin。
 
-4. CI static gate：優先併入既有 CI workflow；否則建立新 workflow。
+5. CI static gate：優先併入既有 CI workflow；否則建立新 workflow。
    - 必須 on: pull_request（否則 gh pr checks --watch 無意義）。
    - KIT_REPO 以 workflow env 落地一次；步驟：
        a. 確認 .agent-trigger-kit/pin 存在
@@ -800,9 +830,27 @@ Precheck:
 - Read AGENTS.md / CLAUDE.md / Cursor rules if present and follow their local rules.
 - Report git status --short --branch.
 - Confirm `.agent-trigger-kit/pin` exists.
+- Check whether this is a Node repo (`package.json`) and which lockfile is present
+  (`package-lock.json`, `pnpm-lock.yaml`, or `yarn.lock`).
 - Confirm closeout invocation policy already exists. Do not rewrite the closeout ladder unless it is missing or broken.
 
 Implementation:
+- If this is a Node repo, add or confirm the pinned Agent Trigger Kit
+  devDependency so the local binary tier actually exists:
+    KIT_REPO="<owner>/<repo>"
+    PIN_FILE="${ROOT:-.}/.agent-trigger-kit/pin"
+    KIT_REF="$(tr -d '[:space:]' < "$PIN_FILE")"
+    KIT_SPEC="github:${KIT_REPO}#$KIT_REF"
+  Use the repo's existing package manager and lockfile:
+    package-lock.json → npm install --save-dev "$KIT_SPEC"
+    pnpm-lock.yaml → pnpm add -D "$KIT_SPEC"
+    yarn.lock → yarn add -D "$KIT_SPEC"
+    package.json（no lockfile）→ npm install --save-dev "$KIT_SPEC"
+  For npm repos this may update `package.json` and `package-lock.json`, and those
+  package/lock changes are allowed in this addendum. For pnpm/yarn repos, commit
+  the matching lockfile only. devDependency is the local-first happy path; the
+  helper below still handles fresh checkout, missing `node_modules`, non-Node
+  repos, and PATH/global fallback.
 - Update session-start instructions to use this helper instead of direct external package execution:
     ROOT="${ROOT:-.}"
     LOCAL_ATK="$ROOT/node_modules/.bin/agent-trigger-kit"
@@ -862,16 +910,28 @@ Implementation:
 Verification:
 - `git diff --check -- <changed files>`
 - Run the repo's focused docs/instruction tests if they exist.
+- If package manifest / lockfile changed, run the package manager's lockfile
+  consistency check or the repo's normal install/check command.
 - Run the repo's normal preflight before committing when available.
 
 PR / final report:
-- Commit only instruction/doc/test changes.
+- Commit only this addendum's instruction/doc/test/package-manifest/package-lock
+  changes.
 - State that this is a v7 interactive local-first addendum, not a pin/Renovate/CI rerun.
+- Report whether a Node devDependency was installed, already present, or skipped
+  because the repo is non-Node / package manager was unclear.
 - Report any interactive_validate_unverified / path_non_semver_pin / interactive_outcome_unavailable statuses as verification gaps, not successes.
 ```
 
 ## Changelog
 
+- **v7.2-node-devdependency-local-first** — changed: Node consumer repos now
+  install the pinned Agent Trigger Kit as a devDependency during initial setup
+  and may add that package/lockfile change in the existing-v7 addendum. The
+  devDependency is the local-first happy path; the v7.1 helper remains the
+  guardrail for fresh checkout, missing `node_modules`, non-Node repos, and
+  PATH/global fallback. CI keeps pinned external package execution as the
+  integrity baseline.
 - **v7.1-interactive-local-first** — changed: interactive local-first policy for
   Codex/AGENTS, Cursor, and Claude hook examples to prefer local/PATH execution
   for session-start,
